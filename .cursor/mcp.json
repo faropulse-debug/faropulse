@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--supabase-url",
+        "https://lahnngwyfbejgesulafr.supabase.co",
+        "--supabase-key",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhaG5uZ3d5ZmJlamdlc3VsYWZyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzAzMjQzNSwiZXhwIjoyMDg4NjA4NDM1fQ.0XAJlv0fyAmJzNfP443WZ4QPJq33CqDkYGIOuGiAF9c"
+      ]
+    }
+  }
+}

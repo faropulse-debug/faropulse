@@ -1,26 +1,157 @@
 @import "tailwindcss";
 
+/* ─── FAROPULSE Design System ──────────────────────────────────────────────── */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --color-bg-primary:     #0a0c0f;
+  --color-bg-secondary:   #111418;
+  --color-bg-panel:       rgba(255,255,255,0.04);
+  --color-border:         rgba(255,255,255,0.08);
+  --color-accent-primary: #f5820a;
+  --color-accent-glow:    rgba(245,130,10,0.25);
+  --color-accent-secondary: #e8a040;
+  --color-text-primary:   #ffffff;
+  --color-text-secondary: rgba(255,255,255,0.55);
+  --color-text-muted:     rgba(255,255,255,0.3);
+  --color-success:        #22c55e;
+  --color-danger:         #ef4444;
+  --color-warning:        #f59e0b;
+
+  --font-display: var(--font-rajdhani), 'Rajdhani', sans-serif;
+  --font-body:    var(--font-dm-sans),  'DM Sans',  sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* ─── Global resets ─────────────────────────────────────────────────────────── */
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+}
+
+input, button, textarea, select {
+  font-family: inherit;
+}
+
+input::placeholder { color: rgba(255,255,255,0.25); }
+
+/* ─── Animations ────────────────────────────────────────────────────────────── */
+
+@keyframes fp-slide-left {
+  from { opacity: 0; transform: translateX(-20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fp-slide-right {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fp-slide-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fp-breathe {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50%       { opacity: 1;    transform: scale(1.04); }
+}
+
+@keyframes fp-pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+
+@keyframes fp-glow-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(245,130,10,0.2); }
+  50%       { box-shadow: 0 0 28px rgba(245,130,10,0.5); }
+}
+
+/* ─── Component utilities ───────────────────────────────────────────────────── */
+
+/* Cards / panels */
+.fp-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+}
+
+/* Primary button */
+.fp-btn-primary {
+  background: linear-gradient(135deg, var(--color-accent-primary), var(--color-accent-secondary));
+  border: none;
+  border-radius: 10px;
+  color: #060810;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.fp-btn-primary:hover:not(:disabled) {
+  box-shadow: 0 0 24px rgba(245,130,10,0.5);
+  transform: scale(1.02);
+}
+.fp-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Inputs */
+.fp-input {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  color: var(--color-text-primary);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+  width: 100%;
+}
+.fp-input:focus {
+  border-color: var(--color-accent-primary);
+  box-shadow: 0 0 0 3px rgba(245,130,10,0.12);
+}
+
+/* Accent separator */
+.fp-accent-line {
+  width: 32px;
+  height: 2px;
+  background: var(--color-accent-primary);
+  flex-shrink: 0;
+}
+
+/* Labels */
+.fp-label {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  color: rgba(255,255,255,0.5);
+  text-transform: uppercase;
+  display: block;
+}
+
+/* ─── Sidebar (for future dashboard screens) ────────────────────────────────── */
+
+.fp-sidebar {
+  background: #0d0f12;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  height: 100vh;
+  transition: width 0.25s ease;
+}
+
+/* ─── Dashboard scaffold (for future screens) ───────────────────────────────── */
+
+.fp-page-bg {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 60% 50% at 0% 0%, rgba(245,130,10,0.06) 0%, transparent 60%),
+    var(--color-bg-primary);
 }
