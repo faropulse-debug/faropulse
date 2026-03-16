@@ -73,6 +73,11 @@ input::placeholder { color: rgba(255,255,255,0.25); }
   50%       { box-shadow: 0 0 28px rgba(245,130,10,0.5); }
 }
 
+@keyframes fp-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 /* ─── Component utilities ───────────────────────────────────────────────────── */
 
 /* Cards / panels */

@@ -18,6 +18,7 @@ export interface Membership {
   id: string
   user_id: string
   org_id: string
+  location_id?: string
   role: Role
   is_active: boolean
   organization: Organization

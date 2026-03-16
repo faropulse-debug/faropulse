@@ -245,7 +245,6 @@ export default function RoleSelectPage() {
   const managerMemberships = user?.memberships.filter(m => m.role === 'manager') ?? []
 
   function handleSelectOwner() {
-    console.log('navegando a owner')
     if (ownerMemberships.length > 0) {
       setActiveMembership(ownerMemberships[0].id)
     } else {
@@ -255,7 +254,6 @@ export default function RoleSelectPage() {
   }
 
   function handleSelectManager() {
-    console.log('navegando a manager')
     if (managerMemberships.length > 0) {
       setActiveMembership(managerMemberships[0].id)
     } else {
