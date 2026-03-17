@@ -22,7 +22,7 @@ export function useAuth() {
         const [profileResult, membershipsResult] = await Promise.all([
           supabase
             .from('profiles')
-            .select('id, full_name, avatar_url')
+            .select('id, full_name')
             .eq('id', session.user.id)
             .single(),
           supabase
