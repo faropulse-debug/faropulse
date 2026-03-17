@@ -110,7 +110,13 @@ async function insertBatches(
 
 // ─── Row mappers ──────────────────────────────────────────────────────────────
 
+let _mapVentasLogged = false
+
 function mapVentas(row: Record<string, unknown>, orgId: string, locationId: string) {
+  if (!_mapVentasLogged) {
+    console.log('[mapVentas] Normalized keys in first row:', Object.keys(row))
+    _mapVentasLogged = true
+  }
   return {
     org_id:         orgId,
     location_id:    locationId,
@@ -136,6 +142,13 @@ function mapVentas(row: Record<string, unknown>, orgId: string, locationId: stri
     obs_promocion:  toStr(row['obs._promocion']),
     promocion:      toStr(row.promocion),
     cliente:        toStr(row.cliente),
+    // "Tipo Zona" → normalizeHeader → "tipo_zona" | "Zona" → "zona"
+    tipo_zona:      toStr(row.tipo_zona),
+    zona:           toStr(row.zona),
+    punto_venta:    toStr(row.punto_venta),
+    turno:          toStr(row.turno),
+    usuario:        toStr(row.usuario),
+    tipo_sucursal:  toStr(row.tipo_sucursal),
   }
 }
 
