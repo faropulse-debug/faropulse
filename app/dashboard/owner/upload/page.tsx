@@ -25,7 +25,6 @@ export default function UploadPage() {
   const { user } = useAuth()
 
   const locationId = user?.activeMembership?.location_id
-    ?? user?.activeMembership?.org_id
     ?? process.env.NEXT_PUBLIC_LOCATION_ID
     ?? ''
   const orgId = user?.activeMembership?.org_id
@@ -57,12 +56,24 @@ export default function UploadPage() {
     }
 
     setZone(type, { status: 'duplicate_check', step: 'Verificando duplicados en la base…' })
-    const duplicates = await checkDuplicates(type, validation.rows, locationId)
+    try {
+      const duplicates = await checkDuplicates(type, validation.rows, locationId)
 
-    if (duplicates.hasDuplicates) {
-      setZone(type, { status: 'duplicate_warning', duplicates, validation })
-    } else {
-      setZone(type, { status: 'preview', validation, total: validation.rows.length })
+      if (duplicates.error) {
+        console.error('[handleFile] checkDuplicates error:', duplicates.error)
+        setZone(type, { status: 'error', error: `Error verificando duplicados: ${duplicates.error}` })
+        return
+      }
+
+      if (duplicates.hasDuplicates) {
+        setZone(type, { status: 'duplicate_warning', duplicates, validation })
+      } else {
+        setZone(type, { status: 'preview', validation, total: validation.rows.length })
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[handleFile] checkDuplicates exception:', err)
+      setZone(type, { status: 'error', error: `Error verificando duplicados: ${msg}` })
     }
   }
 

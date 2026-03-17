@@ -4,6 +4,16 @@ import type { TableType } from '@/lib/validators/uploadValidator'
 const DEFAULT_ORG_ID      = process.env.NEXT_PUBLIC_ORG_ID      ?? ''
 const DEFAULT_LOCATION_ID = process.env.NEXT_PUBLIC_LOCATION_ID ?? ''
 const BATCH_SIZE          = 500
+const BATCH_TIMEOUT_MS    = 30_000
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout: ${label} tardó más de ${ms / 1000}s`)), ms)
+    ),
+  ])
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -86,24 +96,35 @@ async function insertBatches(
       if (nullIds > 0) console.warn(`[insertBatches] ⚠ ${nullIds} rows have null external_id in first batch`)
     }
 
-    const { error, count } = conflictColumns
-      ? await (supabase.from(table) as ReturnType<typeof supabase.from>)
-          .upsert(batch, { onConflict: conflictColumns, ignoreDuplicates: true, count: 'exact' })
-      : await supabase.from(table).insert(batch, { count: 'exact' })
+    try {
+      const batchLabel = `batch ${Math.floor(i / BATCH_SIZE) + 1}`
+      const { error, count } = await withTimeout(
+        conflictColumns
+          ? (supabase.from(table) as ReturnType<typeof supabase.from>)
+              .upsert(batch, { onConflict: conflictColumns, ignoreDuplicates: true, count: 'exact' })
+          : supabase.from(table).insert(batch, { count: 'exact' }),
+        BATCH_TIMEOUT_MS,
+        batchLabel,
+      )
 
-    if (error) {
-      console.error('[insertBatches] Supabase error:', {
-        message: error.message,
-        code:    error.code,
-        details: error.details,
-        hint:    error.hint,
-        batch_sample: batch[0],
-      })
-      return { inserted, skipped, error: `${error.message}${error.details ? ` — ${error.details}` : ''}${error.hint ? ` (hint: ${error.hint})` : ''}` }
+      if (error) {
+        console.error('[insertBatches] Supabase error:', {
+          message: error.message,
+          code:    error.code,
+          details: error.details,
+          hint:    error.hint,
+          batch_sample: batch[0],
+        })
+        return { inserted, skipped, error: `${error.message}${error.details ? ` — ${error.details}` : ''}${error.hint ? ` (hint: ${error.hint})` : ''}` }
+      }
+      inserted += count ?? batch.length
+      skipped  += batch.length - (count ?? batch.length)
+      onProgress(inserted)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[insertBatches] error/timeout:', msg, { batch_sample: batch[0] })
+      return { inserted, skipped, error: msg }
     }
-    inserted += count ?? batch.length
-    skipped  += batch.length - (count ?? batch.length)
-    onProgress(inserted)
   }
   return { inserted, skipped }
 }
@@ -203,6 +224,7 @@ export interface DuplicateInfo {
   hasDuplicates: boolean
   count:         number
   range:         string
+  error?:        string
 }
 
 export async function checkDuplicates(
@@ -267,8 +289,10 @@ export async function checkDuplicates(
         range: periods.join(', '),
       }
     }
-  } catch {
-    // silently ignore check errors
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[checkDuplicates] error:', msg)
+    return { hasDuplicates: false, count: 0, range: '', error: msg }
   }
   return { hasDuplicates: false, count: 0, range: '' }
 }
