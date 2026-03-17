@@ -173,6 +173,55 @@ function mapVentas(row: Record<string, unknown>, orgId: string, locationId: stri
   }
 }
 
+function mapItems(row: Record<string, unknown>, orgId: string, locationId: string) {
+  return {
+    org_id:                  orgId,
+    location_id:             locationId,
+    // Item's own POS ID → external_id (UNIQUE with location_id)
+    external_id:             toStr(row.external_id),
+    // "Numero Ticket" → logical FK to sales_documents.external_id
+    numero_ticket:           toStr(row.numero_ticket),
+    codigo:                  toNum(row.codigo),
+    sucursal:                toStr(row.sucursal),
+    punto_venta:             toStr(row.punto_venta),
+    camarero:                toStr(row.camarero),
+    camarero_nombre:         toStr(row.camarero_nombre),
+    apellido_nombre:         toStr(row.apellido_nombre),
+    tipo_documento:          toStr(row.tipo_documento),
+    tipo_sucursal:           toStr(row.tipo_sucursal),
+    fecha_inicio:            toTimestamp(row.fecha_inicio),
+    fecha_cierre:            toTimestamp(row.fecha_cierre),
+    fecha_caja:              toDate(row.fecha_caja),
+    fecha_documento:         toDate(row.fecha_documento),
+    fecha_item:              toTimestamp(row.fecha_item),
+    hora_item:               toHora(row.hora_item),
+    dia_caja:                toStr(row.dia_caja),
+    mes_caja:                toStr(row.mes_caja),
+    anio_caja:               toStr(row.anio_caja),
+    turno:                   toStr(row.turno),
+    nro_caja:                toNum(row.nro_caja),
+    familia:                 toStr(row.familia),
+    subfamilia:              toStr(row.subfamilia),
+    descripcion:             toStr(row.descripcion),
+    marca:                   toStr(row.marca),
+    es_variacion:            toStr(row.es_variacion),
+    tipo_zona:               toStr(row.tipo_zona),
+    zona:                    toStr(row.zona),
+    zona_id:                 toNum(row.zona_id),
+    cantidad:                toNum(row.cantidad),
+    precio_unitario:         toNum(row.precio_unitario),
+    descuento_item:          toNum(row.descuento_item),
+    recargo_item:            toNum(row.recargo_item),
+    descuento_global:        toNum(row.descuento_global),
+    recargo_global:          toNum(row.recargo_global),
+    precio_total:            toNum(row.precio_total),
+    // "Obs. Promoción" → normalizeHeader → "obs._promocion"
+    obs_promocion:           toStr(row['obs._promocion']),
+    promocion:               toStr(row.promocion),
+    observaciones_promocion: toStr(row.observaciones_promocion),
+  }
+}
+
 function mapStock(row: Record<string, unknown>, orgId: string, locationId: string) {
   return {
     org_id:         orgId,
@@ -241,6 +290,21 @@ export async function checkDuplicates(
         .select('id', { count: 'exact', head: true })
         .eq('location_id', locationId)
         .in('fecha', dates)
+      return {
+        hasDuplicates: (count ?? 0) > 0,
+        count: count ?? 0,
+        range: `${dates[0]} – ${dates[dates.length - 1]}`,
+      }
+    }
+
+    if (tableType === 'items') {
+      const dates = [...new Set(rows.map(r => toDate(r.fecha_documento)).filter(Boolean))] as string[]
+      if (!dates.length) return { hasDuplicates: false, count: 0, range: '' }
+      const { count } = await supabase
+        .from('sales_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('location_id', locationId)
+        .in('fecha_documento', dates)
       return {
         hasDuplicates: (count ?? 0) > 0,
         count: count ?? 0,
@@ -324,6 +388,9 @@ export async function processUpload(
     if (tableType === 'ventas') {
       const dates = [...new Set(rows.map(r => toDate(r.fecha)).filter(Boolean))] as string[]
       await supabase.from('sales_documents').delete().eq('location_id', locationId).in('fecha', dates)
+    } else if (tableType === 'items') {
+      const dates = [...new Set(rows.map(r => toDate(r.fecha_documento)).filter(Boolean))] as string[]
+      await supabase.from('sales_items').delete().eq('location_id', locationId).in('fecha_documento', dates)
     } else if (tableType === 'stock') {
       const dates = [...new Set(rows.map(r => toDate(r.fecha)).filter(Boolean))] as string[]
       await supabase.from('stock_movements').delete().eq('location_id', locationId).in('fecha', dates)
@@ -348,6 +415,11 @@ export async function processUpload(
     case 'ventas':
       mapped   = rows.map(r => mapVentas(r, orgId, locationId))
       table    = 'sales_documents'
+      conflict = 'external_id,location_id'
+      break
+    case 'items':
+      mapped   = rows.map(r => mapItems(r, orgId, locationId))
+      table    = 'sales_items'
       conflict = 'external_id,location_id'
       break
     case 'stock':

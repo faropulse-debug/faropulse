@@ -18,7 +18,7 @@ function ArrowLeft({ size = 16 }: { size?: number }) {
   )
 }
 
-const TABLE_TYPES: TableType[] = ['ventas', 'stock', 'precios', 'financial']
+const TABLE_TYPES: TableType[] = ['ventas', 'items', 'stock', 'precios', 'financial']
 
 export default function UploadPage() {
   const router = useRouter()
@@ -33,6 +33,7 @@ export default function UploadPage() {
 
   const [zones, setZones] = useState<Record<TableType, ZoneState>>({
     ventas:    { ...INITIAL_ZONE },
+    items:     { ...INITIAL_ZONE },
     stock:     { ...INITIAL_ZONE },
     precios:   { ...INITIAL_ZONE },
     financial: { ...INITIAL_ZONE },
