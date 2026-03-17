@@ -78,6 +78,14 @@ async function insertBatches(
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE)
+
+    // Pre-flight: log first row and any null external_id/external_id-equivalent fields
+    if (i === 0) {
+      console.log('[insertBatches] First row of batch:', batch[0])
+      const nullIds = batch.filter(r => r.external_id == null || r.external_id === '').length
+      if (nullIds > 0) console.warn(`[insertBatches] ⚠ ${nullIds} rows have null external_id in first batch`)
+    }
+
     const { error, count } = conflictColumns
       ? await (supabase.from(table) as ReturnType<typeof supabase.from>)
           .upsert(batch, { onConflict: conflictColumns, ignoreDuplicates: true, count: 'exact' })
