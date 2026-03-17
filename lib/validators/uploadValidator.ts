@@ -57,47 +57,46 @@ export const TABLE_SCHEMAS: Record<TableType, { label: string; columns: ColumnDe
     label: 'Items de ventas (sales_items)',
     columns: [
       // ── Obligatorias ────────────────────────────────────────────────────────
-      // "Numero" del item en el POS → external_id (UNIQUE con location_id)
-      { name: 'external_id',    required: true,  type: 'string' },
-      // "Numero Ticket" → vincula el item con su sales_document (external_id de ventas)
-      { name: 'numero_ticket',  required: true,  type: 'string' },
+      // "Numero" → normalizeHeader → "numero" → maps to external_id in DB
+      { name: 'numero',         required: true,  type: 'string' },
+      { name: 'sucursal',       required: true,  type: 'string' },
       { name: 'fecha_documento',required: true,  type: 'date'   },
       { name: 'descripcion',    required: true,  type: 'string' },
       { name: 'cantidad',       required: true,  type: 'number' },
       { name: 'precio_total',   required: true,  type: 'number' },
       // ── Opcionales ──────────────────────────────────────────────────────────
-      { name: 'codigo',          required: false, type: 'number' },
-      { name: 'sucursal',        required: false, type: 'string' },
-      { name: 'punto_venta',     required: false, type: 'string' },
-      { name: 'camarero',        required: false, type: 'string' },
-      { name: 'camarero_nombre', required: false, type: 'string' },
-      { name: 'apellido_nombre', required: false, type: 'string' },
-      { name: 'tipo_documento',  required: false, type: 'string' },
-      { name: 'tipo_sucursal',   required: false, type: 'string' },
-      { name: 'fecha_inicio',    required: false, type: 'date'   },   // timestamptz en DB
-      { name: 'fecha_cierre',    required: false, type: 'date'   },   // timestamptz en DB
-      { name: 'fecha_caja',      required: false, type: 'date'   },
-      { name: 'fecha_item',      required: false, type: 'date'   },   // timestamptz en DB
-      { name: 'hora_item',       required: false, type: 'string' },
-      { name: 'dia_caja',        required: false, type: 'string' },
-      { name: 'mes_caja',        required: false, type: 'string' },
-      { name: 'anio_caja',       required: false, type: 'string' },
-      { name: 'turno',           required: false, type: 'string' },
-      { name: 'nro_caja',        required: false, type: 'number' },
-      { name: 'familia',         required: false, type: 'string' },
-      { name: 'subfamilia',      required: false, type: 'string' },
-      { name: 'marca',           required: false, type: 'string' },
-      { name: 'es_variacion',    required: false, type: 'string' },
-      { name: 'tipo_zona',       required: false, type: 'string' },
-      { name: 'zona',            required: false, type: 'string' },
-      { name: 'zona_id',         required: false, type: 'number' },
-      { name: 'precio_unitario', required: false, type: 'number' },
-      { name: 'descuento_item',  required: false, type: 'number' },
-      { name: 'recargo_item',    required: false, type: 'number' },
-      { name: 'descuento_global',required: false, type: 'number' },
-      { name: 'recargo_global',  required: false, type: 'number' },
-      // "Obs. Promoción" → normalizeHeader → "obs._promocion"
-      { name: 'obs._promocion',          required: false, type: 'string' },
+      { name: 'punto_venta',      required: false, type: 'string' },
+      { name: 'camarero',         required: false, type: 'string' },
+      { name: 'camarero_nombre',  required: false, type: 'string' },
+      // "Apellidoynombre" (sin espacios) → normalizeHeader → "apellidoynombre"
+      { name: 'apellidoynombre',  required: false, type: 'string' },
+      { name: 'tipo_documento',   required: false, type: 'string' },
+      { name: 'tipo_sucursal',    required: false, type: 'string' },
+      { name: 'fecha_inicio',     required: false, type: 'date'   },   // timestamptz en DB
+      { name: 'fecha_cierre',     required: false, type: 'date'   },   // timestamptz en DB
+      { name: 'fecha_caja',       required: false, type: 'date'   },
+      { name: 'fecha_item',       required: false, type: 'date'   },   // timestamptz en DB
+      { name: 'hora_item',        required: false, type: 'string' },
+      { name: 'dia_caja',         required: false, type: 'string' },
+      { name: 'mes_caja',         required: false, type: 'string' },
+      { name: 'anio_caja',        required: false, type: 'string' },
+      { name: 'turno',            required: false, type: 'string' },
+      // "Nro. Caja" → normalizeHeader preserva el punto → "nro._caja"
+      { name: 'nro._caja',        required: false, type: 'number' },
+      { name: 'codigo',           required: false, type: 'number' },
+      { name: 'familia',          required: false, type: 'string' },
+      { name: 'subfamilia',       required: false, type: 'string' },
+      { name: 'marca',            required: false, type: 'string' },
+      { name: 'es_variacion',     required: false, type: 'string' },
+      { name: 'tipo_zona',        required: false, type: 'string' },
+      { name: 'zona',             required: false, type: 'string' },
+      { name: 'zona_id',          required: false, type: 'number' },
+      { name: 'precio_unitario',  required: false, type: 'number' },
+      { name: 'descuento_item',   required: false, type: 'number' },
+      { name: 'recargo_item',     required: false, type: 'number' },
+      { name: 'descuento_global', required: false, type: 'number' },
+      { name: 'recargo_global',   required: false, type: 'number' },
+      // "Promoción" → strip diacritics → "promocion"
       { name: 'promocion',               required: false, type: 'string' },
       { name: 'observaciones_promocion', required: false, type: 'string' },
     ],

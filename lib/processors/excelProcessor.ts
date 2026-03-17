@@ -177,16 +177,14 @@ function mapItems(row: Record<string, unknown>, orgId: string, locationId: strin
   return {
     org_id:                  orgId,
     location_id:             locationId,
-    // Item's own POS ID → external_id (UNIQUE with location_id)
-    external_id:             toStr(row.external_id),
-    // "Numero Ticket" → logical FK to sales_documents.external_id
-    numero_ticket:           toStr(row.numero_ticket),
-    codigo:                  toNum(row.codigo),
+    // "Numero" → normalizeHeader → "numero" → external_id (UNIQUE with location_id)
+    external_id:             toStr(row.numero),
     sucursal:                toStr(row.sucursal),
     punto_venta:             toStr(row.punto_venta),
     camarero:                toStr(row.camarero),
     camarero_nombre:         toStr(row.camarero_nombre),
-    apellido_nombre:         toStr(row.apellido_nombre),
+    // "Apellidoynombre" (no spaces) → normalizeHeader → "apellidoynombre"
+    apellido_nombre:         toStr(row.apellidoynombre),
     tipo_documento:          toStr(row.tipo_documento),
     tipo_sucursal:           toStr(row.tipo_sucursal),
     fecha_inicio:            toTimestamp(row.fecha_inicio),
@@ -199,7 +197,9 @@ function mapItems(row: Record<string, unknown>, orgId: string, locationId: strin
     mes_caja:                toStr(row.mes_caja),
     anio_caja:               toStr(row.anio_caja),
     turno:                   toStr(row.turno),
-    nro_caja:                toNum(row.nro_caja),
+    // "Nro. Caja" → normalizeHeader preserves dot → "nro._caja"
+    nro_caja:                toNum(row['nro._caja']),
+    codigo:                  toNum(row.codigo),
     familia:                 toStr(row.familia),
     subfamilia:              toStr(row.subfamilia),
     descripcion:             toStr(row.descripcion),
@@ -215,8 +215,6 @@ function mapItems(row: Record<string, unknown>, orgId: string, locationId: strin
     descuento_global:        toNum(row.descuento_global),
     recargo_global:          toNum(row.recargo_global),
     precio_total:            toNum(row.precio_total),
-    // "Obs. Promoción" → normalizeHeader → "obs._promocion"
-    obs_promocion:           toStr(row['obs._promocion']),
     promocion:               toStr(row.promocion),
     observaciones_promocion: toStr(row.observaciones_promocion),
   }
