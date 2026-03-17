@@ -25,7 +25,6 @@ export default function UploadPage() {
   const { user } = useAuth()
 
   const locationId = user?.activeMembership?.location_id
-    ?? user?.activeMembership?.org_id
     ?? process.env.NEXT_PUBLIC_LOCATION_ID
     ?? ''
   const orgId = user?.activeMembership?.org_id
@@ -57,12 +56,24 @@ export default function UploadPage() {
     }
 
     setZone(type, { status: 'duplicate_check', step: 'Verificando duplicados en la base…' })
-    const duplicates = await checkDuplicates(type, validation.rows, locationId)
+    try {
+      const duplicates = await checkDuplicates(type, validation.rows, locationId)
 
-    if (duplicates.hasDuplicates) {
-      setZone(type, { status: 'duplicate_warning', duplicates, validation })
-    } else {
-      setZone(type, { status: 'preview', validation, total: validation.rows.length })
+      if (duplicates.error) {
+        console.error('[handleFile] checkDuplicates error:', duplicates.error)
+        setZone(type, { status: 'error', error: `Error verificando duplicados: ${duplicates.error}` })
+        return
+      }
+
+      if (duplicates.hasDuplicates) {
+        setZone(type, { status: 'duplicate_warning', duplicates, validation })
+      } else {
+        setZone(type, { status: 'preview', validation, total: validation.rows.length })
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[handleFile] checkDuplicates exception:', err)
+      setZone(type, { status: 'error', error: `Error verificando duplicados: ${msg}` })
     }
   }
 
@@ -72,17 +83,24 @@ export default function UploadPage() {
 
     setZone(type, { status: 'inserting', step: `Insertando ${validation.rows.length.toLocaleString()} filas…`, inserted: 0, total: validation.rows.length })
 
-    const result = await processUpload(
-      type, validation.rows, mode,
-      (inserted, total, step) => setZone(type, { inserted, total, step }),
-      locationId,
-      orgId,
-    )
+    try {
+      const result = await processUpload(
+        type, validation.rows, mode,
+        (inserted, total, step) => setZone(type, { inserted, total, step }),
+        locationId,
+        orgId,
+      )
 
-    if (result.error) {
-      setZone(type, { status: 'error', error: result.error })
-    } else {
-      setZone(type, { status: 'success', inserted: result.inserted, total: validation.rows.length })
+      if (result.error) {
+        console.error('[handleConfirm] processUpload error:', result.error)
+        setZone(type, { status: 'error', error: result.error })
+      } else {
+        setZone(type, { status: 'success', inserted: result.inserted, total: validation.rows.length })
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[handleConfirm] unexpected exception:', err)
+      setZone(type, { status: 'error', error: `Error inesperado: ${msg}` })
     }
   }
 
