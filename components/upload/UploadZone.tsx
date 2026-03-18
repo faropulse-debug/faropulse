@@ -34,10 +34,10 @@ const CARD_BG   = 'rgba(255,255,255,0.03)'
 const CARD_BORDER = 'rgba(255,255,255,0.07)'
 
 const TABLE_ICONS: Record<TableType, string> = {
-  ventas: '🧾', stock: '📦', precios: '🏷️', financial: '📊',
+  ventas: '🧾', items: '🍽️', stock: '📦', precios: '🏷️', financial: '📊',
 }
 const TABLE_ACCENT: Record<TableType, string> = {
-  ventas: '#f5820a', stock: '#64a0f0', precios: '#a78bfa', financial: '#22c55e',
+  ventas: '#f5820a', items: '#fb923c', stock: '#64a0f0', precios: '#a78bfa', financial: '#22c55e',
 }
 
 function UploadIcon({ size = 24, color = 'currentColor' }: { size?: number; color?: string }) {

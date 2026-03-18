@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { validateFile, type TableType } from '@/lib/validators/uploadValidator'
 import { checkDuplicates, processUpload, type InsertMode } from '@/lib/processors/excelProcessor'
 import { UploadZone, type ZoneState, INITIAL_ZONE } from '@/components/upload/UploadZone'
+import { logger } from '@/lib/logger'
 
 const AMBER = '#f5820a'
 const GREEN = '#22c55e'
@@ -24,12 +25,8 @@ export default function UploadPage() {
   const router = useRouter()
   const { user } = useAuth()
 
-  const locationId = user?.activeMembership?.location_id
-    ?? process.env.NEXT_PUBLIC_LOCATION_ID
-    ?? ''
-  const orgId = user?.activeMembership?.org_id
-    ?? process.env.NEXT_PUBLIC_ORG_ID
-    ?? ''
+  const locationId = user?.activeMembership?.location_id ?? ''
+  const orgId      = user?.activeMembership?.org_id      ?? ''
 
   const [zones, setZones] = useState<Record<TableType, ZoneState>>({
     ventas:    { ...INITIAL_ZONE },
@@ -61,7 +58,7 @@ export default function UploadPage() {
       const duplicates = await checkDuplicates(type, validation.rows, locationId)
 
       if (duplicates.error) {
-        console.error('[handleFile] checkDuplicates error:', duplicates.error)
+        logger.error('[handleFile] checkDuplicates error:', duplicates.error)
         setZone(type, { status: 'error', error: `Error verificando duplicados: ${duplicates.error}` })
         return
       }
@@ -73,7 +70,7 @@ export default function UploadPage() {
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
-      console.error('[handleFile] checkDuplicates exception:', err)
+      logger.error('[handleFile] checkDuplicates exception:', err)
       setZone(type, { status: 'error', error: `Error verificando duplicados: ${msg}` })
     }
   }
@@ -93,14 +90,14 @@ export default function UploadPage() {
       )
 
       if (result.error) {
-        console.error('[handleConfirm] processUpload error:', result.error)
+        logger.error('[handleConfirm] processUpload error:', result.error)
         setZone(type, { status: 'error', error: result.error })
       } else {
         setZone(type, { status: 'success', inserted: result.inserted, total: validation.rows.length })
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
-      console.error('[handleConfirm] unexpected exception:', err)
+      logger.error('[handleConfirm] unexpected exception:', err)
       setZone(type, { status: 'error', error: `Error inesperado: ${msg}` })
     }
   }

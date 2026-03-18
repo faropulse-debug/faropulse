@@ -1,9 +1,8 @@
 import { supabase } from '@/lib/supabase'
+import { logger } from '@/lib/logger'
 import type { TableType } from '@/lib/validators/uploadValidator'
 
-const DEFAULT_ORG_ID      = process.env.NEXT_PUBLIC_ORG_ID      ?? ''
-const DEFAULT_LOCATION_ID = process.env.NEXT_PUBLIC_LOCATION_ID ?? ''
-const BATCH_SIZE          = 500
+const BATCH_SIZE       = 500
 const BATCH_TIMEOUT_MS    = 30_000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -89,26 +88,23 @@ async function insertBatches(
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE)
 
-    // Pre-flight: log first row and any null external_id/external_id-equivalent fields
     if (i === 0) {
-      console.log('[insertBatches] First row of batch:', batch[0])
+      logger.debug('[insertBatches] First row of batch:', batch[0])
       const nullIds = batch.filter(r => r.external_id == null || r.external_id === '').length
-      if (nullIds > 0) console.warn(`[insertBatches] ⚠ ${nullIds} rows have null external_id in first batch`)
+      if (nullIds > 0) logger.warn(`[insertBatches] ⚠ ${nullIds} rows have null external_id in first batch`)
     }
 
     try {
       const batchLabel = `batch ${Math.floor(i / BATCH_SIZE) + 1}`
-      const { error, count } = await withTimeout(
-        conflictColumns
-          ? (supabase.from(table) as ReturnType<typeof supabase.from>)
-              .upsert(batch, { onConflict: conflictColumns, ignoreDuplicates: true, count: 'exact' })
-          : supabase.from(table).insert(batch, { count: 'exact' }),
-        BATCH_TIMEOUT_MS,
-        batchLabel,
-      )
+      const q = conflictColumns
+        ? (supabase.from(table) as ReturnType<typeof supabase.from>)
+            .upsert(batch, { onConflict: conflictColumns, ignoreDuplicates: true, count: 'exact' })
+        : supabase.from(table).insert(batch, { count: 'exact' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error, count } = await withTimeout(q as unknown as Promise<any>, BATCH_TIMEOUT_MS, batchLabel)
 
       if (error) {
-        console.error('[insertBatches] Supabase error:', {
+        logger.error('[insertBatches] Supabase error:', {
           message: error.message,
           code:    error.code,
           details: error.details,
@@ -122,7 +118,7 @@ async function insertBatches(
       onProgress(inserted)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
-      console.error('[insertBatches] error/timeout:', msg, { batch_sample: batch[0] })
+      logger.error('[insertBatches] error/timeout:', msg, { batch_sample: batch[0] })
       return { inserted, skipped, error: msg }
     }
   }
@@ -135,7 +131,7 @@ let _mapVentasLogged = false
 
 function mapVentas(row: Record<string, unknown>, orgId: string, locationId: string) {
   if (!_mapVentasLogged) {
-    console.log('[mapVentas] Normalized keys in first row:', Object.keys(row))
+    logger.debug('[mapVentas] Normalized keys in first row:', Object.keys(row))
     _mapVentasLogged = true
   }
   return {
@@ -277,7 +273,7 @@ export interface DuplicateInfo {
 export async function checkDuplicates(
   tableType:  TableType,
   rows:       Record<string, unknown>[],
-  locationId: string = DEFAULT_LOCATION_ID,
+  locationId: string,
 ): Promise<DuplicateInfo> {
   try {
     if (tableType === 'ventas') {
@@ -353,7 +349,7 @@ export async function checkDuplicates(
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
-    console.error('[checkDuplicates] error:', msg)
+    logger.error('[checkDuplicates] error:', msg)
     return { hasDuplicates: false, count: 0, range: '', error: msg }
   }
   return { hasDuplicates: false, count: 0, range: '' }
@@ -374,8 +370,8 @@ export async function processUpload(
   rows:       Record<string, unknown>[],
   mode:       InsertMode,
   onProgress: (inserted: number, total: number, step: string) => void,
-  locationId: string = DEFAULT_LOCATION_ID,
-  orgId:      string = DEFAULT_ORG_ID,
+  locationId: string,
+  orgId:      string,
 ): Promise<ProcessResult> {
   const total = rows.length
 
