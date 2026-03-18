@@ -221,6 +221,39 @@ describe('validateFile (items)', () => {
     expect(result.dataErrors).toHaveLength(0)
   })
 
+  it('passes with "Fecha Item" ISO "2026-02-18T21:24:00"', async () => {
+    const file = makeXlsx([{
+      Numero:       '1',
+      Sucursal:     'ITUZAINGO',
+      'Fecha Item': '2026-02-18T21:24:00',
+    }])
+    const result = await validateFile(file, 'items')
+    expect(result.ok).toBe(true)
+    expect(result.dataErrors).toHaveLength(0)
+  })
+
+  it('passes with empty "Fecha Item" (optional field)', async () => {
+    const file = makeXlsx([{
+      Numero:       '1',
+      Sucursal:     'ITUZAINGO',
+      'Fecha Item': '',
+    }])
+    const result = await validateFile(file, 'items')
+    expect(result.ok).toBe(true)
+    expect(result.dataErrors).toHaveLength(0)
+  })
+
+  it('fails with invalid timestamp "not-a-date"', async () => {
+    const file = makeXlsx([{
+      Numero:       '1',
+      Sucursal:     'ITUZAINGO',
+      'Fecha Item': 'not-a-date',
+    }])
+    const result = await validateFile(file, 'items')
+    expect(result.ok).toBe(false)
+    expect(result.dataErrors.some(e => e.column === 'fecha_item')).toBe(true)
+  })
+
   it('normalizes "Tipo Zona" header to "tipo_zona" key', async () => {
     const file = makeXlsx([{
       Numero:      '1',

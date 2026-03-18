@@ -179,6 +179,15 @@ function normalizeHeader(h: string): string {
     .replace(/\s+/g, '_')
 }
 
+// Validates a timestamp string by extracting the date part and validating it.
+// Accepts "DD/MM/YYYY HH:MM", "DD/MM/YYYY", "YYYY-MM-DDTHH:MM", "YYYY-MM-DD HH:MM", etc.
+// Empty string → valid (field is optional).
+function parseTimestamp(val: string): boolean {
+  if (val === '') return true
+  const datePart = val.split(/[ T]/)[0]
+  return parseDate(datePart) !== null
+}
+
 // Parses a date string accepting both YYYY-MM-DD and DD/MM/YYYY.
 // Returns a valid Date or null.
 function parseDate(val: string): Date | null {
@@ -284,6 +293,10 @@ export function validateFile(file: File, tableType: TableType): Promise<Validati
             } else if (col.type === 'date') {
               if (parseDate(String(val)) === null) {
                 dataErrors.push({ row: rowNum, column: col.name, found: String(val), expected: 'fecha (DD/MM/YYYY o YYYY-MM-DD)' })
+              }
+            } else if (col.type === 'timestamp') {
+              if (!parseTimestamp(String(val))) {
+                dataErrors.push({ row: rowNum, column: col.name, found: String(val), expected: 'fecha/hora (DD/MM/YYYY HH:MM o YYYY-MM-DDTHH:MM)' })
               }
             }
           }
