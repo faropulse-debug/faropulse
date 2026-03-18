@@ -7,7 +7,7 @@ export type TableType = 'ventas' | 'items' | 'stock' | 'precios' | 'financial'
 interface ColumnDef {
   name:     string
   required: boolean
-  type:     'date' | 'number' | 'string'
+  type:     'date' | 'timestamp' | 'number' | 'string'
 }
 
 export const TABLE_SCHEMAS: Record<TableType, { label: string; columns: ColumnDef[] }> = {
@@ -72,10 +72,10 @@ export const TABLE_SCHEMAS: Record<TableType, { label: string; columns: ColumnDe
       { name: 'apellidoynombre',  required: false, type: 'string' },
       { name: 'tipo_documento',   required: false, type: 'string' },
       { name: 'tipo_sucursal',    required: false, type: 'string' },
-      { name: 'fecha_inicio',     required: false, type: 'date'   },   // timestamptz en DB
-      { name: 'fecha_cierre',     required: false, type: 'date'   },   // timestamptz en DB
-      { name: 'fecha_caja',       required: false, type: 'date'   },
-      { name: 'fecha_item',       required: false, type: 'date'   },   // timestamptz en DB
+      { name: 'fecha_inicio',     required: false, type: 'timestamp' },  // timestamptz — puede venir como "DD/MM/YYYY HH:MM"
+      { name: 'fecha_cierre',     required: false, type: 'timestamp' },  // timestamptz — puede venir como "DD/MM/YYYY HH:MM"
+      { name: 'fecha_caja',       required: false, type: 'date'      },
+      { name: 'fecha_item',       required: false, type: 'timestamp' },  // timestamptz — puede venir como "DD/MM/YYYY HH:MM"
       { name: 'hora_item',        required: false, type: 'string' },
       { name: 'dia_caja',         required: false, type: 'string' },
       { name: 'mes_caja',         required: false, type: 'string' },
@@ -174,6 +174,13 @@ function normalizeHeader(h: string): string {
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // strip diacritics (á→a, ñ→n, etc.)
     .toLowerCase()
     .replace(/\s+/g, '_')
+}
+
+// Validates a timestamp string by stripping the time part and validating the date.
+// Accepts "DD/MM/YYYY HH:MM", "YYYY-MM-DDTHH:MM", "YYYY-MM-DD HH:MM", etc.
+function parseTimestamp(val: string): boolean {
+  const datePart = val.split(/[ T]/)[0]
+  return parseDate(datePart) !== null
 }
 
 // Parses a date string accepting both YYYY-MM-DD and DD/MM/YYYY.
@@ -281,6 +288,10 @@ export function validateFile(file: File, tableType: TableType): Promise<Validati
             } else if (col.type === 'date') {
               if (parseDate(String(val)) === null) {
                 dataErrors.push({ row: rowNum, column: col.name, found: String(val), expected: 'fecha (DD/MM/YYYY o YYYY-MM-DD)' })
+              }
+            } else if (col.type === 'timestamp') {
+              if (!parseTimestamp(String(val))) {
+                dataErrors.push({ row: rowNum, column: col.name, found: String(val), expected: 'fecha/hora (DD/MM/YYYY HH:MM o YYYY-MM-DDTHH:MM)' })
               }
             }
           }
