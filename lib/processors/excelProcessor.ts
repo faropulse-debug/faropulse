@@ -23,6 +23,25 @@ function toNum(v: unknown): number | null {
   return isNaN(n) ? null : n
 }
 
+// Parses monetary values with Argentine formatting: "$12.500,00" → 12500.00
+// Removes $, strips thousand-separator dots, replaces decimal comma with dot.
+function toMoney(v: unknown): number | null {
+  if (v === '' || v === null || v === undefined) return null
+  const s = String(v).trim().replace(/\$/g, '').replace(/\s/g, '')
+  // Remove thousand-separator dots (only dots followed by exactly 3 digits before comma/end)
+  const noThousands = s.replace(/\.(?=\d{3}(?:[,]|$))/g, '')
+  const normalized = noThousands.replace(',', '.')
+  const n = parseFloat(normalized)
+  return isNaN(n) ? null : n
+}
+
+// Parses quantities with comma as decimal separator: "1,00" → 1.0
+function toNumComma(v: unknown): number | null {
+  if (v === '' || v === null || v === undefined) return null
+  const n = parseFloat(String(v).trim().replace(/\s/g, '').replace(',', '.'))
+  return isNaN(n) ? null : n
+}
+
 function toStr(v: unknown): string | null {
   if (v === '' || v === null || v === undefined) return null
   return String(v).trim()
@@ -177,44 +196,48 @@ function mapItems(row: Record<string, unknown>, orgId: string, locationId: strin
   return {
     org_id:                  orgId,
     location_id:             locationId,
-    // "Numero" → normalizeHeader → "numero" → external_id (UNIQUE with location_id)
+    // "Numero" → external_id (UNIQUE key) AND numero_ticket (JOIN with sales_documents)
     external_id:             toStr(row.numero),
+    numero_ticket:           toStr(row.numero),
     sucursal:                toStr(row.sucursal),
     punto_venta:             toStr(row.punto_venta),
+    // Camarero is a numeric code ("1016") stored as text — use toStr, not toNum
     camarero:                toStr(row.camarero),
     camarero_nombre:         toStr(row.camarero_nombre),
     // "Apellidoynombre" (no spaces) → normalizeHeader → "apellidoynombre"
     apellido_nombre:         toStr(row.apellidoynombre),
     tipo_documento:          toStr(row.tipo_documento),
     tipo_sucursal:           toStr(row.tipo_sucursal),
-    fecha_inicio:            toTimestamp(row.fecha_inicio),
-    fecha_cierre:            toTimestamp(row.fecha_cierre),
-    fecha_caja:              toDate(row.fecha_caja),
-    fecha_documento:         toDate(row.fecha_documento),
-    fecha_item:              toTimestamp(row.fecha_item),
-    hora_item:               toHora(row.hora_item),
-    dia_caja:                toStr(row.dia_caja),
-    mes_caja:                toStr(row.mes_caja),
-    anio_caja:               toStr(row.anio_caja),
+    tipo_zona:               toStr(row.tipo_zona),
+    zona:                    toStr(row.zona),
+    zona_id:                 toNum(row.zona_id),
     turno:                   toStr(row.turno),
-    // "Nro. Caja" → normalizeHeader preserves dot → "nro._caja"
-    nro_caja:                toNum(row['nro._caja']),
-    codigo:                  toNum(row.codigo),
     familia:                 toStr(row.familia),
     subfamilia:              toStr(row.subfamilia),
     descripcion:             toStr(row.descripcion),
     marca:                   toStr(row.marca),
+    codigo:                  toNum(row.codigo),
     es_variacion:            toStr(row.es_variacion),
-    tipo_zona:               toStr(row.tipo_zona),
-    zona:                    toStr(row.zona),
-    zona_id:                 toNum(row.zona_id),
-    cantidad:                toNum(row.cantidad),
-    precio_unitario:         toNum(row.precio_unitario),
-    descuento_item:          toNum(row.descuento_item),
-    recargo_item:            toNum(row.recargo_item),
-    descuento_global:        toNum(row.descuento_global),
-    recargo_global:          toNum(row.recargo_global),
-    precio_total:            toNum(row.precio_total),
+    dia_caja:                toStr(row.dia_caja),
+    mes_caja:                toStr(row.mes_caja),
+    anio_caja:               toStr(row.anio_caja),
+    // "Nro. Caja" → normalizeHeader preserves dot → "nro._caja"
+    nro_caja:                toNum(row['nro._caja']),
+    hora_item:               toHora(row.hora_item),
+    fecha_documento:         toDate(row.fecha_documento),
+    fecha_caja:              toDate(row.fecha_caja),
+    fecha_inicio:            toTimestamp(row.fecha_inicio),
+    fecha_cierre:            toTimestamp(row.fecha_cierre),
+    fecha_item:              toTimestamp(row.fecha_item),
+    // Quantities come with comma decimal: "1,00" → 1.0
+    cantidad:                toNumComma(row.cantidad),
+    // Prices come with $ and Argentine formatting: "$12.500,00" → 12500.0
+    precio_unitario:         toMoney(row.precio_unitario),
+    precio_total:            toMoney(row.precio_total),
+    descuento_item:          toMoney(row.descuento_item),
+    recargo_item:            toMoney(row.recargo_item),
+    descuento_global:        toMoney(row.descuento_global),
+    recargo_global:          toMoney(row.recargo_global),
     promocion:               toStr(row.promocion),
     observaciones_promocion: toStr(row.observaciones_promocion),
   }
