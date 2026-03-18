@@ -3,8 +3,9 @@ import type { TableType } from '@/lib/validators/uploadValidator'
 
 const DEFAULT_ORG_ID      = process.env.NEXT_PUBLIC_ORG_ID      ?? ''
 const DEFAULT_LOCATION_ID = process.env.NEXT_PUBLIC_LOCATION_ID ?? ''
-const BATCH_SIZE          = 500
+const BATCH_SIZE          = 200
 const BATCH_TIMEOUT_MS    = 30_000
+const DELETE_BATCH_DATES  = 50   // dates per DELETE call
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -24,19 +25,21 @@ function toNum(v: unknown): number | null {
 }
 
 // Parses monetary values with Argentine formatting: "$12.500,00" → 12500.00
-// Removes $, strips thousand-separator dots, replaces decimal comma with dot.
-function toMoney(v: unknown): number | null {
+// Rule: if a comma is present, dots are thousand separators (remove all), comma is decimal.
+// If no comma, parse as-is (standard decimal dot).
+export function toMoney(v: unknown): number | null {
   if (v === '' || v === null || v === undefined) return null
   const s = String(v).trim().replace(/\$/g, '').replace(/\s/g, '')
-  // Remove thousand-separator dots (only dots followed by exactly 3 digits before comma/end)
-  const noThousands = s.replace(/\.(?=\d{3}(?:[,]|$))/g, '')
-  const normalized = noThousands.replace(',', '.')
+  if (s === '') return null
+  const normalized = s.includes(',')
+    ? s.replace(/\./g, '').replace(',', '.')   // dots=thousands → remove; comma=decimal → dot
+    : s
   const n = parseFloat(normalized)
   return isNaN(n) ? null : n
 }
 
 // Parses quantities with comma as decimal separator: "1,00" → 1.0
-function toNumComma(v: unknown): number | null {
+export function toNumComma(v: unknown): number | null {
   if (v === '' || v === null || v === undefined) return null
   const n = parseFloat(String(v).trim().replace(/\s/g, '').replace(',', '.'))
   return isNaN(n) ? null : n
@@ -50,10 +53,12 @@ function toStr(v: unknown): string | null {
 function parseFlexDate(v: unknown): Date | null {
   if (v === '' || v === null || v === undefined) return null
   const s = String(v).trim()
-  // DD/MM/YYYY  (formato argentino / español)
-  const ddmm = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s)
+  // DD/MM/YYYY or DD/MM/YYYY HH:MM[:SS]  (formato argentino / español)
+  const ddmm = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?$/.exec(s)
   if (ddmm) {
-    const d = new Date(`${ddmm[3]}-${ddmm[2].padStart(2, '0')}-${ddmm[1].padStart(2, '0')}`)
+    const datePart = `${ddmm[3]}-${ddmm[2].padStart(2, '0')}-${ddmm[1].padStart(2, '0')}`
+    const timePart = ddmm[4] ?? '00:00:00'
+    const d = new Date(`${datePart}T${timePart}`)
     return isNaN(d.getTime()) ? null : d
   }
   const d = new Date(s)
@@ -99,24 +104,28 @@ function toTimestamp(v: unknown): string | null {
 async function insertBatches(
   table: string,
   rows: Record<string, unknown>[],
-  onProgress: (inserted: number) => void,
+  onProgress: (inserted: number, failed: number) => void,
   conflictColumns?: string,
-): Promise<{ inserted: number; skipped: number; error?: string }> {
+): Promise<{ inserted: number; skipped: number; failed: number; firstError?: string }> {
   let inserted = 0
   let skipped  = 0
+  let failed   = 0
+  let firstError: string | undefined
+
+  if (rows.length > 0) {
+    console.log('[insertBatches] First row sample:', rows[0])
+    const nullIds = rows.slice(0, BATCH_SIZE).filter(r => r.external_id == null || r.external_id === '').length
+    if (nullIds > 0) console.warn(`[insertBatches] ⚠ ${nullIds} rows have null external_id in first batch`)
+  }
+
+  const totalBatches = Math.ceil(rows.length / BATCH_SIZE)
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-    const batch = rows.slice(i, i + BATCH_SIZE)
-
-    // Pre-flight: log first row and any null external_id/external_id-equivalent fields
-    if (i === 0) {
-      console.log('[insertBatches] First row of batch:', batch[0])
-      const nullIds = batch.filter(r => r.external_id == null || r.external_id === '').length
-      if (nullIds > 0) console.warn(`[insertBatches] ⚠ ${nullIds} rows have null external_id in first batch`)
-    }
+    const batch     = rows.slice(i, i + BATCH_SIZE)
+    const batchNum  = Math.floor(i / BATCH_SIZE) + 1
+    const batchLabel = `batch ${batchNum}/${totalBatches}`
 
     try {
-      const batchLabel = `batch ${Math.floor(i / BATCH_SIZE) + 1}`
       const { error, count } = await withTimeout(
         conflictColumns
           ? (supabase.from(table) as ReturnType<typeof supabase.from>)
@@ -127,32 +136,34 @@ async function insertBatches(
       )
 
       if (error) {
-        console.error('[insertBatches] Supabase error:', {
-          message: error.message,
-          code:    error.code,
-          details: error.details,
-          hint:    error.hint,
-          batch_sample: batch[0],
-        })
-        return { inserted, skipped, error: `${error.message}${error.details ? ` — ${error.details}` : ''}${error.hint ? ` (hint: ${error.hint})` : ''}` }
+        const msg = `${error.message}${error.details ? ` — ${error.details}` : ''}${error.hint ? ` (hint: ${error.hint})` : ''}`
+        console.error(`[insertBatches] ${batchLabel} error:`, { message: error.message, code: error.code, details: error.details, hint: error.hint, batch_sample: batch[0] })
+        failed += batch.length
+        if (!firstError) firstError = msg
+        onProgress(inserted, failed)
+        continue   // skip this batch, keep going
       }
+
       inserted += count ?? batch.length
       skipped  += batch.length - (count ?? batch.length)
-      onProgress(inserted)
+      onProgress(inserted, failed)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
-      console.error('[insertBatches] error/timeout:', msg, { batch_sample: batch[0] })
-      return { inserted, skipped, error: msg }
+      console.error(`[insertBatches] ${batchLabel} exception:`, msg)
+      failed += batch.length
+      if (!firstError) firstError = msg
+      onProgress(inserted, failed)
+      // continue with next batch
     }
   }
-  return { inserted, skipped }
+  return { inserted, skipped, failed, firstError }
 }
 
 // ─── Row mappers ──────────────────────────────────────────────────────────────
 
 let _mapVentasLogged = false
 
-function mapVentas(row: Record<string, unknown>, orgId: string, locationId: string) {
+export function mapVentas(row: Record<string, unknown>, orgId: string, locationId: string) {
   if (!_mapVentasLogged) {
     console.log('[mapVentas] Normalized keys in first row:', Object.keys(row))
     _mapVentasLogged = true
@@ -192,7 +203,7 @@ function mapVentas(row: Record<string, unknown>, orgId: string, locationId: stri
   }
 }
 
-function mapItems(row: Record<string, unknown>, orgId: string, locationId: string) {
+export function mapItems(row: Record<string, unknown>, orgId: string, locationId: string) {
   return {
     org_id:                  orgId,
     location_id:             locationId,
@@ -387,9 +398,11 @@ export async function checkDuplicates(
 export type InsertMode = 'replace' | 'add'
 
 export interface ProcessResult {
-  inserted: number
-  skipped:  number
-  error?:   string
+  inserted:    number
+  skipped:     number
+  failed:      number
+  firstError?: string
+  error?:      string
 }
 
 export async function processUpload(
@@ -404,24 +417,53 @@ export async function processUpload(
 
   // Delete existing records if replace mode
   if (mode === 'replace') {
-    onProgress(0, total, 'Eliminando registros existentes…')
-
     if (tableType === 'ventas') {
       const dates = [...new Set(rows.map(r => toDate(r.fecha)).filter(Boolean))] as string[]
-      await supabase.from('sales_documents').delete().eq('location_id', locationId).in('fecha', dates)
+      const totalDateBatches = Math.ceil(dates.length / DELETE_BATCH_DATES)
+      for (let i = 0; i < dates.length; i += DELETE_BATCH_DATES) {
+        const batchNum = Math.floor(i / DELETE_BATCH_DATES) + 1
+        onProgress(0, total, `Eliminando registros (${batchNum}/${totalDateBatches})…`)
+        await withTimeout(
+          supabase.from('sales_documents').delete().eq('location_id', locationId).in('fecha', dates.slice(i, i + DELETE_BATCH_DATES)),
+          BATCH_TIMEOUT_MS, `DELETE ventas batch ${batchNum}/${totalDateBatches}`,
+        )
+      }
     } else if (tableType === 'items') {
       const dates = [...new Set(rows.map(r => toDate(r.fecha_documento)).filter(Boolean))] as string[]
-      await supabase.from('sales_items').delete().eq('location_id', locationId).in('fecha_documento', dates)
+      const totalDateBatches = Math.ceil(dates.length / DELETE_BATCH_DATES)
+      for (let i = 0; i < dates.length; i += DELETE_BATCH_DATES) {
+        const batchNum = Math.floor(i / DELETE_BATCH_DATES) + 1
+        onProgress(0, total, `Eliminando registros (${batchNum}/${totalDateBatches})…`)
+        await withTimeout(
+          supabase.from('sales_items').delete().eq('location_id', locationId).in('fecha_documento', dates.slice(i, i + DELETE_BATCH_DATES)),
+          BATCH_TIMEOUT_MS, `DELETE items batch ${batchNum}/${totalDateBatches}`,
+        )
+      }
     } else if (tableType === 'stock') {
       const dates = [...new Set(rows.map(r => toDate(r.fecha)).filter(Boolean))] as string[]
-      await supabase.from('stock_movements').delete().eq('location_id', locationId).in('fecha', dates)
+      const totalDateBatches = Math.ceil(dates.length / DELETE_BATCH_DATES)
+      for (let i = 0; i < dates.length; i += DELETE_BATCH_DATES) {
+        const batchNum = Math.floor(i / DELETE_BATCH_DATES) + 1
+        onProgress(0, total, `Eliminando registros (${batchNum}/${totalDateBatches})…`)
+        await withTimeout(
+          supabase.from('stock_movements').delete().eq('location_id', locationId).in('fecha', dates.slice(i, i + DELETE_BATCH_DATES)),
+          BATCH_TIMEOUT_MS, `DELETE stock batch ${batchNum}/${totalDateBatches}`,
+        )
+      }
     } else if (tableType === 'precios') {
       const codigos = [...new Set(rows.map(r => toStr(r.codigo)).filter(Boolean))] as string[]
-      for (let i = 0; i < codigos.length; i += 500) {
-        await supabase.from('product_prices').delete().eq('location_id', locationId).in('codigo', codigos.slice(i, i + 500))
+      const totalBatches = Math.ceil(codigos.length / DELETE_BATCH_DATES)
+      for (let i = 0; i < codigos.length; i += DELETE_BATCH_DATES) {
+        const batchNum = Math.floor(i / DELETE_BATCH_DATES) + 1
+        onProgress(0, total, `Eliminando registros (${batchNum}/${totalBatches})…`)
+        await withTimeout(
+          supabase.from('product_prices').delete().eq('location_id', locationId).in('codigo', codigos.slice(i, i + DELETE_BATCH_DATES)),
+          BATCH_TIMEOUT_MS, `DELETE precios batch ${batchNum}/${totalBatches}`,
+        )
       }
     } else if (tableType === 'financial') {
       const periods = [...new Set(rows.map(r => toStr(r.periodo)).filter(Boolean))] as string[]
+      onProgress(0, total, 'Eliminando registros existentes…')
       await supabase.from('financial_results').delete().eq('location_id', locationId).in('periodo', periods)
     }
   }
@@ -462,24 +504,32 @@ export async function processUpload(
 
   const result = await insertBatches(
     table, mapped,
-    inserted => onProgress(inserted, total, `Insertando ${inserted.toLocaleString()} / ${total.toLocaleString()}…`),
+    (inserted, failed) => {
+      const suffix = failed > 0 ? ` · ${failed.toLocaleString()} fallidos` : ''
+      onProgress(inserted, total, `Insertando ${inserted.toLocaleString()} / ${total.toLocaleString()}…${suffix}`)
+    },
     conflict,
   )
 
-  if (result.error) return result
-
-  // Register in uploads table
+  // Register in uploads table (even on partial failure)
   await supabase.from('uploads').insert({
     org_id:         orgId,
     location_id:    locationId,
     file_name:      `upload_${tableType}_${new Date().toISOString().slice(0, 10)}`,
     file_type:      tableType,
-    status:         'done',
+    status:         result.failed > 0 ? 'partial' : 'done',
     rows_processed: total,
     rows_inserted:  result.inserted,
     rows_skipped:   result.skipped,
-    error_detail:   null,
+    error_detail:   result.firstError ?? null,
   })
 
-  return result
+  return {
+    inserted:    result.inserted,
+    skipped:     result.skipped,
+    failed:      result.failed,
+    firstError:  result.firstError,
+    // Surface error only if nothing was inserted at all
+    error: result.inserted === 0 && result.failed > 0 ? result.firstError : undefined,
+  }
 }
