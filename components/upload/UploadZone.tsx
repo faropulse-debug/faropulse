@@ -17,13 +17,14 @@ export interface ZoneState {
   duplicates: DuplicateInfo | null
   step:       string
   inserted:   number
+  failed:     number
   total:      number
   error:      string
 }
 
 export const INITIAL_ZONE: ZoneState = {
   status: 'idle', file: null, validation: null, duplicates: null,
-  step: '', inserted: 0, total: 0, error: '',
+  step: '', inserted: 0, failed: 0, total: 0, error: '',
 }
 
 const AMBER     = '#f5820a'
@@ -277,11 +278,12 @@ export function UploadZone({ tableType, state, onFile, onConfirm, onReset }: Upl
           </div>
           <div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.82rem', color: GREEN, fontWeight: 600 }}>
-              Carga exitosa: {state.inserted.toLocaleString()} filas insertadas
+              {state.inserted.toLocaleString()} insertados
+              {state.failed > 0 && <span style={{ color: RED }}> · {state.failed.toLocaleString()} fallidos</span>}
             </div>
-            {state.total > state.inserted && (
+            {(state.total - state.inserted - state.failed) > 0 && (
               <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', marginTop: '2px' }}>
-                {(state.total - state.inserted).toLocaleString()} filas omitidas (duplicados)
+                {(state.total - state.inserted - state.failed).toLocaleString()} omitidos (duplicados)
               </div>
             )}
           </div>
