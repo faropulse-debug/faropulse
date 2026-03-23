@@ -2,7 +2,7 @@
 
 import { useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 import { Eye, EyeOff, Bell, BarChart2, Compass, Globe, Linkedin, Instagram, X, ArrowRight } from 'lucide-react'
 
 // ─── BOKEH & PARTICLE DATA ────────────────────────────────────────────────────
@@ -351,8 +351,7 @@ function LoginFormInner() {
     setLoading(true)
     setError('')
     try {
-      console.log('[ENV]', { url: process.env.NEXT_PUBLIC_SUPABASE_URL, key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.slice(0, 20) })
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      const { data, error } = await getSupabase().auth.signInWithPassword({ email, password })
       if (error) {
         setError(`[${error.status}] ${error.message}`)
         setLoading(false)

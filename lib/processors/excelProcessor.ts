@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
 import type { TableType } from '@/lib/validators/uploadValidator'
 
@@ -126,9 +126,9 @@ async function insertBatches(
 
     try {
       const q = conflictColumns
-        ? (supabase.from(table) as ReturnType<typeof supabase.from>)
+        ? getSupabase().from(table)
             .upsert(batch, { onConflict: conflictColumns, ignoreDuplicates: true, count: 'exact' })
-        : supabase.from(table).insert(batch, { count: 'exact' })
+        : getSupabase().from(table).insert(batch, { count: 'exact' })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error, count } = await withTimeout(q as unknown as Promise<any>, BATCH_TIMEOUT_MS, batchLabel)
 
@@ -420,7 +420,7 @@ export async function processUpload(
         const batchNum = Math.floor(i / DELETE_BATCH_DATES) + 1
         onProgress(0, total, `Eliminando registros (${batchNum}/${totalDateBatches})…`)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await withTimeout(supabase.from('sales_documents').delete().eq('location_id', locationId).in('fecha', dates.slice(i, i + DELETE_BATCH_DATES)) as unknown as Promise<any>, BATCH_TIMEOUT_MS, `DELETE ventas batch ${batchNum}/${totalDateBatches}`)
+        await withTimeout(getSupabase().from('sales_documents').delete().eq('location_id', locationId).in('fecha', dates.slice(i, i + DELETE_BATCH_DATES)) as unknown as Promise<any>, BATCH_TIMEOUT_MS, `DELETE ventas batch ${batchNum}/${totalDateBatches}`)
       }
     } else if (tableType === 'items') {
       const dates = [...new Set(rows.map(r => toDate(r.fecha_documento)).filter(Boolean))] as string[]
@@ -429,7 +429,7 @@ export async function processUpload(
         const batchNum = Math.floor(i / DELETE_BATCH_DATES) + 1
         onProgress(0, total, `Eliminando registros (${batchNum}/${totalDateBatches})…`)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await withTimeout(supabase.from('sales_items').delete().eq('location_id', locationId).in('fecha_documento', dates.slice(i, i + DELETE_BATCH_DATES)) as unknown as Promise<any>, BATCH_TIMEOUT_MS, `DELETE items batch ${batchNum}/${totalDateBatches}`)
+        await withTimeout(getSupabase().from('sales_items').delete().eq('location_id', locationId).in('fecha_documento', dates.slice(i, i + DELETE_BATCH_DATES)) as unknown as Promise<any>, BATCH_TIMEOUT_MS, `DELETE items batch ${batchNum}/${totalDateBatches}`)
       }
     } else if (tableType === 'stock') {
       const dates = [...new Set(rows.map(r => toDate(r.fecha)).filter(Boolean))] as string[]
@@ -438,7 +438,7 @@ export async function processUpload(
         const batchNum = Math.floor(i / DELETE_BATCH_DATES) + 1
         onProgress(0, total, `Eliminando registros (${batchNum}/${totalDateBatches})…`)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await withTimeout(supabase.from('stock_movements').delete().eq('location_id', locationId).in('fecha', dates.slice(i, i + DELETE_BATCH_DATES)) as unknown as Promise<any>, BATCH_TIMEOUT_MS, `DELETE stock batch ${batchNum}/${totalDateBatches}`)
+        await withTimeout(getSupabase().from('stock_movements').delete().eq('location_id', locationId).in('fecha', dates.slice(i, i + DELETE_BATCH_DATES)) as unknown as Promise<any>, BATCH_TIMEOUT_MS, `DELETE stock batch ${batchNum}/${totalDateBatches}`)
       }
     } else if (tableType === 'precios') {
       const codigos = [...new Set(rows.map(r => toStr(r.codigo)).filter(Boolean))] as string[]
@@ -447,12 +447,12 @@ export async function processUpload(
         const batchNum = Math.floor(i / DELETE_BATCH_DATES) + 1
         onProgress(0, total, `Eliminando registros (${batchNum}/${totalBatches})…`)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await withTimeout(supabase.from('product_prices').delete().eq('location_id', locationId).in('codigo', codigos.slice(i, i + DELETE_BATCH_DATES)) as unknown as Promise<any>, BATCH_TIMEOUT_MS, `DELETE precios batch ${batchNum}/${totalBatches}`)
+        await withTimeout(getSupabase().from('product_prices').delete().eq('location_id', locationId).in('codigo', codigos.slice(i, i + DELETE_BATCH_DATES)) as unknown as Promise<any>, BATCH_TIMEOUT_MS, `DELETE precios batch ${batchNum}/${totalBatches}`)
       }
     } else if (tableType === 'financial') {
       const periods = [...new Set(rows.map(r => toStr(r.periodo)).filter(Boolean))] as string[]
       onProgress(0, total, 'Eliminando registros existentes…')
-      await supabase.from('financial_results').delete().eq('location_id', locationId).in('periodo', periods)
+      await getSupabase().from('financial_results').delete().eq('location_id', locationId).in('periodo', periods)
     }
   }
 
@@ -500,7 +500,7 @@ export async function processUpload(
   )
 
   // Register in uploads table (even on partial failure)
-  await supabase.from('uploads').insert({
+  await getSupabase().from('uploads').insert({
     org_id:         orgId,
     location_id:    locationId,
     file_name:      `upload_${tableType}_${new Date().toISOString().slice(0, 10)}`,

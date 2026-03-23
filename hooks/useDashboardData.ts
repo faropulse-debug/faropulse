@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
 
 export interface VentaDiaria {
@@ -64,10 +64,10 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
 
     try {
       const [diarias, semanales, mensuales, financiales] = await Promise.all([
-        supabase.rpc('get_ventas_semana',     { p_location_id: locationId }),
-        supabase.rpc('get_ventas_semanales',  { p_location_id: locationId }),
-        supabase.rpc('get_ventas_mensuales',  { p_location_id: locationId }),
-        supabase.rpc('get_financial_results', { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_semana',     { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_semanales',  { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_mensuales',  { p_location_id: locationId }),
+        getSupabase().rpc('get_financial_results', { p_location_id: locationId }),
       ])
 
       if (diarias.error)     throw new Error(`get_ventas_semana: ${diarias.error.message}`)

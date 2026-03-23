@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 
 export default function ResetPasswordPage() {
   const router = useRouter()
@@ -14,7 +14,7 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     // Supabase exchanges the token from the URL hash and fires this event
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    const { data: { subscription } } = getSupabase().auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
         setReady(true)
       }
@@ -36,13 +36,13 @@ export default function ResetPasswordPage() {
     }
 
     setLoading(true)
-    const { error } = await supabase.auth.updateUser({ password })
+    const { error } = await getSupabase().auth.updateUser({ password })
 
     if (error) {
       setError(error.message)
       setLoading(false)
     } else {
-      await supabase.auth.signOut()
+      await getSupabase().auth.signOut()
       router.push('/login?reset=success')
     }
   }

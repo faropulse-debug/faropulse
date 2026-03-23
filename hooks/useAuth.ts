@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
 import type { AuthUser, Membership, Role } from '@/types/auth'
 
@@ -12,7 +12,7 @@ export function useAuth() {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    const { data: { subscription } } = getSupabase().auth.onAuthStateChange(
       async (event, session) => {
         if (!session) {
           setUser(null)
@@ -105,7 +105,7 @@ export function useAuth() {
       localStorage.removeItem(STORAGE_KEY)
     }
     document.cookie = 'faro_role=; path=/; max-age=0; SameSite=Lax'
-    await supabase.auth.signOut()
+    await getSupabase().auth.signOut()
     setUser(null)
   }
 
