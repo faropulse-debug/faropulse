@@ -309,6 +309,7 @@ export async function checkDuplicates(
   rows:       Record<string, unknown>[],
   locationId: string,
 ): Promise<DuplicateInfo> {
+  const supabase = getSupabase()
   try {
     if (tableType === 'ventas') {
       const dates = [...new Set(rows.map(r => toDate(r.fecha)).filter(Boolean))] as string[]

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { getSupabase } from '@/lib/supabase'
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import type { AuthUser, Membership, Role } from '@/types/auth'
 
@@ -13,13 +14,14 @@ export function useAuth() {
 
   useEffect(() => {
     const { data: { subscription } } = getSupabase().auth.onAuthStateChange(
-      async (event, session) => {
+      async (_event: AuthChangeEvent, session: Session | null) => {
         if (!session) {
           setUser(null)
           setIsLoading(false)
           return
         }
 
+        const supabase = getSupabase()
         const [profileResult, membershipsResult] = await Promise.all([
           supabase
             .from('profiles')
@@ -51,7 +53,7 @@ export function useAuth() {
           if (locsError) {
             logger.error('[useAuth] locations query failed:', locsError.message, locsError.details)
           }
-          locationByOrg = Object.fromEntries((locs ?? []).map(l => [l.org_id as string, l.id as string]))
+          locationByOrg = Object.fromEntries((locs ?? []).map((l: { id: unknown; org_id: unknown }) => [l.org_id as string, l.id as string]))
         }
         const memberships: Membership[] = rawMemberships.map(m => ({
           ...m,

@@ -351,7 +351,8 @@ function LoginFormInner() {
     setLoading(true)
     setError('')
     try {
-      const { data, error } = await getSupabase().auth.signInWithPassword({ email, password })
+      const supabase = getSupabase()
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) {
         setError(`[${error.status}] ${error.message}`)
         setLoading(false)
