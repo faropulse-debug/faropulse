@@ -170,10 +170,7 @@ export default function OwnerDashboard() {
   const { user } = useAuth()
   const [periodo, setPeriodo] = useState<Periodo>('mes')
 
-  const locationId = user?.activeMembership?.location_id
-    ?? user?.activeMembership?.org_id
-    ?? process.env.NEXT_PUBLIC_LOCATION_ID
-    ?? ''
+  const locationId = user?.activeMembership?.location_id ?? ''
   const orgName = user?.activeMembership?.organization?.name ?? 'Dashboard'
 
   const { data: liveData, isLoading: dataLoading, error: dataError, lastUpdated, refetch } =

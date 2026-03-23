@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { logger } from '@/lib/logger'
 import type { AuthUser, Membership, Role } from '@/types/auth'
 
 const STORAGE_KEY = 'faro_active_membership'
@@ -43,10 +44,13 @@ export function useAuth() {
         const orgIds = [...new Set(rawMemberships.map(m => m.org_id))]
         let locationByOrg: Record<string, string> = {}
         if (orgIds.length > 0) {
-          const { data: locs } = await supabase
+          const { data: locs, error: locsError } = await supabase
             .from('locations')
             .select('id, org_id')
             .in('org_id', orgIds)
+          if (locsError) {
+            logger.error('[useAuth] locations query failed:', locsError.message, locsError.details)
+          }
           locationByOrg = Object.fromEntries((locs ?? []).map(l => [l.org_id as string, l.id as string]))
         }
         const memberships: Membership[] = rawMemberships.map(m => ({

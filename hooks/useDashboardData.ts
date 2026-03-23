@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { logger } from '@/lib/logger'
 
 export interface VentaDiaria {
   fecha:      string
@@ -54,7 +55,7 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
 
   const load = useCallback(async () => {
     if (!locationId) {
-      console.warn('[useDashboardData] locationId vacío — usando mocks')
+      logger.warn('[useDashboardData] locationId vacío — datos no disponibles')
       setIsLoading(false)
       return
     }

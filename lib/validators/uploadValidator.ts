@@ -179,9 +179,11 @@ function normalizeHeader(h: string): string {
     .replace(/\s+/g, '_')
 }
 
-// Validates a timestamp string by stripping the time part and validating the date.
-// Accepts "DD/MM/YYYY HH:MM", "YYYY-MM-DDTHH:MM", "YYYY-MM-DD HH:MM", etc.
+// Validates a timestamp string by extracting the date part and validating it.
+// Accepts "DD/MM/YYYY HH:MM", "DD/MM/YYYY", "YYYY-MM-DDTHH:MM", "YYYY-MM-DD HH:MM", etc.
+// Empty string → valid (field is optional).
 function parseTimestamp(val: string): boolean {
+  if (val === '') return true
   const datePart = val.split(/[ T]/)[0]
   return parseDate(datePart) !== null
 }
