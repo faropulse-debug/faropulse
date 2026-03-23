@@ -41,6 +41,11 @@ export default function UploadPage() {
   }
 
   async function handleFile(type: TableType, file: File) {
+    if (!locationId) {
+      logger.warn('[upload] locationId vacío — no se puede procesar el archivo')
+      setZone(type, { status: 'error', error: 'No se pudo resolver la ubicación (locationId vacío). Recargá la página o contactá soporte.' })
+      return
+    }
     setZone(type, { file, status: 'reading', step: 'Leyendo archivo…', error: '', validation: null })
 
     await new Promise(r => setTimeout(r, 100))
@@ -76,6 +81,11 @@ export default function UploadPage() {
   }
 
   async function handleConfirm(type: TableType, mode: InsertMode) {
+    if (!locationId) {
+      logger.warn('[upload] locationId vacío — no se puede confirmar el upload')
+      setZone(type, { status: 'error', error: 'No se pudo resolver la ubicación (locationId vacío). Recargá la página o contactá soporte.' })
+      return
+    }
     const { validation } = zones[type]
     if (!validation) return
 
