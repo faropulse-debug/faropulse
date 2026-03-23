@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { logger } from '@/lib/logger'
 import type { AuthUser, Membership, Role } from '@/types/auth'
 
 const STORAGE_KEY = 'faro_active_membership'
@@ -22,7 +23,7 @@ export function useAuth() {
         const [profileResult, membershipsResult] = await Promise.all([
           supabase
             .from('profiles')
-            .select('id, full_name, avatar_url')
+            .select('id, full_name')
             .eq('id', session.user.id)
             .single(),
           supabase
@@ -38,7 +39,24 @@ export function useAuth() {
           return
         }
 
-        const memberships = (membershipsResult.data ?? []) as Membership[]
+        // memberships table has no location_id — resolve it from locations table
+        const rawMemberships = (membershipsResult.data ?? []) as Omit<Membership, 'location_id'>[]
+        const orgIds = [...new Set(rawMemberships.map(m => m.org_id))]
+        let locationByOrg: Record<string, string> = {}
+        if (orgIds.length > 0) {
+          const { data: locs, error: locsError } = await supabase
+            .from('locations')
+            .select('id, org_id')
+            .in('org_id', orgIds)
+          if (locsError) {
+            logger.error('[useAuth] locations query failed:', locsError.message, locsError.details)
+          }
+          locationByOrg = Object.fromEntries((locs ?? []).map(l => [l.org_id as string, l.id as string]))
+        }
+        const memberships: Membership[] = rawMemberships.map(m => ({
+          ...m,
+          location_id: locationByOrg[m.org_id],
+        }))
 
         // Restore the previously chosen membership from localStorage
         const storedId = typeof window !== 'undefined'

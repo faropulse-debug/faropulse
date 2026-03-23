@@ -28,9 +28,10 @@ AS $$
     -- Ensure caller has an active membership for this location
     AND EXISTS (
       SELECT 1 FROM memberships m
-      WHERE m.user_id    = auth.uid()
-        AND m.is_active  = true
-        AND (m.location_id = p_location_id OR m.org_id = p_location_id)
+      JOIN locations l ON l.org_id = m.org_id
+      WHERE m.user_id   = auth.uid()
+        AND m.is_active = true
+        AND l.id        = p_location_id
     )
   GROUP BY d.fecha::date
   ORDER BY d.fecha::date;
@@ -56,9 +57,10 @@ AS $$
     AND d.fecha >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '5 weeks'
     AND EXISTS (
       SELECT 1 FROM memberships m
-      WHERE m.user_id    = auth.uid()
-        AND m.is_active  = true
-        AND (m.location_id = p_location_id OR m.org_id = p_location_id)
+      JOIN locations l ON l.org_id = m.org_id
+      WHERE m.user_id   = auth.uid()
+        AND m.is_active = true
+        AND l.id        = p_location_id
     )
   GROUP BY DATE_TRUNC('week', d.fecha)
   ORDER BY semana;
@@ -84,9 +86,10 @@ AS $$
     AND d.fecha >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'
     AND EXISTS (
       SELECT 1 FROM memberships m
-      WHERE m.user_id    = auth.uid()
-        AND m.is_active  = true
-        AND (m.location_id = p_location_id OR m.org_id = p_location_id)
+      JOIN locations l ON l.org_id = m.org_id
+      WHERE m.user_id   = auth.uid()
+        AND m.is_active = true
+        AND l.id        = p_location_id
     )
   GROUP BY DATE_TRUNC('month', d.fecha)
   ORDER BY mes;
@@ -107,9 +110,10 @@ AS $$
   WHERE location_id = p_location_id
     AND EXISTS (
       SELECT 1 FROM memberships m
-      WHERE m.user_id    = auth.uid()
-        AND m.is_active  = true
-        AND (m.location_id = p_location_id OR m.org_id = p_location_id)
+      JOIN locations l ON l.org_id = m.org_id
+      WHERE m.user_id   = auth.uid()
+        AND m.is_active = true
+        AND l.id        = p_location_id
     )
   ORDER BY periodo ASC, categoria ASC;
 $$;

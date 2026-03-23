@@ -2,12 +2,12 @@ import * as XLSX from 'xlsx'
 
 // ─── Table schemas ────────────────────────────────────────────────────────────
 
-export type TableType = 'ventas' | 'stock' | 'precios' | 'financial'
+export type TableType = 'ventas' | 'items' | 'stock' | 'precios' | 'financial'
 
 interface ColumnDef {
   name:     string
   required: boolean
-  type:     'date' | 'number' | 'string'
+  type:     'date' | 'timestamp' | 'number' | 'string'
 }
 
 export const TABLE_SCHEMAS: Record<TableType, { label: string; columns: ColumnDef[] }> = {
@@ -51,6 +51,57 @@ export const TABLE_SCHEMAS: Record<TableType, { label: string; columns: ColumnDe
       { name: 'usuario',             required: false, type: 'string' },
       { name: 'tipo_sucursal',       required: false, type: 'string' },
       { name: 'cantidad_documentos', required: false, type: 'number' },
+    ],
+  },
+  items: {
+    label: 'Items de ventas (sales_items)',
+    columns: [
+      // ── Obligatorias — solo las columnas que identifican el registro ─────────
+      // "Numero" → normalizeHeader → "numero" → external_id en DB
+      { name: 'numero',   required: true,  type: 'string' },
+      { name: 'sucursal', required: true,  type: 'string' },
+      // ── Opcionales — campos vacíos se insertan como null ─────────────────────
+      { name: 'punto_venta',      required: false, type: 'string' },
+      // Camarero es código numérico ("1016") pero se guarda como text
+      { name: 'camarero',         required: false, type: 'string' },
+      { name: 'camarero_nombre',  required: false, type: 'string' },
+      // "Apellidoynombre" (sin espacios) → normalizeHeader → "apellidoynombre"
+      { name: 'apellidoynombre',  required: false, type: 'string' },
+      { name: 'tipo_documento',   required: false, type: 'string' },
+      { name: 'tipo_sucursal',    required: false, type: 'string' },
+      { name: 'tipo_zona',        required: false, type: 'string' },
+      { name: 'zona',             required: false, type: 'string' },
+      { name: 'zona_id',          required: false, type: 'number' },
+      { name: 'turno',            required: false, type: 'string' },
+      { name: 'familia',          required: false, type: 'string' },
+      { name: 'subfamilia',       required: false, type: 'string' },
+      { name: 'descripcion',      required: false, type: 'string' },
+      { name: 'marca',            required: false, type: 'string' },
+      { name: 'codigo',           required: false, type: 'number' },
+      { name: 'es_variacion',     required: false, type: 'string' },
+      { name: 'dia_caja',         required: false, type: 'string' },
+      { name: 'mes_caja',         required: false, type: 'string' },
+      { name: 'anio_caja',        required: false, type: 'string' },
+      // "Nro. Caja" → normalizeHeader preserva el punto → "nro._caja"
+      { name: 'nro._caja',        required: false, type: 'number' },
+      { name: 'hora_item',        required: false, type: 'string' },
+      { name: 'fecha_documento',  required: false, type: 'date'      },
+      { name: 'fecha_caja',       required: false, type: 'date'      },
+      { name: 'fecha_inicio',     required: false, type: 'timestamp' },
+      { name: 'fecha_cierre',     required: false, type: 'timestamp' },
+      { name: 'fecha_item',       required: false, type: 'timestamp' },
+      // Precios vienen con formato "$12.500,00" — se validan como string,
+      // el mapper los parsea con toMoney()
+      { name: 'cantidad',         required: false, type: 'string' },
+      { name: 'precio_unitario',  required: false, type: 'string' },
+      { name: 'precio_total',     required: false, type: 'string' },
+      { name: 'descuento_item',   required: false, type: 'string' },
+      { name: 'recargo_item',     required: false, type: 'string' },
+      { name: 'descuento_global', required: false, type: 'string' },
+      { name: 'recargo_global',   required: false, type: 'string' },
+      // "Promoción" → strip diacritics → "promocion"
+      { name: 'promocion',               required: false, type: 'string' },
+      { name: 'observaciones_promocion', required: false, type: 'string' },
     ],
   },
   stock: {
@@ -126,6 +177,15 @@ function normalizeHeader(h: string): string {
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // strip diacritics (á→a, ñ→n, etc.)
     .toLowerCase()
     .replace(/\s+/g, '_')
+}
+
+// Validates a timestamp string by extracting the date part and validating it.
+// Accepts "DD/MM/YYYY HH:MM", "DD/MM/YYYY", "YYYY-MM-DDTHH:MM", "YYYY-MM-DD HH:MM", etc.
+// Empty string → valid (field is optional).
+function parseTimestamp(val: string): boolean {
+  if (val === '') return true
+  const datePart = val.split(/[ T]/)[0]
+  return parseDate(datePart) !== null
 }
 
 // Parses a date string accepting both YYYY-MM-DD and DD/MM/YYYY.
@@ -233,6 +293,10 @@ export function validateFile(file: File, tableType: TableType): Promise<Validati
             } else if (col.type === 'date') {
               if (parseDate(String(val)) === null) {
                 dataErrors.push({ row: rowNum, column: col.name, found: String(val), expected: 'fecha (DD/MM/YYYY o YYYY-MM-DD)' })
+              }
+            } else if (col.type === 'timestamp') {
+              if (!parseTimestamp(String(val))) {
+                dataErrors.push({ row: rowNum, column: col.name, found: String(val), expected: 'fecha/hora (DD/MM/YYYY HH:MM o YYYY-MM-DDTHH:MM)' })
               }
             }
           }
