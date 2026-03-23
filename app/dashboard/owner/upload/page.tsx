@@ -96,7 +96,7 @@ export default function UploadPage() {
         console.error('[handleConfirm] processUpload error:', result.error)
         setZone(type, { status: 'error', error: result.error })
       } else {
-        setZone(type, { status: 'success', inserted: result.inserted, total: validation.rows.length })
+        setZone(type, { status: 'success', inserted: result.inserted, failed: result.failed ?? 0, total: validation.rows.length })
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
