@@ -351,6 +351,7 @@ function LoginFormInner() {
     setLoading(true)
     setError('')
     try {
+      console.log('[ENV]', { url: process.env.NEXT_PUBLIC_SUPABASE_URL, key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.slice(0, 20) })
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) {
         setError(`[${error.status}] ${error.message}`)
