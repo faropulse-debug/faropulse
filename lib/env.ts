@@ -2,8 +2,8 @@
 // Bracket notation (process.env[v]) is NOT replaced at build time — never use it here.
 
 export const env = {
-  supabaseUrl:     process.env.NEXT_PUBLIC_SUPABASE_URL     ?? '',
-  supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '',
+  supabaseUrl:     (process.env.NEXT_PUBLIC_SUPABASE_URL     ?? '').trim(),
+  supabaseAnonKey: (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '').trim(),
 }
 
 // Server-side: fail hard in development so the error is caught early at startup.

@@ -54,8 +54,9 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const load = useCallback(async () => {
+    logger.debug('[useDashboardData] locationId:', locationId)
     if (!locationId) {
-      logger.warn('[useDashboardData] locationId vacío — datos no disponibles')
+      logger.debug('[useDashboardData] locationId vacío — esperando useAuth')
       setIsLoading(false)
       return
     }
