@@ -12,8 +12,8 @@ const GREEN      = '#10B981'
 const RED        = '#EF4444'
 const AMBER      = '#F59E0B'
 const MUTED      = 'rgba(255,255,255,0.35)'
-const FONT_VALUE = "'Syne', sans-serif"
-const FONT_LABEL = "'DM Mono', monospace"
+const FONT_VALUE = "var(--font-syne), sans-serif"
+const FONT_LABEL = "var(--font-dm-mono), monospace"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
