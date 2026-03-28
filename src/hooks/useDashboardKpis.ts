@@ -5,14 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
 import type { FacturacionKpis, ProyeccionesKpis } from '@/src/types/dashboard'
 
-interface DashboardKpisState {
-  facturacion:  FacturacionKpis  | null
-  proyecciones: ProyeccionesKpis | null
-  loading:      boolean
-  error:        string | null
-}
-
-export function useDashboardKpis(locationId: string): DashboardKpisState {
+export function useDashboardKpis(locationId: string) {
   const [facturacion,  setFacturacion]  = useState<FacturacionKpis  | null>(null)
   const [proyecciones, setProyecciones] = useState<ProyeccionesKpis | null>(null)
   const [loading,      setLoading]      = useState(true)
@@ -24,6 +17,8 @@ export function useDashboardKpis(locationId: string): DashboardKpisState {
       return
     }
 
+    let cancelled = false
+
     setLoading(true)
     setError(null)
 
@@ -32,6 +27,8 @@ export function useDashboardKpis(locationId: string): DashboardKpisState {
       supabase.rpc('get_proyecciones_kpis', { p_location_id: locationId }),
     ])
       .then(([facResult, proyResult]) => {
+        if (cancelled) return
+
         if (facResult.error) {
           logger.error('[useDashboardKpis] get_facturacion_kpis failed:', facResult.error.message)
           setError(facResult.error.message)
@@ -47,13 +44,16 @@ export function useDashboardKpis(locationId: string): DashboardKpisState {
         setProyecciones(proyResult.data as ProyeccionesKpis)
       })
       .catch((err: unknown) => {
+        if (cancelled) return
         const message = err instanceof Error ? err.message : 'Unknown error'
         logger.error('[useDashboardKpis] unexpected error:', message)
         setError(message)
       })
       .finally(() => {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       })
+
+    return () => { cancelled = true }
   }, [locationId])
 
   return { facturacion, proyecciones, loading, error }
