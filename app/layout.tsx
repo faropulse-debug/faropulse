@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { Rajdhani, DM_Sans } from "next/font/google"
+import { Rajdhani, DM_Sans, Syne, DM_Mono } from "next/font/google"
 import "./globals.css"
 
 const rajdhani = Rajdhani({
@@ -16,6 +16,20 @@ const dmSans = DM_Sans({
   display: "swap",
 })
 
+const syne = Syne({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-syne",
+  display: "swap",
+})
+
+const dmMono = DM_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-dm-mono",
+  display: "swap",
+})
+
 export const metadata: Metadata = {
   title: "FAROPULSE — Consola de Decisiones Gastronómicas",
   description: "Dashboard de inteligencia para restaurantes y negocios gastronómicos.",
@@ -26,7 +40,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="es">
-      <body className={`${rajdhani.variable} ${dmSans.variable}`}>
+      <body className={`${rajdhani.variable} ${dmSans.variable} ${syne.variable} ${dmMono.variable}`}>
         {children}
       </body>
     </html>
