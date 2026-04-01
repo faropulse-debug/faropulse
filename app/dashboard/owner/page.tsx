@@ -1,9 +1,13 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useAuth }          from '@/hooks/useAuth'
-import { OwnerDashboard }   from '@/src/components/dashboard/OwnerDashboard'
-import { logger }           from '@/lib/logger'
+import { useAuth }                  from '@/hooks/useAuth'
+import { DashboardFiltersProvider } from '@/src/context/dashboard-filters'
+import { DashboardShell, DashboardShellSkeleton } from '@/src/components/dashboard/DashboardShell'
+import { logger }                   from '@/lib/logger'
+
+// OwnerDashboard kept as reference during widget system migration:
+// import { OwnerDashboard } from '@/src/components/dashboard/OwnerDashboard'
 
 export default function OwnerDashboardPage() {
   const { user, isLoading } = useAuth()
@@ -17,17 +21,15 @@ export default function OwnerDashboardPage() {
   }, [isLoading, locationId])
 
   if (isLoading) {
-    return <PageShell><LoadingState label="Cargando sesión..." /></PageShell>
-  }
-
-  if (!locationId) {
-    return <PageShell><LoadingState label="Configurando datos..." /></PageShell>
+    return <PageShell><DashboardShellSkeleton /></PageShell>
   }
 
   return (
-    <PageShell>
-      <OwnerDashboard locationId={locationId} />
-    </PageShell>
+    <DashboardFiltersProvider>
+      <PageShell>
+        <DashboardShell locationId={locationId} />
+      </PageShell>
+    </DashboardFiltersProvider>
   )
 }
 
@@ -36,32 +38,12 @@ export default function OwnerDashboardPage() {
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <main style={{
-      minHeight:   '100vh',
-      background:  '#0C0C0F',
-      padding:     'clamp(16px, 4vw, 40px)',
-      boxSizing:   'border-box',
+      minHeight:  '100vh',
+      background: '#0C0C0F',
+      padding:    'clamp(16px, 4vw, 40px)',
+      boxSizing:  'border-box',
     }}>
       {children}
     </main>
-  )
-}
-
-// ─── Loading / empty state ────────────────────────────────────────────────────
-
-function LoadingState({ label }: { label: string }) {
-  return (
-    <div style={{
-      display:        'flex',
-      alignItems:     'center',
-      justifyContent: 'center',
-      minHeight:      '60vh',
-      fontFamily:     "var(--font-dm-mono), monospace",
-      fontSize:       '0.75rem',
-      letterSpacing:  '0.18em',
-      textTransform:  'uppercase',
-      color:          'rgba(255,255,255,0.3)',
-    }}>
-      {label}
-    </div>
   )
 }
