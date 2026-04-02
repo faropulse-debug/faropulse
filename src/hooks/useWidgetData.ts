@@ -82,7 +82,6 @@ export function useWidgetData<T>(
           return
         }
         setData((Array.isArray(result) ? result[0] : result) as T)
-        console.log('[useWidgetData]', rpcName, 'raw result:', result, 'unwrapped:', Array.isArray(result) ? result[0] : result)
       } catch (err: unknown) {
         if (cancelled) return
         const message = err instanceof Error ? err.message : 'Error desconocido'
