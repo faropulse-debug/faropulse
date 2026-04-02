@@ -80,7 +80,7 @@ export function useWidgetData<T>(
           setError(rpcError.message)
           return
         }
-        setData(result as T)
+        setData((Array.isArray(result) ? result[0] : result) as T)
       } catch (err: unknown) {
         if (cancelled) return
         const message = err instanceof Error ? err.message : 'Error desconocido'
