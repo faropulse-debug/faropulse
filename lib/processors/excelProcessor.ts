@@ -467,7 +467,7 @@ export async function processUpload(
     case 'ventas':
       mapped   = rows.map(r => mapVentas(r, orgId, locationId))
       table    = 'sales_documents'
-      conflict = 'external_id,location_id'
+      conflict = 'external_id,location_id,total'
       break
     case 'items':
       mapped   = rows.map(r => mapItems(r, orgId, locationId))

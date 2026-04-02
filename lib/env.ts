@@ -6,10 +6,10 @@ export const env = {
   supabaseAnonKey: (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '').trim(),
 }
 
-// Server-side: fail hard in development so the error is caught early at startup.
-if (typeof window === 'undefined' && process.env.NODE_ENV === 'development') {
-  if (!env.supabaseUrl)     throw new Error('[FARO] Missing env var: NEXT_PUBLIC_SUPABASE_URL')
-  if (!env.supabaseAnonKey) throw new Error('[FARO] Missing env var: NEXT_PUBLIC_SUPABASE_ANON_KEY')
+// Server-side: fail hard in all environments so missing vars surface at startup, not at runtime.
+if (typeof window === 'undefined') {
+  if (!env.supabaseUrl)     throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL — check Vercel env vars scope')
+  if (!env.supabaseAnonKey) throw new Error('Missing NEXT_PUBLIC_SUPABASE_ANON_KEY — check Vercel env vars scope')
 }
 
 // Client-side: warn without crashing (values are inlined at build time in production).
