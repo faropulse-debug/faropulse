@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -54,6 +54,7 @@ export function useAlertas(locationId: string): UseAlertasResult {
 
     const run = async () => {
       try {
+        const supabase = getSupabase()
         const { data: result, error: rpcError } = await supabase.rpc(
           'get_alertas',
           { p_location_id: locationId }

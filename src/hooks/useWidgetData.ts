@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
 import { useDashboardFilters } from '@/src/context/dashboard-filters'
 import type { DashboardFilters }  from '@/src/context/dashboard-filters'
@@ -73,6 +73,7 @@ export function useWidgetData<T>(
 
     const run = async () => {
       try {
+        const supabase = getSupabase()
         const { data: result, error: rpcError } = await supabase.rpc(rpcName, params)
         if (cancelled) return
         if (rpcError) {
@@ -81,6 +82,7 @@ export function useWidgetData<T>(
           return
         }
         setData((Array.isArray(result) ? result[0] : result) as T)
+        console.log('[useWidgetData]', rpcName, 'raw result:', result, 'unwrapped:', Array.isArray(result) ? result[0] : result)
       } catch (err: unknown) {
         if (cancelled) return
         const message = err instanceof Error ? err.message : 'Error desconocido'

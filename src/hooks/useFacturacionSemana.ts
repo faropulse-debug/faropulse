@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
 import { useDashboardFilters } from '@/src/context/dashboard-filters'
 
@@ -52,6 +52,7 @@ export function useFacturacionSemana(locationId: string): UseFacturacionSemanaRe
 
     const run = async () => {
       try {
+        const supabase = getSupabase()
         const { data: result, error: rpcError } = await supabase.rpc(
           'get_facturacion_semana',
           {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
 import type { FacturacionKpis, ProyeccionesKpis } from '@/src/types/dashboard'
 
@@ -21,6 +21,8 @@ export function useDashboardKpis(locationId: string) {
 
     setLoading(true)
     setError(null)
+
+    const supabase = getSupabase()
 
     Promise.all([
       supabase.rpc('get_facturacion_kpis',  { p_location_id: locationId }),
