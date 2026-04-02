@@ -3,7 +3,6 @@
 import { createWidget }               from './createWidget'
 import type { WidgetRenderConfig }    from './createWidget'
 import { fmtMillones, fmtPct }        from '@/lib/format'
-import type { FacturacionSemanaData } from '@/src/hooks/useFacturacionSemana'
 
 // ─── Widget config (inline — no registry import to avoid circular deps) ────────
 
@@ -16,6 +15,21 @@ const config: WidgetRenderConfig = {
     optional: ['compareMode', 'channel'],
     ignored:  ['monthReference'],
   },
+}
+
+// ─── RPC response shape ───────────────────────────────────────────────────────
+
+interface FacturacionSemanaRPC {
+  facturacion_semana_actual:               number | null
+  facturacion_misma_semana_mes_anterior:   number | null
+  pct_vs_mes_anterior:                     number | null
+  facturacion_misma_semana_anio_anterior:  number | null
+  pct_vs_anio_anterior:                    number | null
+  promedio_diario_semana_actual:           number | null
+  promedio_diario_semana_mes_anterior:     number | null
+  rolling_28_dias:                         number | null
+  rolling_28_dias_anterior:               number | null
+  pct_rolling:                             number | null
 }
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -57,7 +71,6 @@ function fmtPctSigned(v: number | null): string {
 }
 
 // ─── TopBar ───────────────────────────────────────────────────────────────────
-// Positions absolute inside WidgetCard (position:relative, overflow:hidden)
 
 function TopBar({ color }: { color: string }) {
   return (
@@ -75,8 +88,8 @@ function TopBar({ color }: { color: string }) {
 
 // ─── Content renderer ─────────────────────────────────────────────────────────
 
-function renderContent(data: FacturacionSemanaData) {
-  const pct   = data.pct_var_semana
+function renderContent(data: FacturacionSemanaRPC) {
+  const pct   = data.pct_vs_mes_anterior
   const color = semColor(pct)
 
   return (
@@ -92,7 +105,7 @@ function renderContent(data: FacturacionSemanaData) {
         color:         'rgba(255,255,255,0.92)',
         letterSpacing: '-0.02em',
       }}>
-        {fmtValue(data.fact_semana)}
+        {fmtValue(data.facturacion_semana_actual)}
       </div>
 
       {/* Arrow + percentage */}
@@ -110,9 +123,9 @@ function renderContent(data: FacturacionSemanaData) {
         alignItems:     'center',
       }}>
         <span style={{ color: MUTED }}>vs sem. anterior</span>
-        {data.fact_semana_comp !== null && (
+        {data.facturacion_misma_semana_mes_anterior !== null && (
           <span style={{ color: 'rgba(255,255,255,0.45)' }}>
-            {fmtValue(data.fact_semana_comp)}
+            {fmtValue(data.facturacion_misma_semana_mes_anterior)}
           </span>
         )}
       </div>

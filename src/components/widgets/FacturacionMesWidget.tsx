@@ -3,7 +3,6 @@
 import { createWidget }            from './createWidget'
 import type { WidgetRenderConfig } from './createWidget'
 import { fmtMillones, fmtPct }     from '@/lib/format'
-import type { FacturacionMesData } from '@/src/hooks/useFacturacionMes'
 
 // ─── Widget config (inline — no registry import to avoid circular deps) ────────
 
@@ -16,6 +15,22 @@ const config: WidgetRenderConfig = {
     optional: ['compareMode', 'channel'],
     ignored:  ['weekReference'],
   },
+}
+
+// ─── RPC response shape ───────────────────────────────────────────────────────
+
+interface FacturacionMesRPC {
+  facturacion_mes_actual_acumulada:       number | null
+  facturacion_mismo_periodo_mes_anterior: number | null
+  pct_vs_mes_anterior:                    number | null
+  facturacion_anterior_cerrado:           number | null
+  pct_ultimo_mes_vs_anterior:             number | null
+  proyeccion_cierre_lineal:               number | null
+  proyeccion_cierre_ponderada:            number | null
+  promedio_diario_mes_actual:             number | null
+  meta_diaria_igualar_mes_anterior:       number | null
+  meta_diaria_superar_10pct:              number | null
+  desvio_acumulado_pct:                   number | null
 }
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -57,7 +72,6 @@ function fmtPctSigned(v: number | null): string {
 }
 
 // ─── TopBar ───────────────────────────────────────────────────────────────────
-// Positions absolute inside WidgetCard (position:relative, overflow:hidden)
 
 function TopBar({ color }: { color: string }) {
   return (
@@ -75,8 +89,8 @@ function TopBar({ color }: { color: string }) {
 
 // ─── Content renderer ─────────────────────────────────────────────────────────
 
-function renderContent(data: FacturacionMesData) {
-  const pct   = data.pct_var_mes
+function renderContent(data: FacturacionMesRPC) {
+  const pct   = data.pct_vs_mes_anterior
   const color = semColor(pct)
 
   return (
@@ -92,7 +106,7 @@ function renderContent(data: FacturacionMesData) {
         color:         'rgba(255,255,255,0.92)',
         letterSpacing: '-0.02em',
       }}>
-        {fmtValue(data.fact_mes_acum)}
+        {fmtValue(data.facturacion_mes_actual_acumulada)}
       </div>
 
       {/* Arrow + percentage */}
@@ -110,9 +124,9 @@ function renderContent(data: FacturacionMesData) {
         alignItems:     'center',
       }}>
         <span style={{ color: MUTED }}>vs mismo período mes ant.</span>
-        {data.fact_mes_comp !== null && (
+        {data.facturacion_mismo_periodo_mes_anterior !== null && (
           <span style={{ color: 'rgba(255,255,255,0.45)' }}>
-            {fmtValue(data.fact_mes_comp)}
+            {fmtValue(data.facturacion_mismo_periodo_mes_anterior)}
           </span>
         )}
       </div>
