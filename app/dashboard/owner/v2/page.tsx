@@ -10,7 +10,9 @@ const MUTED      = 'rgba(255,255,255,0.35)'
 export default function OwnerDashboardV2() {
   const { user } = useAuth()
 
-  const locationId = user?.activeMembership?.location_id ?? ''
+  // TODO: remover fallback cuando auth esté integrada en v2
+  const DEV_FALLBACK_LOCATION_ID = 'e5931742-8249-4d0d-a028-7f1d65b10857' // piloto (mismo default que DashboardFiltersContext)
+  const locationId = user?.activeMembership?.location_id || DEV_FALLBACK_LOCATION_ID
   const orgName    = user?.activeMembership?.organization?.name ?? 'Dashboard'
 
   return (
