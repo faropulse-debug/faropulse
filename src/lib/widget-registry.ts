@@ -56,6 +56,8 @@ export interface WidgetConfig {
   refreshPolicy: RefreshPolicy
   /** Declares which DashboardFilters this widget uses */
   filterSupport: WidgetFilterSupport
+  /** Dashboard section this widget belongs to — used for grouped rendering */
+  section?:      string
   /** Supabase RPC function name — required when dataSource is 'rpc' */
   rpcName?:      string
   /** Where the widget fetches its data from */
@@ -99,6 +101,7 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     rpcName:    'get_facturacion_semana',
     dataSource: 'rpc',
+    section:    'facturacion',
   },
   {
     id:            'facturacion-mes',
@@ -117,6 +120,7 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     rpcName:    'get_facturacion_mes',
     dataSource: 'rpc',
+    section:    'facturacion',
   },
   {
     id:            'descuentos',
@@ -135,6 +139,7 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     rpcName:    'get_descuentos_kpis',
     dataSource: 'rpc',
+    section:    'operaciones',
   },
   {
     id:            'alertas',
@@ -153,6 +158,7 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     rpcName:    'get_alertas',
     dataSource: 'rpc',
+    section:    'alertas',
   },
 ]
 
@@ -179,4 +185,24 @@ export function getWidget(id: string): WidgetConfig | undefined {
 export function setWidgetEnabled(id: string, enabled: boolean): void {
   const widget = getWidget(id)
   if (widget) widget.enabled = enabled
+}
+
+/** Returns enabled widgets for a given section, sorted by priority */
+export function getWidgetsBySection(section: string): WidgetConfig[] {
+  return getEnabledWidgets().filter(w => w.section === section)
+}
+
+/** Returns unique section names ordered by the minimum priority of their widgets */
+export function getSections(): string[] {
+  const minPriority = new Map<string, number>()
+  for (const w of getEnabledWidgets()) {
+    if (!w.section) continue
+    const current = minPriority.get(w.section)
+    if (current === undefined || w.priority < current) {
+      minPriority.set(w.section, w.priority)
+    }
+  }
+  return [...minPriority.entries()]
+    .sort((a, b) => a[1] - b[1])
+    .map(([section]) => section)
 }
