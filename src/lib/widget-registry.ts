@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import type { WidgetFilterSupport } from '@/src/context/dashboard-filters'
 import { FacturacionSemanaWidget }  from '@/src/components/widgets/FacturacionSemanaWidget'
 import { FacturacionMesWidget }     from '@/src/components/widgets/FacturacionMesWidget'
+import { ElPulsoSection }           from '@/src/components/widgets/sections/ElPulsoSection'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,8 @@ export interface WidgetConfig {
   rpcName?:      string
   /** Where the widget fetches its data from */
   dataSource?:   'rpc' | 'view'
+  /** Render strategy — 'kpi' = single RPC value, 'composite' = multiple sources */
+  kind?:         'kpi' | 'composite'
   /** Optional formatter for the widget's primary numeric value */
   formatValue?:  (value: number | null) => string
   /** Semantic thresholds for coloring/alerting (domain-specific units) */
@@ -101,6 +104,7 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     rpcName:    'get_facturacion_semana',
     dataSource: 'rpc',
+    kind:       'kpi',
     section:    'facturacion',
   },
   {
@@ -120,6 +124,7 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     rpcName:    'get_facturacion_mes',
     dataSource: 'rpc',
+    kind:       'kpi',
     section:    'facturacion',
   },
   {
@@ -139,6 +144,7 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     rpcName:    'get_descuentos_kpis',
     dataSource: 'rpc',
+    kind:       'kpi',
     section:    'operaciones',
   },
   {
@@ -158,7 +164,26 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     rpcName:    'get_alertas',
     dataSource: 'rpc',
+    kind:       'kpi',
     section:    'alertas',
+  },
+  {
+    id:            'el-pulso',
+    title:         'El Pulso',
+    description:   'Métricas de ventas, tickets y comensales por período',
+    enabled:       true,
+    component:     ElPulsoSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      5,
+    category:      'kpi',
+    refreshPolicy: 'normal',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'pulso',
   },
 ]
 

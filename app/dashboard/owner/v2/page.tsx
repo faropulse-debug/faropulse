@@ -3,6 +3,7 @@
 import { useAuth }                  from '@/hooks/useAuth'
 import { DashboardFiltersProvider } from '@/src/context/dashboard-filters'
 import { DashboardShell }           from '@/src/components/dashboard/DashboardShell'
+import { ElPulsoSection }           from '@/src/components/widgets/sections/ElPulsoSection'
 
 const FONT_LABEL = "var(--font-dm-mono), monospace"
 const MUTED      = 'rgba(255,255,255,0.35)'
@@ -44,6 +45,9 @@ export default function OwnerDashboardV2() {
 
         {/* Widget grid */}
         <DashboardShell locationId={locationId} />
+
+        {/* El Pulso — composite section */}
+        <ElPulsoSection locationId={locationId} />
 
       </div>
     </DashboardFiltersProvider>
