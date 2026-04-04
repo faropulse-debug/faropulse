@@ -22,6 +22,7 @@ const FILTER_PARAM_MAP: Partial<Record<keyof DashboardFilters, string>> = {
 export interface UseWidgetDataResult<T> {
   data:    T | null
   loading: boolean
+  empty:   boolean
   error:   string | null
   refetch: () => void
 }
@@ -36,6 +37,7 @@ export function useWidgetData<T>(
 
   const [data,    setData]    = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
+  const [empty,   setEmpty]   = useState(false)
   const [error,   setError]   = useState<string | null>(null)
   const [tick,    setTick]    = useState(0)
 
@@ -51,6 +53,7 @@ export function useWidgetData<T>(
     let cancelled = false
 
     setLoading(true)
+    setEmpty(false)
     setError(null)
 
     // ── Build RPC params ───────────────────────────────────────────────────────
@@ -81,7 +84,9 @@ export function useWidgetData<T>(
           setError(rpcError.message)
           return
         }
-        setData((Array.isArray(result) ? result[0] : result) as T)
+        const resolved = Array.isArray(result) ? (result[0] ?? null) : result
+        setData(resolved as T)
+        setEmpty(resolved === null)
       } catch (err: unknown) {
         if (cancelled) return
         const message = err instanceof Error ? err.message : 'Error desconocido'
@@ -99,6 +104,7 @@ export function useWidgetData<T>(
   return {
     data,
     loading,
+    empty,
     error,
     refetch: () => setTick(t => t + 1),
   }

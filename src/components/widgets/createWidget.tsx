@@ -1,11 +1,30 @@
 'use client'
 
+'use client'
+
 import type { ComponentType, ReactNode } from 'react'
 import type { WidgetFilterSupport }      from '@/src/context/dashboard-filters'
 import type { WidgetProps }              from '@/src/lib/widget-registry'
 import { useWidgetData }                 from '@/src/hooks/useWidgetData'
 import { WidgetCard }                    from './WidgetCard'
 import { WidgetSkeleton }                from './WidgetSkeleton'
+
+// ─── Empty state ──────────────────────────────────────────────────────────────
+
+function WidgetEmpty() {
+  return (
+    <div style={{
+      fontFamily:    'var(--font-dm-mono), monospace',
+      fontSize:      '0.62rem',
+      letterSpacing: '0.12em',
+      color:         'rgba(255,255,255,0.2)',
+      textAlign:     'center',
+      padding:       '16px 0',
+    }}>
+      sin datos
+    </div>
+  )
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,13 +58,15 @@ export function createWidget({
 }: CreateWidgetOptions): ComponentType<WidgetProps> {
 
   function Widget({ locationId }: WidgetProps) {
-    const { data, loading } = useWidgetData(config, locationId)
+    const { data, loading, empty } = useWidgetData(config, locationId)
 
     return (
       <WidgetCard title={config.title}>
-        {loading || !data
+        {loading
           ? <WidgetSkeleton rows={skeletonLines?.length ?? 1} />
-          : renderContent(data)
+          : empty || !data
+            ? <WidgetEmpty />
+            : renderContent(data)
         }
       </WidgetCard>
     )
