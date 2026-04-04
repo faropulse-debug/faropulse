@@ -11,7 +11,7 @@ export default function OwnerDashboardV2() {
   const { user } = useAuth()
 
   // TODO: remover fallback cuando auth esté integrada en v2
-  const DEV_FALLBACK_LOCATION_ID = 'e5931742-8249-4d0d-a028-7f1d65b10857' // piloto (mismo default que DashboardFiltersContext)
+  const DEV_FALLBACK_LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001' // piloto staging (egjxyskqhnmuqwkrbshu)
   const locationId = user?.activeMembership?.location_id || DEV_FALLBACK_LOCATION_ID
   const orgName    = user?.activeMembership?.organization?.name ?? 'Dashboard'
 
