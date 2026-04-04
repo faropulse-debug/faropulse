@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 import type { WidgetFilterSupport } from '@/src/context/dashboard-filters'
-import { ElPulsoSection } from '@/src/components/widgets/sections/ElPulsoSection'
+import { ElPulsoSection }             from '@/src/components/widgets/sections/ElPulsoSection'
+import { PuntoDeEquilibrioSection }   from '@/src/components/widgets/sections/PuntoDeEquilibrioSection'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,24 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     kind:    'composite',
     section: 'pulso',
+  },
+  {
+    id:            'punto-equilibrio',
+    title:         'Punto de Equilibrio',
+    description:   'Ventas vs PE por granularidad: diario, semanal, mensual y semestral',
+    enabled:       true,
+    component:     PuntoDeEquilibrioSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      6,
+    category:      'diagnostic',
+    refreshPolicy: 'normal',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'punto-equilibrio',
   },
 ]
 
