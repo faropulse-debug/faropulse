@@ -23,12 +23,27 @@ export type WidgetFilterSupport = {
   ignored:  (keyof DashboardFilters)[]
 }
 
-// ─── Defaults (piloto) ────────────────────────────────────────────────────────
+// ─── Defaults ─────────────────────────────────────────────────────────────────
+
+function getMondayOfCurrentWeek(): string {
+  const today = new Date()
+  const day = today.getDay() // 0=sun, 1=mon ... 6=sat
+  const diff = day === 0 ? -6 : 1 - day  // retroceder al lunes
+  const monday = new Date(today)
+  monday.setDate(today.getDate() + diff)
+  return monday.toISOString().slice(0, 10)
+}
+
+function getFirstDayOfCurrentMonth(): string {
+  const today = new Date()
+  return new Date(today.getFullYear(), today.getMonth(), 1)
+    .toISOString().slice(0, 10)
+}
 
 const DEFAULT_FILTERS: DashboardFilters = {
   locationId:     'e5931742-8249-4d0d-a028-7f1d65b10857',
-  weekReference:  '2026-03-16',   // lunes de la semana 17-21 mar
-  monthReference: '2026-03-01',
+  weekReference:  getMondayOfCurrentWeek(),
+  monthReference: getFirstDayOfCurrentMonth(),
   compareMode:    'vs_prev_month',
 }
 
