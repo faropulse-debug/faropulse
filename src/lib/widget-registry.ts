@@ -1,8 +1,6 @@
 import type { ComponentType } from 'react'
 import type { WidgetFilterSupport } from '@/src/context/dashboard-filters'
-import { FacturacionSemanaWidget }  from '@/src/components/widgets/FacturacionSemanaWidget'
-import { FacturacionMesWidget }     from '@/src/components/widgets/FacturacionMesWidget'
-import { ElPulsoSection }           from '@/src/components/widgets/sections/ElPulsoSection'
+import { ElPulsoSection } from '@/src/components/widgets/sections/ElPulsoSection'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,102 +69,9 @@ export interface WidgetConfig {
   thresholds?:   { good: number; warning: number }
 }
 
-// ─── Placeholder component ────────────────────────────────────────────────────
-// Used for widgets whose full implementation is pending.
-// Replace each entry's `component` field as widgets are built.
-
-function createPlaceholder(name: string): ComponentType<WidgetProps> {
-  function PlaceholderWidget({ locationId }: WidgetProps) {
-    void locationId
-    return null
-  }
-  PlaceholderWidget.displayName = `Placeholder(${name})`
-  return PlaceholderWidget
-}
-
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 export const WIDGET_REGISTRY: WidgetConfig[] = [
-  {
-    id:            'facturacion-semana',
-    title:         'Facturación Semana',
-    description:   'Ventas acumuladas de la semana actual vs semana anterior',
-    enabled:       true,
-    component:     FacturacionSemanaWidget,
-    gridSpan:      { mobile: 12, tablet: 6, desktop: 4 },
-    priority:      1,
-    category:      'kpi',
-    refreshPolicy: 'normal',
-    filterSupport: {
-      required: ['locationId', 'weekReference'],
-      optional: ['compareMode', 'channel'],
-      ignored:  ['monthReference'],
-    },
-    rpcName:    'get_facturacion_semana',
-    dataSource: 'rpc',
-    kind:       'kpi',
-    section:    'facturacion',
-  },
-  {
-    id:            'facturacion-mes',
-    title:         'Facturación Mes',
-    description:   'Ventas acumuladas del mes actual y proyección',
-    enabled:       true,
-    component:     FacturacionMesWidget,
-    gridSpan:      { mobile: 12, tablet: 6, desktop: 4 },
-    priority:      2,
-    category:      'kpi',
-    refreshPolicy: 'normal',
-    filterSupport: {
-      required: ['locationId', 'monthReference'],
-      optional: ['compareMode', 'channel'],
-      ignored:  ['weekReference'],
-    },
-    rpcName:    'get_facturacion_mes',
-    dataSource: 'rpc',
-    kind:       'kpi',
-    section:    'facturacion',
-  },
-  {
-    id:            'descuentos',
-    title:         'Descuentos',
-    description:   'Resumen de descuentos aplicados en el período',
-    enabled:       true,
-    component:     createPlaceholder('Descuentos'),
-    gridSpan:      { mobile: 12, tablet: 6, desktop: 4 },
-    priority:      3,
-    category:      'diagnostic',
-    refreshPolicy: 'normal',
-    filterSupport: {
-      required: ['locationId', 'monthReference'],
-      optional: ['channel'],
-      ignored:  ['compareMode', 'weekReference'],
-    },
-    rpcName:    'get_descuentos_kpis',
-    dataSource: 'rpc',
-    kind:       'kpi',
-    section:    'operaciones',
-  },
-  {
-    id:            'alertas',
-    title:         'Alertas',
-    description:   'Indicadores fuera de parámetros normales',
-    enabled:       true,
-    component:     createPlaceholder('Alertas'),
-    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
-    priority:      4,
-    category:      'alert',
-    refreshPolicy: 'fast',
-    filterSupport: {
-      required: ['locationId'],
-      optional: [],
-      ignored:  ['weekReference', 'monthReference', 'compareMode', 'channel'],
-    },
-    rpcName:    'get_alertas',
-    dataSource: 'rpc',
-    kind:       'kpi',
-    section:    'alertas',
-  },
   {
     id:            'el-pulso',
     title:         'El Pulso',
