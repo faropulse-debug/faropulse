@@ -356,15 +356,19 @@ async function main() {
   const nullIds = mapped.filter(r => !r.external_id).length
   if (nullIds > 0) log.warn(`${nullIds} filas sin external_id`)
 
-  // Deduplicar por constraint key (el Excel puede tener filas repetidas)
-  const dedupFields = tableType === 'ventas'
-    ? ['external_id', 'total', 'fecha']
-    : ['external_id', 'fecha_item', 'codigo']
-  const deduped = deduplicateRows(mapped, dedupFields)
-  if (deduped.length < mapped.length) {
-    log.warn(`Duplicados en Excel eliminados: ${mapped.length - deduped.length} filas (${deduped.length} únicas)`)
+  // Para ventas: deduplicar incluyendo cliente para no colapsar tickets de distintos clientes
+  // (ej. dos ventas de PedidosYa con distinto cliente pero mismo external_id/total/fecha)
+  // Para items: no deduplicar — insertar todas las filas tal cual
+  let rows: Record<string, unknown>[]
+  if (tableType === 'ventas') {
+    const deduped = deduplicateRows(mapped, ['external_id', 'total', 'fecha', 'cliente'])
+    if (deduped.length < mapped.length) {
+      log.warn(`Duplicados en Excel eliminados: ${mapped.length - deduped.length} filas (${deduped.length} únicas)`)
+    }
+    rows = deduped
+  } else {
+    rows = mapped
   }
-  const rows = deduped
 
   // ── 5. Cliente Supabase ───────────────────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -359,7 +359,7 @@ async function ingestDay(dateIso: string, supabase: ReturnType<typeof createClie
 
   // Upsert sales_documents
   log.step(`Upserting ${docRows.length} documentos → sales_documents…`)
-  const docResult = await upsertBatches(supabase, 'sales_documents', docRows, 'external_id,location_id,total,fecha')
+  const docResult = await upsertBatches(supabase, 'sales_documents', docRows, 'external_id,location_id,total,fecha,COALESCE(cliente,\'\')')
 
   // Upsert sales_items
   log.step(`Upserting ${itemRows.length} ítems → sales_items…`)
