@@ -4,6 +4,7 @@ import { ElPulsoSection }             from '@/src/components/widgets/sections/El
 import { PuntoDeEquilibrioSection }   from '@/src/components/widgets/sections/PuntoDeEquilibrioSection'
 import { EvolutivoSection }           from '@/src/components/widgets/sections/EvolutivoSection'
 import { AlertasSection }             from '@/src/components/widgets/sections/AlertasSection'
+import { EstadoNegocioSection }       from '@/src/components/widgets/sections/EstadoNegocioSection'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -75,6 +76,24 @@ export interface WidgetConfig {
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 export const WIDGET_REGISTRY: WidgetConfig[] = [
+  {
+    id:            'estado-negocio',
+    title:         'Estado del negocio',
+    description:   'Semáforo de KPIs clave: resultado neto, PE diario, ticket promedio, margen delivery y costo laboral',
+    enabled:       true,
+    component:     EstadoNegocioSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      4,
+    category:      'kpi',
+    refreshPolicy: 'normal',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'estado-negocio',
+  },
   {
     id:            'el-pulso',
     title:         'El Pulso',
