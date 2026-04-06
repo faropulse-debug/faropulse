@@ -42,6 +42,39 @@ const MOCK: Record<Periodo, PulsoDatos> = {
 
 const AMBER = '#f5820a'
 
+// ─── Date range helpers ───────────────────────────────────────────────────────
+
+function pad(n: number) { return String(n).padStart(2, '0') }
+
+function dateRangeLabel(periodo: Periodo): string {
+  const now   = new Date()
+  const day   = now.getDate()
+  const month = now.getMonth()      // 0-based
+  const year  = now.getFullYear()
+
+  if (periodo === 'semana') {
+    // Monday of the current ISO week
+    const dow     = now.getDay() === 0 ? 7 : now.getDay() // Sun=7
+    const mon     = new Date(now)
+    mon.setDate(day - (dow - 1))
+    const sun     = new Date(mon)
+    sun.setDate(mon.getDate() + 6)
+    const fmt = (d: Date) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`
+    return `Lun ${fmt(mon)} - Dom ${fmt(sun)}`
+  }
+
+  if (periodo === 'mes') {
+    const last = new Date(year, month + 1, 0).getDate()  // last day of month
+    return `01/${pad(month + 1)}/${year} - ${pad(last)}/${pad(month + 1)}/${year}`
+  }
+
+  // 6m: from 6 months ago (first day) to current month
+  const start = new Date(year, month - 5, 1)
+  const sm    = pad(start.getMonth() + 1)
+  const sy    = start.getFullYear()
+  return `${sm}/${sy} - ${pad(month + 1)}/${year}`
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -120,7 +153,15 @@ export function ElPulsoSection({ locationId }: Props) {
 
   return (
     <div style={{ marginBottom: '52px' }}>
-      <SectionLabel action={<PeriodoSelector value={periodo} onChange={setPeriodo} />}>
+      <SectionLabel action={
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <PeriodoSelector value={periodo} onChange={setPeriodo} />
+          <span style={{
+            fontFamily: 'var(--font-dm-mono)', fontSize: '11px',
+            color: 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap',
+          }}>{dateRangeLabel(periodo)}</span>
+        </div>
+      }>
         El Pulso —{' '}
         <span style={{ color: AMBER, marginLeft: '4px' }}>{PERIODO_LABELS[periodo]}</span>
       </SectionLabel>
