@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import type { WidgetFilterSupport } from '@/src/context/dashboard-filters'
 import { ElPulsoSection }             from '@/src/components/widgets/sections/ElPulsoSection'
 import { PuntoDeEquilibrioSection }   from '@/src/components/widgets/sections/PuntoDeEquilibrioSection'
+import { EvolutivoSection }           from '@/src/components/widgets/sections/EvolutivoSection'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -108,6 +109,24 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     kind:    'composite',
     section: 'punto-equilibrio',
+  },
+  {
+    id:            'evolutivo',
+    title:         'Evolutivo 6 meses',
+    description:   'Evolución de ventas, resultado neto y punto de equilibrio en los últimos 6 meses',
+    enabled:       true,
+    component:     EvolutivoSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      7,
+    category:      'diagnostic',
+    refreshPolicy: 'slow',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'evolutivo',
   },
 ]
 
