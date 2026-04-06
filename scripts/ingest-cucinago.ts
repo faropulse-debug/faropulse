@@ -1,11 +1,12 @@
 /**
  * scripts/ingest-cucinago.ts
  *
- * Ingesta diaria desde la API REST de CucinaGo → Supabase STG.
+ * Ingesta desde la API REST de CucinaGo → Supabase STG.
  *
  * Uso:
- *   npx tsx scripts/ingest-cucinago.ts              # ayer
- *   npx tsx scripts/ingest-cucinago.ts --date 2026-04-05
+ *   npx tsx scripts/ingest-cucinago.ts                              # ayer
+ *   npx tsx scripts/ingest-cucinago.ts --date 2026-04-05            # un día
+ *   npx tsx scripts/ingest-cucinago.ts --from 2026-03-01 --to 2026-03-31  # rango
  *
  * Requiere: @supabase/supabase-js (ya instalado en el proyecto).
  * Entorno: apunta a STG (egjxyskqhnmuqwkrbshu) con service role key.
@@ -118,6 +119,22 @@ function yesterday(): string {
   const d = new Date()
   d.setDate(d.getDate() - 1)
   return d.toISOString().split('T')[0]
+}
+
+/** Genera array de fechas YYYY-MM-DD desde from hasta to (inclusive) */
+function dateRange(from: string, to: string): string[] {
+  const dates: string[] = []
+  const cur = new Date(from + 'T00:00:00Z')
+  const end = new Date(to   + 'T00:00:00Z')
+  while (cur <= end) {
+    dates.push(cur.toISOString().split('T')[0])
+    cur.setUTCDate(cur.getUTCDate() + 1)
+  }
+  return dates
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 // ─── Value coercers ───────────────────────────────────────────────────────────
@@ -289,53 +306,42 @@ async function upsertBatches(
   return { inserted, failed, firstError }
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── Per-day ingestion ────────────────────────────────────────────────────────
 
-async function main() {
-  // ── 1. Parsear --date ─────────────────────────────────────────────────────
-  const dateArg = process.argv.indexOf('--date')
-  const dateIso = dateArg !== -1
-    ? process.argv[dateArg + 1]
-    : yesterday()
+interface DayResult {
+  date:       string
+  docs:       number
+  items:      number
+  failed:     boolean
+}
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
-    log.error(`Fecha inválida: "${dateIso}". Formato esperado: YYYY-MM-DD`)
-    process.exit(1)
-  }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function ingestDay(dateIso: string, supabase: ReturnType<typeof createClient<any>>, showRawSample: boolean): Promise<DayResult> {
+  log.info('───────────────────────────────────────────────────────')
+  log.info(`Procesando: ${dateIso}`)
+  log.info('───────────────────────────────────────────────────────')
 
-  log.info('═══════════════════════════════════════════════════════')
-  log.info(`Ingesta CucinaGo → Supabase STG`)
-  log.info(`Fecha: ${dateIso}  |  Location: ${LOCATION_ID}`)
-  log.info('═══════════════════════════════════════════════════════')
-
-  // ── 2. Cliente Supabase (service role — bypassa RLS) ─────────────────────
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const supabase = createClient<any>(STG_URL, SERVICE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
-  log.ok('Cliente Supabase STG inicializado (service role)')
-
-  // ── 3. Fetch de la API con paginación ────────────────────────────────────
+  // Fetch
   let rawItems: CucinaGoItem[]
   try {
     rawItems = await fetchAllItems(dateIso)
   } catch (err) {
     log.error('Falla al llamar la API de CucinaGo:', err instanceof Error ? err.message : err)
-    process.exit(1)
+    return { date: dateIso, docs: 0, items: 0, failed: true }
   }
 
   if (rawItems.length === 0) {
-    log.warn('La API devolvió 0 ítems para esta fecha. Nada que insertar.')
-    process.exit(0)
+    log.warn(`${dateIso}: API devolvió 0 ítems. Nada que insertar.`)
+    return { date: dateIso, docs: 0, items: 0, failed: false }
   }
 
-  // ── 4. Muestra de campos del primer ítem crudo ───────────────────────────
-  log.step('Campos del primer ítem (API raw):')
-  console.log(JSON.stringify(rawItems[0], null, 2))
+  // Muestra del primer ítem crudo (solo al correr un único día)
+  if (showRawSample) {
+    log.step('Campos del primer ítem (API raw):')
+    console.log(JSON.stringify(rawItems[0], null, 2))
+  }
 
-  // ── 5. Agrupar ítems por documento ───────────────────────────────────────
-  log.step('Agrupando ítems por documento…')
-
+  // Agrupar por documento
   const docMap = new Map<string, CucinaGoItem[]>()
   for (const item of rawItems) {
     const key = String(item.numero ?? '').trim()
@@ -344,35 +350,22 @@ async function main() {
     if (group) group.push(item)
     else docMap.set(key, [item])
   }
-
   log.ok(`Documentos únicos: ${docMap.size}  |  Ítems totales: ${rawItems.length}`)
 
-  // ── 5. Mapear filas ───────────────────────────────────────────────────────
+  // Mapear filas
   const docRows  = Array.from(docMap.entries())
     .map(([extId, items]) => buildDocument(extId, items)) as Record<string, unknown>[]
   const itemRows = rawItems.map(mapItem) as Record<string, unknown>[]
 
-  // ── 6. Upsert sales_documents ─────────────────────────────────────────────
+  // Upsert sales_documents
   log.step(`Upserting ${docRows.length} documentos → sales_documents…`)
+  const docResult = await upsertBatches(supabase, 'sales_documents', docRows, 'external_id,location_id,total')
 
-  const docResult = await upsertBatches(
-    supabase,
-    'sales_documents',
-    docRows,
-    'external_id,location_id,total',
-  )
-
-  // ── 7. Upsert sales_items ─────────────────────────────────────────────────
+  // Upsert sales_items
   log.step(`Upserting ${itemRows.length} ítems → sales_items…`)
+  const itemResult = await upsertBatches(supabase, 'sales_items', itemRows, 'external_id,location_id,fecha_item,codigo')
 
-  const itemResult = await upsertBatches(
-    supabase,
-    'sales_items',
-    itemRows,
-    'external_id,location_id,fecha_item,codigo',
-  )
-
-  // ── 8. Registrar en uploads ───────────────────────────────────────────────
+  // Registrar en uploads
   const anyFailed = docResult.failed + itemResult.failed > 0
   await supabase.from('uploads').insert({
     org_id:         ORG_ID,
@@ -386,19 +379,105 @@ async function main() {
     error_detail:   itemResult.firstError ?? docResult.firstError ?? null,
   })
 
-  // ── 9. Resumen ────────────────────────────────────────────────────────────
-  log.info('═══════════════════════════════════════════════════════')
-  log.info('RESUMEN')
-  log.info(`  sales_documents → inserted: ${docResult.inserted}  failed: ${docResult.failed}`)
-  log.info(`  sales_items     → inserted: ${itemResult.inserted}  failed: ${itemResult.failed}`)
-  if (docResult.firstError)  log.warn('  Primer error docs:', docResult.firstError)
-  if (itemResult.firstError) log.warn('  Primer error items:', itemResult.firstError)
-  log.info('═══════════════════════════════════════════════════════')
+  log.ok(`${dateIso}: docs=${docResult.inserted} items=${itemResult.inserted} failed=${docResult.failed + itemResult.failed}`)
+  return {
+    date:   dateIso,
+    docs:   docResult.inserted,
+    items:  itemResult.inserted,
+    failed: anyFailed,
+  }
+}
 
-  if (docResult.failed > 0 || itemResult.failed > 0) {
-    process.exit(1)
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+async function main() {
+  // ── 1. Parsear argumentos ────────────────────────────────────────────────
+  const argv = process.argv
+
+  const dateArg = argv.indexOf('--date')
+  const fromArg = argv.indexOf('--from')
+  const toArg   = argv.indexOf('--to')
+
+  let dates: string[]
+
+  if (fromArg !== -1 || toArg !== -1) {
+    // Modo rango
+    if (fromArg === -1 || toArg === -1) {
+      log.error('--from y --to deben usarse juntos. Ej: --from 2026-03-01 --to 2026-03-31')
+      process.exit(1)
+    }
+    const from = argv[fromArg + 1]
+    const to   = argv[toArg   + 1]
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      log.error(`Fechas inválidas: from="${from}" to="${to}". Formato: YYYY-MM-DD`)
+      process.exit(1)
+    }
+    if (from > to) {
+      log.error(`--from (${from}) debe ser ≤ --to (${to})`)
+      process.exit(1)
+    }
+    dates = dateRange(from, to)
+  } else {
+    // Modo día único (--date o ayer por defecto)
+    const dateIso = dateArg !== -1 ? argv[dateArg + 1] : yesterday()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
+      log.error(`Fecha inválida: "${dateIso}". Formato esperado: YYYY-MM-DD`)
+      process.exit(1)
+    }
+    dates = [dateIso]
   }
 
+  const isRange = dates.length > 1
+
+  log.info('═══════════════════════════════════════════════════════')
+  log.info('Ingesta CucinaGo → Supabase STG')
+  if (isRange) {
+    log.info(`Rango: ${dates[0]} → ${dates[dates.length - 1]}  (${dates.length} días)`)
+  } else {
+    log.info(`Fecha: ${dates[0]}`)
+  }
+  log.info(`Location: ${LOCATION_ID}`)
+  log.info('═══════════════════════════════════════════════════════')
+
+  // ── 2. Cliente Supabase ──────────────────────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = createClient<any>(STG_URL, SERVICE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  log.ok('Cliente Supabase STG inicializado (service role)')
+
+  // ── 3. Iterar días ───────────────────────────────────────────────────────
+  const results: DayResult[] = []
+
+  for (let i = 0; i < dates.length; i++) {
+    const result = await ingestDay(dates[i], supabase, !isRange)
+    results.push(result)
+
+    // Delay entre días (no después del último)
+    if (isRange && i < dates.length - 1) {
+      log.info('Esperando 2s antes del siguiente día…')
+      await sleep(2000)
+    }
+  }
+
+  // ── 4. Resumen total ─────────────────────────────────────────────────────
+  const totalDocs    = results.reduce((s, r) => s + r.docs,  0)
+  const totalItems   = results.reduce((s, r) => s + r.items, 0)
+  const failedDays   = results.filter(r => r.failed)
+
+  log.info('═══════════════════════════════════════════════════════')
+  log.info('RESUMEN TOTAL')
+  log.info(`  Días procesados:  ${results.length}`)
+  log.info(`  Total docs:       ${totalDocs}`)
+  log.info(`  Total items:      ${totalItems}`)
+  log.info(`  Días con error:   ${failedDays.length}`)
+  if (failedDays.length > 0) {
+    log.warn('  Fechas con error:')
+    failedDays.forEach(r => log.warn(`    ${r.date}`))
+  }
+  log.info('═══════════════════════════════════════════════════════')
+
+  if (failedDays.length > 0) process.exit(1)
   log.ok('Ingesta completada sin errores.')
 }
 
