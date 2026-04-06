@@ -3,6 +3,7 @@ import type { WidgetFilterSupport } from '@/src/context/dashboard-filters'
 import { ElPulsoSection }             from '@/src/components/widgets/sections/ElPulsoSection'
 import { PuntoDeEquilibrioSection }   from '@/src/components/widgets/sections/PuntoDeEquilibrioSection'
 import { EvolutivoSection }           from '@/src/components/widgets/sections/EvolutivoSection'
+import { AlertasSection }             from '@/src/components/widgets/sections/AlertasSection'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,6 +128,24 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     kind:    'composite',
     section: 'evolutivo',
+  },
+  {
+    id:            'alertas-insights',
+    title:         'Alertas e Insights',
+    description:   'Alertas automáticas sobre resultado neto, PE, ticket promedio, delivery y costo laboral',
+    enabled:       true,
+    component:     AlertasSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      8,
+    category:      'alert',
+    refreshPolicy: 'slow',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'alertas',
   },
 ]
 
