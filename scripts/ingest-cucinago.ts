@@ -248,6 +248,7 @@ function buildDocument(externalId: string, items: CucinaGoItem[]) {
     camarero_nombre: toStr(first.camarero_nombre),
     total,
     descuento,
+    cantidad_documentos: items.length,
   }
 }
 
@@ -328,7 +329,11 @@ async function main() {
     process.exit(0)
   }
 
-  // ── 4. Agrupar ítems por documento ───────────────────────────────────────
+  // ── 4. Muestra de campos del primer ítem crudo ───────────────────────────
+  log.step('Campos del primer ítem (API raw):')
+  console.log(JSON.stringify(rawItems[0], null, 2))
+
+  // ── 5. Agrupar ítems por documento ───────────────────────────────────────
   log.step('Agrupando ítems por documento…')
 
   const docMap = new Map<string, CucinaGoItem[]>()
