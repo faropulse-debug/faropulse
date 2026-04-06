@@ -1,8 +1,12 @@
 /**
  * scripts/load-excel.ts
  *
- * Lee un Excel de Ventas o de Detalle de Ventas (Items) y hace upsert directo
- * en Supabase STG, sin pasar por la web.
+ * Lee un Excel de Ventas o de Detalle de Ventas (Items) y carga directo
+ * en Supabase STG usando DELETE+INSERT por rango de fechas, sin pasar por la web.
+ *
+ * Estrategia DELETE+INSERT:
+ *   Ventas → DELETE WHERE fecha BETWEEN min y max del Excel, luego INSERT
+ *   Items  → DELETE WHERE fecha_caja BETWEEN min y max del Excel, luego INSERT
  *
  * Detección automática por headers:
  *   • headers contienen "familia"  → Items   (sales_items)
@@ -206,14 +210,43 @@ function mapItems(row: Record<string, unknown>) {
   }
 }
 
-// ─── Upsert in batches ────────────────────────────────────────────────────────
+// ─── Date range helpers ───────────────────────────────────────────────────────
+
+function dateRangeOf(rows: Record<string, unknown>[], field: string): { min: string; max: string } | null {
+  const dates = rows
+    .map(r => r[field])
+    .filter((v): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v))
+  if (dates.length === 0) return null
+  dates.sort()
+  return { min: dates[0], max: dates[dates.length - 1] }
+}
+
+// ─── DELETE + INSERT ──────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function upsertBatches(
-  supabase:   ReturnType<typeof createClient<any>>,
-  table:      string,
-  rows:       Record<string, unknown>[],
-  onConflict: string,
+async function deleteRange(
+  supabase:  ReturnType<typeof createClient<any>>,
+  table:     string,
+  dateField: string,
+  min:       string,
+  max:       string,
+): Promise<void> {
+  const { error, count } = await supabase
+    .from(table)
+    .delete({ count: 'exact' })
+    .eq('location_id', LOCATION_ID)
+    .gte(dateField, min)
+    .lte(dateField, max)
+
+  if (error) throw new Error(`DELETE ${table}: ${error.message}`)
+  log.ok(`DELETE ${table} WHERE ${dateField} BETWEEN ${min} AND ${max}: ${count ?? '?'} filas eliminadas`)
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function insertBatches(
+  supabase: ReturnType<typeof createClient<any>>,
+  table:    string,
+  rows:     Record<string, unknown>[],
 ): Promise<{ inserted: number; failed: number; firstError?: string }> {
   let inserted   = 0
   let failed     = 0
@@ -226,7 +259,7 @@ async function upsertBatches(
 
     const { error, count } = await supabase
       .from(table)
-      .upsert(batch, { onConflict, ignoreDuplicates: true, count: 'exact' })
+      .insert(batch, { count: 'exact' })
 
     if (error) {
       const msg = `${error.message}${error.details ? ` — ${error.details}` : ''}`
@@ -236,11 +269,23 @@ async function upsertBatches(
     } else {
       const n = count ?? batch.length
       inserted += n
-      log.info(`  [${table}] batch ${batchNum}/${totalBatches}: ${n} upserted (acum: ${inserted})`)
+      log.info(`  [${table}] batch ${batchNum}/${totalBatches}: ${n} insertados (acum: ${inserted})`)
     }
   }
 
   return { inserted, failed, firstError }
+}
+
+// ─── Deduplication ───────────────────────────────────────────────────────────
+
+/** Deduplica por los campos clave del constraint, conservando la última aparición. */
+function deduplicateRows(rows: Record<string, unknown>[], keyFields: string[]): Record<string, unknown>[] {
+  const map = new Map<string, Record<string, unknown>>()
+  for (const row of rows) {
+    const key = keyFields.map(f => String(row[f] ?? '')).join('|')
+    map.set(key, row)
+  }
+  return Array.from(map.values())
 }
 
 // ─── Auto-detect table type from normalized headers ───────────────────────────
@@ -309,7 +354,17 @@ async function main() {
     : normalizedRows.map(r => mapItems(r)  as Record<string, unknown>)
 
   const nullIds = mapped.filter(r => !r.external_id).length
-  if (nullIds > 0) log.warn(`${nullIds} filas sin external_id (se ignorarán en upsert)`)
+  if (nullIds > 0) log.warn(`${nullIds} filas sin external_id`)
+
+  // Deduplicar por constraint key (el Excel puede tener filas repetidas)
+  const dedupFields = tableType === 'ventas'
+    ? ['external_id', 'total', 'fecha']
+    : ['external_id', 'fecha_item', 'codigo']
+  const deduped = deduplicateRows(mapped, dedupFields)
+  if (deduped.length < mapped.length) {
+    log.warn(`Duplicados en Excel eliminados: ${mapped.length - deduped.length} filas (${deduped.length} únicas)`)
+  }
+  const rows = deduped
 
   // ── 5. Cliente Supabase ───────────────────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -317,15 +372,28 @@ async function main() {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
-  // ── 6. Upsert ─────────────────────────────────────────────────────────────
-  const table      = tableType === 'ventas' ? 'sales_documents' : 'sales_items'
-  const onConflict = tableType === 'ventas'
-    ? 'external_id,location_id,total,fecha'
-    : 'external_id,location_id,fecha_item,codigo'
+  // ── 6. DELETE por rango de fechas, luego INSERT ───────────────────────────
+  const table     = tableType === 'ventas' ? 'sales_documents' : 'sales_items'
+  const dateField = tableType === 'ventas' ? 'fecha' : 'fecha_caja'
 
-  log.step(`Upserting ${mapped.length} filas → ${table}  (batches de ${BATCH_SIZE})…`)
+  const range = dateRangeOf(rows, dateField)
+  if (!range) {
+    log.error(`No se encontraron fechas válidas en columna "${dateField}". Abortando.`)
+    process.exit(1)
+  }
+  log.info(`Rango de fechas (${dateField}): ${range.min} → ${range.max}`)
 
-  const result = await upsertBatches(supabase, table, mapped, onConflict)
+  log.step(`Eliminando registros existentes en ese rango…`)
+  try {
+    await deleteRange(supabase, table, dateField, range.min, range.max)
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : err)
+    process.exit(1)
+  }
+
+  log.step(`Insertando ${rows.length} filas → ${table}  (batches de ${BATCH_SIZE})…`)
+
+  const result = await insertBatches(supabase, table, rows)
 
   // ── 7. Registrar en uploads ───────────────────────────────────────────────
   await supabase.from('uploads').insert({
@@ -344,8 +412,9 @@ async function main() {
   log.info('═══════════════════════════════════════════════════════')
   log.info('RESUMEN')
   log.info(`  Tabla:      ${table}`)
-  log.info(`  Filas:      ${rawRows.length}`)
-  log.info(`  Upserted:   ${result.inserted}`)
+  log.info(`  Filas Excel:    ${rawRows.length}`)
+  log.info(`  Filas únicas:   ${rows.length}`)
+  log.info(`  Insertados:     ${result.inserted}`)
   log.info(`  Fallidas:   ${result.failed}`)
   if (result.firstError) log.warn(`  Primer error: ${result.firstError}`)
   log.info('═══════════════════════════════════════════════════════')
