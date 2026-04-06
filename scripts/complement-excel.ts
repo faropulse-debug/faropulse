@@ -7,8 +7,15 @@
  * Campos actualizados: comensales, formas_pago, zona, hora,
  *                      fecha_inicio, fecha_cierre, recargo
  *
- * NO inserta filas nuevas — solo hace UPDATE de las existentes,
- * cruzando por external_id (columna "Numero") + location_id.
+ * Match de 4 campos para integridad: external_id + location_id + total + fecha
+ * Si el UPDATE afecta 0 filas (pese a que el external_id existe), se registra
+ * como conflicto con los valores que no matchearon.
+ *
+ * Categorías del resumen:
+ *   actualizados   — UPDATE afectó ≥1 fila
+ *   conflictos     — external_id existe en DB pero total/fecha no matchean
+ *   no encontrados — external_id no existe en DB
+ *   anomalías      — fila del Excel sin total o sin fecha (match incompleto)
  *
  * Uso:
  *   npx tsx scripts/complement-excel.ts --file path/to/Ventas__25_.xlsx
@@ -59,7 +66,7 @@ function normalizeHeader(h: string): string {
     .replace(/\s+/g, '_')
 }
 
-// ─── Value coercers (mismo patrón que excelProcessor.ts) ─────────────────────
+// ─── Value coercers ───────────────────────────────────────────────────────────
 
 function toStr(v: unknown): string | null {
   if (v === '' || v === null || v === undefined) return null
@@ -114,10 +121,27 @@ function toTimestamp(v: unknown): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString()
 }
 
+// DD/MM/YYYY or YYYY-MM-DD → YYYY-MM-DD (for date column match)
+function toDate(v: unknown): string | null {
+  if (v === '' || v === null || v === undefined) return null
+  const s = String(v).trim()
+  const ddmm = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s)
+  if (ddmm) {
+    return `${ddmm[3]}-${ddmm[2].padStart(2,'0')}-${ddmm[1].padStart(2,'0')}`
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
+  const d = new Date(s)
+  return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
+}
+
 // ─── Patch builder ────────────────────────────────────────────────────────────
 
 interface Patch {
+  // Match keys (WHERE clause)
   external_id:  string
+  match_total:  number | null   // columna "Total" del Excel
+  match_fecha:  string | null   // columna "Fecha" del Excel → YYYY-MM-DD
+  // Fields to UPDATE
   comensales:   number | null
   formas_pago:  string | null
   zona:         string | null
@@ -133,6 +157,8 @@ function buildPatch(row: Record<string, unknown>): Patch | null {
 
   return {
     external_id:  extId,
+    match_total:  toMoney(row.total),
+    match_fecha:  toDate(row.fecha),
     comensales:   toNum(row.comensales),
     formas_pago:  toStr(row.formas_pago),
     zona:         toStr(row.zona),
@@ -170,7 +196,7 @@ async function main() {
   const filePath = process.argv[fileArg + 1]
 
   log.info('═══════════════════════════════════════════════════════')
-  log.info('Complement Excel → Supabase STG  (solo UPDATE)')
+  log.info('Complement Excel → Supabase  (solo UPDATE, match 4 campos)')
   log.info(`Archivo:  ${filePath}`)
   log.info(`Location: ${LOCATION_ID}`)
   log.info('═══════════════════════════════════════════════════════')
@@ -209,24 +235,42 @@ async function main() {
     Object.fromEntries(Object.entries(r).map(([k, v]) => [normalizeHeader(k), v]))
   )
 
-  const patches: Patch[] = []
+  const patches: Patch[]     = []
+  const anomalies: Patch[]   = []   // match_total o match_fecha nulos
   let skippedNoId = 0
 
   for (const row of normalizedRows) {
     const patch = buildPatch(row)
     if (!patch) { skippedNoId++; continue }
-    // Solo incluir el patch si al menos un campo complementario tiene valor
+
+    // Solo incluir si al menos un campo complementario tiene valor
     const hasData = patch.comensales !== null || patch.formas_pago !== null ||
                     patch.zona       !== null || patch.hora        !== null ||
                     patch.fecha_inicio !== null || patch.fecha_cierre !== null ||
                     patch.recargo    !== null
-    if (hasData) patches.push(patch)
+    if (!hasData) continue
+
+    // Sin total o fecha no podemos garantizar el match de 4 campos → anomalía
+    if (patch.match_total === null || patch.match_fecha === null) {
+      anomalies.push(patch)
+    } else {
+      patches.push(patch)
+    }
   }
 
-  log.ok(`Patches con datos: ${patches.length}  |  Sin external_id: ${skippedNoId}`)
+  log.ok(`Patches válidos (4 campos): ${patches.length}  |  Anomalías: ${anomalies.length}  |  Sin external_id: ${skippedNoId}`)
+
+  if (anomalies.length > 0) {
+    log.warn('Anomalías — filas sin total o fecha en Excel (no se actualizarán):')
+    anomalies.slice(0, 10).forEach(p =>
+      log.warn(`  ${p.external_id}  total=${p.match_total ?? 'NULL'}  fecha=${p.match_fecha ?? 'NULL'}`)
+    )
+    if (anomalies.length > 10) log.warn(`  ... y ${anomalies.length - 10} más`)
+  }
 
   if (patches.length === 0) {
-    log.warn('Ninguna fila tiene campos complementarios para actualizar.')
+    log.warn('Ninguna fila tiene los 4 campos de match. Nada que actualizar.')
+    printSummary(rawRows.length, patches.length + anomalies.length, 0, 0, [], anomalies.length)
     process.exit(0)
   }
 
@@ -240,7 +284,7 @@ async function main() {
   log.step('Verificando existencia en sales_documents…')
 
   const allIds   = patches.map(p => p.external_id)
-  const CHUNK    = 500   // .in() tiene límite práctico
+  const CHUNK    = 500
   const foundSet = new Set<string>()
 
   for (let i = 0; i < allIds.length; i += CHUNK) {
@@ -257,8 +301,8 @@ async function main() {
     for (const row of data ?? []) foundSet.add(row.external_id)
   }
 
-  const toUpdate  = patches.filter(p => foundSet.has(p.external_id))
-  const notFound  = patches.filter(p => !foundSet.has(p.external_id))
+  const toUpdate   = patches.filter(p => foundSet.has(p.external_id))
+  const notFound   = patches.filter(p => !foundSet.has(p.external_id))
 
   log.ok(`Encontrados en DB: ${toUpdate.length}  |  No encontrados: ${notFound.length}`)
 
@@ -270,48 +314,79 @@ async function main() {
 
   if (toUpdate.length === 0) {
     log.warn('Ningún documento del Excel existe en la DB. Nada que actualizar.')
+    printSummary(rawRows.length, patches.length + anomalies.length, 0, notFound.length, [], anomalies.length)
     process.exit(0)
   }
 
   // ── 6. Ejecutar UPDATEs en paralelo con concurrencia controlada ───────────
-  log.step(`Actualizando ${toUpdate.length} documentos (concurrencia: ${CONCURRENCY})…`)
+  log.step(`Actualizando ${toUpdate.length} documentos con match 4 campos (concurrencia: ${CONCURRENCY})…`)
 
   let updated = 0
-  let failed  = 0
+  const conflicts: Array<{ external_id: string; total: number; fecha: string }> = []
   let firstError: string | undefined
 
   await runChunked(toUpdate, CONCURRENCY, async (patch) => {
-    const { external_id, ...fields } = patch
+    const {
+      external_id,
+      match_total,
+      match_fecha,
+      ...updateFields
+    } = patch
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('sales_documents')
-      .update(fields)
+      .update(updateFields)
       .eq('external_id', external_id)
       .eq('location_id', LOCATION_ID)
+      .eq('total',       match_total)
+      .eq('fecha',       match_fecha)
+      .select('id')
 
     if (error) {
       log.error(`  UPDATE ${external_id} ERROR: ${error.message}`)
-      failed++
       if (!firstError) firstError = error.message
+    } else if (!data || data.length === 0) {
+      // external_id existe en DB pero ninguna fila matcheó total+fecha
+      log.warn(`  CONFLICTO ${external_id}  total=${match_total}  fecha=${match_fecha}`)
+      conflicts.push({ external_id, total: match_total!, fecha: match_fecha! })
     } else {
       updated++
     }
   })
 
   // ── 7. Resumen ────────────────────────────────────────────────────────────
+  printSummary(rawRows.length, patches.length + anomalies.length, updated, notFound.length, conflicts, anomalies.length)
+
+  if (conflicts.length > 0) {
+    log.warn('Conflictos (total/fecha no matchean fila en DB):')
+    conflicts.slice(0, 20).forEach(c =>
+      log.warn(`  ${c.external_id}  total=${c.total}  fecha=${c.fecha}`)
+    )
+    if (conflicts.length > 20) log.warn(`  ... y ${conflicts.length - 20} más`)
+  }
+
+  if (firstError) log.error(`Primer error HTTP: ${firstError}`)
+  if (firstError) process.exit(1)
+  log.ok('Complemento completado.')
+}
+
+function printSummary(
+  totalRows:    number,
+  totalPatches: number,
+  updated:      number,
+  notFound:     number,
+  conflicts:    unknown[],
+  anomalies:    number,
+) {
   log.info('═══════════════════════════════════════════════════════')
   log.info('RESUMEN')
-  log.info(`  Filas en Excel:          ${rawRows.length}`)
-  log.info(`  Patches construidos:     ${patches.length}`)
-  log.info(`  Encontrados en DB:       ${toUpdate.length}`)
-  log.info(`  Actualizados:            ${updated}`)
-  log.info(`  No encontrados (omitidos): ${notFound.length}`)
-  log.info(`  Fallidos:                ${failed}`)
-  if (firstError) log.warn(`  Primer error: ${firstError}`)
+  log.info(`  Filas en Excel:       ${totalRows}`)
+  log.info(`  Patches construidos:  ${totalPatches}`)
+  log.info(`  Actualizados:         ${updated}`)
+  log.info(`  Conflictos:           ${conflicts.length}`)
+  log.info(`  No encontrados:       ${notFound}`)
+  log.info(`  Anomalías:            ${anomalies}`)
   log.info('═══════════════════════════════════════════════════════')
-
-  if (failed > 0) process.exit(1)
-  log.ok('Complemento completado sin errores.')
 }
 
 main().catch(err => {
