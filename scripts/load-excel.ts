@@ -320,7 +320,7 @@ async function main() {
   // ── 6. Upsert ─────────────────────────────────────────────────────────────
   const table      = tableType === 'ventas' ? 'sales_documents' : 'sales_items'
   const onConflict = tableType === 'ventas'
-    ? 'external_id,location_id,total'
+    ? 'external_id,location_id,total,fecha'
     : 'external_id,location_id,fecha_item,codigo'
 
   log.step(`Upserting ${mapped.length} filas → ${table}  (batches de ${BATCH_SIZE})…`)
