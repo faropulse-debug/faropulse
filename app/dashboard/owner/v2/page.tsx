@@ -8,12 +8,41 @@ const FONT_LABEL = "var(--font-dm-mono), monospace"
 const MUTED      = 'rgba(255,255,255,0.35)'
 
 export default function OwnerDashboardV2() {
-  const { user } = useAuth()
+  const { user, isLoading } = useAuth()
 
-  // TODO: remover fallback cuando auth esté integrada en v2
-  const DEV_FALLBACK_LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001' // piloto staging (egjxyskqhnmuqwkrbshu)
-  const locationId = user?.activeMembership?.location_id || DEV_FALLBACK_LOCATION_ID
-  const orgName    = user?.activeMembership?.organization?.name ?? 'Dashboard'
+  const DEV_FALLBACK_LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001'
+  const isDev = process.env.NODE_ENV === 'development'
+
+  const locationId =
+    user?.activeMembership?.location_id ??
+    (isDev ? DEV_FALLBACK_LOCATION_ID : null)
+  const orgName = user?.activeMembership?.organization?.name ?? 'Dashboard'
+
+  if (isLoading && !isDev) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height: '100vh', color: 'rgba(255,255,255,0.3)',
+        fontFamily: "var(--font-dm-mono), monospace",
+        fontSize: '0.75rem', letterSpacing: '0.15em',
+      }}>
+        cargando sesión…
+      </div>
+    )
+  }
+
+  if (!locationId) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height: '100vh', color: 'rgba(255,255,255,0.3)',
+        fontFamily: "var(--font-dm-mono), monospace",
+        fontSize: '0.75rem', letterSpacing: '0.15em',
+      }}>
+        sin ubicación activa
+      </div>
+    )
+  }
 
   return (
     <DashboardFiltersProvider>

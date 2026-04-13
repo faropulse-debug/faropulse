@@ -59,7 +59,7 @@ function dateRangeLabel(periodo: Periodo): string {
     mon.setDate(day - (dow - 1))
     const sun     = new Date(mon)
     sun.setDate(mon.getDate() + 6)
-    const fmt = (d: Date) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`
+    const fmt = (d: Date) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`
     return `Lun ${fmt(mon)} - Dom ${fmt(sun)}`
   }
 
