@@ -49,7 +49,7 @@ const DELIVERY_PCT      = 0.08
 const CV_PCT            = 0.34
 const CF_CRECIMIENTO    = 0.025
 const REGALIAS_PCT      = 0.05
-const PROJ_MONTHS       = 9
+const DIC_ESTACIONAL    = 0.30  // +30% sobre salón en diciembre
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -110,14 +110,22 @@ function buildProjections(realData: DataPoint[]): DataPoint[] {
   const lastCF     = last.cf ?? 0
   const lastTicket = last.ticket * 1_000  // volver a ARS
 
-  const [ly, lm]   = last.periodo.split('-').map(Number)
+  const [ly, lm] = last.periodo.split('-').map(Number)
+
+  // Proyectar hasta diciembre del año correcto:
+  // si real termina en el 1er semestre → proyectar a dic del mismo año;
+  // si termina en el 2do semestre → proyectar a dic del año siguiente.
+  const projEndYear    = lm <= 6 ? ly : ly + 1
+  const monthsToProject = (projEndYear - ly) * 12 + (12 - lm)
+
   const projected: DataPoint[] = []
 
-  for (let i = 1; i <= PROJ_MONTHS; i++) {
+  for (let i = 1; i <= monthsToProject; i++) {
     const [year, month] = addMonths(ly, lm, i)
     const comensales    = calcComensalesMes(year, month)
     const ticket        = lastTicket * Math.pow(1 + INFLACION_MENSUAL, i)
-    const ventasSalon   = comensales * ticket
+    const estacional    = month === 12 ? 1 + DIC_ESTACIONAL : 1
+    const ventasSalon   = comensales * ticket * estacional
     const totalVentas   = ventasSalon * (1 + DELIVERY_PCT)
     const cv            = totalVentas * CV_PCT
     const cf            = lastCF * 1_000_000 * Math.pow(1 + CF_CRECIMIENTO, i)
@@ -416,8 +424,8 @@ export default function ProyeccionEjecutivaChart({ data, isLoading }: Proyeccion
         <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
           <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', letterSpacing: 1.5, marginBottom: 6 }}>SUPUESTOS DE PROYECCIÓN</div>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.6 }}>
-            Inflación 1.5%/mes · CV 34% · CF crece 2.5%/mes · Regalías 5% · Delivery +8% adicional ·
-            Comensales/día: Lun-Mar 20 · Mié 35 · Jue 60 · Vie 110 · Sáb 140 · Dom 35
+            Inflación 1.5%/mes · CV 34% · CF crece 2.5%/mes · Regalías 5% · Delivery +8% sobre salón ·
+            Diciembre +30% estacional · Comensales/día: Lun-Mar 20 · Mié 35 · Jue 60 · Vie 110 · Sáb 140 · Dom 35
           </div>
         </div>
       </div>
