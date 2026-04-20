@@ -144,8 +144,8 @@ function buildDaily(rows: RawTicketRow[], periodo: string): DayPoint[] {
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 
-interface TooltipPayload {
-  name: string
+interface TooltipCardProps {
+  title: string
   sub?: string
   ticketProm: number
   facturacion?: number
@@ -153,7 +153,7 @@ interface TooltipPayload {
   avg: number
 }
 
-function TooltipCard({ title, sub, ticketProm, facturacion, tickets, avg }: TooltipPayload) {
+function TooltipCard({ title, sub, ticketProm, facturacion, tickets, avg }: TooltipCardProps) {
   const isAbove = ticketProm >= avg
   return (
     <div className="rounded-xl border p-4 min-w-[220px]"
