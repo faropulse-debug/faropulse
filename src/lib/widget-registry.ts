@@ -5,6 +5,9 @@ import { PuntoDeEquilibrioSection }   from '@/src/components/widgets/sections/Pu
 import { EvolutivoSection }           from '@/src/components/widgets/sections/EvolutivoSection'
 import { AlertasSection }             from '@/src/components/widgets/sections/AlertasSection'
 import { EstadoNegocioSection }       from '@/src/components/widgets/sections/EstadoNegocioSection'
+import { ComensalesSection }          from '@/src/components/widgets/sections/ComensalesSection'
+import { TicketPromedioSection }      from '@/src/components/widgets/sections/TicketPromedioSection'
+import { ProyeccionSection }          from '@/src/components/widgets/sections/ProyeccionSection'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +30,8 @@ export type WidgetCategory =
   | 'alert'
   | 'action'
   | 'narrative'
+  | 'investment'
+  | 'financial'
 
 export type RefreshPolicy = 'fast' | 'normal' | 'slow' | 'manual'
 
@@ -120,7 +125,7 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     component:     PuntoDeEquilibrioSection,
     gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
     priority:      6,
-    category:      'diagnostic',
+    category:      'financial',
     refreshPolicy: 'normal',
     filterSupport: {
       required: [],
@@ -138,7 +143,7 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     component:     EvolutivoSection,
     gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
     priority:      7,
-    category:      'diagnostic',
+    category:      'financial',
     refreshPolicy: 'slow',
     filterSupport: {
       required: [],
@@ -149,13 +154,67 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     section: 'evolutivo',
   },
   {
+    id:            'comensales',
+    title:         'Comensales',
+    description:   'Evolución de comensales por día, semana y mes con comparación vs promedio',
+    enabled:       true,
+    component:     ComensalesSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      8,
+    category:      'diagnostic',
+    refreshPolicy: 'slow',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'comensales',
+  },
+  {
+    id:            'ticket-promedio',
+    title:         'Ticket Promedio',
+    description:   'Evolución del ticket promedio por día, semana y mes',
+    enabled:       true,
+    component:     TicketPromedioSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      9,
+    category:      'diagnostic',
+    refreshPolicy: 'slow',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'ticket-promedio',
+  },
+  {
+    id:            'proyeccion-ejecutiva',
+    title:         'Proyección Ejecutiva',
+    description:   'Facturación real + proyección a 9 meses con recupero de inversión y modelo de comensales/ticket',
+    enabled:       true,
+    component:     ProyeccionSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      10,
+    category:      'investment',
+    refreshPolicy: 'slow',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'proyeccion-ejecutiva',
+  },
+  {
     id:            'alertas-insights',
     title:         'Alertas e Insights',
     description:   'Alertas automáticas sobre resultado neto, PE, ticket promedio, delivery y costo laboral',
     enabled:       true,
     component:     AlertasSection,
     gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
-    priority:      8,
+    priority:      11,
     category:      'alert',
     refreshPolicy: 'slow',
     filterSupport: {

@@ -2,28 +2,36 @@
 
 import { useMemo, useState } from 'react'
 import {
-  ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, CartesianGrid, Cell,
+  LineChart, Line, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+export interface WeeklySaleRow {
+  semana:  string   // date ISO "2025-03-10"
+  ventas:  number
+  tickets: number
+}
+
 interface FinancialRow {
-  periodo:   string
+  periodo:   string  // "2025-03"
   categoria: string
   concepto:  string
   monto:     number
 }
 
-interface PEPoint {
-  name:        string
-  periodo:     string
+interface PEWeekPoint {
+  name:        string   // "10 Mar"
+  semana:      string   // ISO date
+  periodo:     string   // "2025-03"
   ventas:      number
   peMinimo:    number
   peOperativo: number
   peIdeal:     number
   mc:          number
   status:      'ideal' | 'operativo' | 'minimo' | 'bajo'
+  monthChange: boolean  // true if first week of a new month in the filtered set
 }
 
 type QuarterFilter = 'Q1' | 'Q2' | 'Q3' | 'Q4' | 'Año'
@@ -59,11 +67,6 @@ const STATUS_LABEL = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatPeriodo(p: string): string {
-  const [y, m] = p.split('-')
-  return `${MONTH_LABELS[m] || m} ${y.slice(2)}`
-}
-
 function formatMoney(v: number | null | undefined): string {
   if (v == null) return '-'
   const abs  = Math.abs(v)
@@ -82,18 +85,37 @@ function formatPct(v: number): string {
   return `${(v * 100).toFixed(1)}%`
 }
 
+/** Semanas calendario en el mes (4 ó 5) */
+function weeksInMonth(year: number, month: number): number {
+  const days = new Date(year, month, 0).getDate()  // month is 1-based here (Date uses 0-based month)
+  return Math.round(days / 7)
+}
+
+/** "2025-03-10" → "10 Mar" */
+function formatWeekLabel(iso: string): string {
+  const d = new Date(iso + 'T12:00:00')
+  const day = d.getDate()
+  const mon = MONTH_LABELS[String(d.getMonth() + 1).padStart(2, '0')]
+  return `${day} ${mon}`
+}
+
 // ── Data Transform ────────────────────────────────────────────────────────────
 
-export function transformPEData(rows: FinancialRow[]): PEPoint[] {
+export function transformPESemanal(
+  salesRows:     WeeklySaleRow[],
+  financialRows: FinancialRow[],
+): PEWeekPoint[] {
+  // Build PE lookup by periodo (YYYY-MM) → weekly PE values
   const byPeriod = new Map<string, Record<string, number>>()
-
-  for (const row of rows) {
+  for (const row of financialRows) {
     if (!byPeriod.has(row.periodo)) byPeriod.set(row.periodo, {})
     byPeriod.get(row.periodo)![row.concepto] = row.monto
   }
 
-  return Array.from(byPeriod.keys()).sort().map(periodo => {
-    const d = byPeriod.get(periodo)!
+  const peLookup = new Map<string, { peMinimo: number; peOperativo: number; peIdeal: number; mc: number }>()
+  for (const [periodo, d] of byPeriod) {
+    const [yr, mo]    = periodo.split('-').map(Number)
+    const weeks       = weeksInMonth(yr, mo)
 
     const ventas      = d['VENTAS_NOCHE']   || 0
     const costos      = d['TOTAL_COSTOS']   || 0
@@ -103,46 +125,104 @@ export function transformPEData(rows: FinancialRow[]): PEPoint[] {
     const alquiler    = d['ALQUILER']       || 0
     const regalias    = d['REGALIAS']       || 0
 
-    // MC% = (VENTAS_NOCHE - TOTAL_COSTOS) / VENTAS_NOCHE
-    const mc = ventas > 0 ? (ventas - costos) / ventas : 0
+    const mc          = ventas > 0 ? (ventas - costos) / ventas : 0
+    const peMinimo    = mc > 0 ? (sueldos + liq + alquiler) / mc / weeks : 0
+    const peOperativo = mc > 0 ? totalGastos / mc / weeks                : 0
+    const peIdeal     = mc > 0.15 ? (totalGastos + regalias) / (mc - 0.15) / weeks : 0
 
-    // PE dinámicos por mes
-    const peMinimo    = mc > 0 ? (sueldos + liq + alquiler) / mc : 0
-    const peOperativo = mc > 0 ? totalGastos / mc               : 0
-    const peIdeal     = mc > 0.15 ? (totalGastos + regalias) / (mc - 0.15) : 0
+    peLookup.set(periodo, { peMinimo, peOperativo, peIdeal, mc })
+  }
 
-    const status: PEPoint['status'] =
-      ventas >= peIdeal       ? 'ideal'
-      : ventas >= peOperativo ? 'operativo'
-      : ventas >= peMinimo    ? 'minimo'
+  // Sort sales chronologically
+  const sorted = [...salesRows].sort((a, b) => a.semana.localeCompare(b.semana))
+
+  return sorted.map((row, idx) => {
+    // Period = month of the Monday that starts the week
+    const periodo = row.semana.substring(0, 7)
+    const pe      = peLookup.get(periodo) ?? { peMinimo: 0, peOperativo: 0, peIdeal: 0, mc: 0 }
+    const ventas  = Number(row.ventas)
+
+    const status: PEWeekPoint['status'] =
+      ventas >= pe.peIdeal       ? 'ideal'
+      : ventas >= pe.peOperativo ? 'operativo'
+      : ventas >= pe.peMinimo    ? 'minimo'
       : 'bajo'
 
-    return { name: formatPeriodo(periodo), periodo, ventas, peMinimo, peOperativo, peIdeal, mc, status }
+    // Detect month boundary for reference lines
+    const prevPeriodo = idx > 0 ? sorted[idx - 1].semana.substring(0, 7) : null
+    const monthChange = prevPeriodo !== null && prevPeriodo !== periodo
+
+    return {
+      name:        formatWeekLabel(row.semana),
+      semana:      row.semana,
+      periodo,
+      ventas,
+      peMinimo:    pe.peMinimo,
+      peOperativo: pe.peOperativo,
+      peIdeal:     pe.peIdeal,
+      mc:          pe.mc,
+      status,
+      monthChange,
+    }
   })
+}
+
+// ── Custom Dot (colored by PE status) ────────────────────────────────────────
+
+function StatusDot(props: any) {
+  const { cx, cy, payload } = props
+  if (!payload || cx == null || cy == null) return null
+  return (
+    <circle
+      cx={cx} cy={cy} r={4}
+      fill={STATUS_COLOR[payload.status as PEWeekPoint['status']]}
+      stroke="#0a0a12"
+      strokeWidth={2}
+    />
+  )
+}
+
+function StatusActiveDot(props: any) {
+  const { cx, cy, payload } = props
+  if (!payload || cx == null || cy == null) return null
+  return (
+    <circle
+      cx={cx} cy={cy} r={6}
+      fill={STATUS_COLOR[payload.status as PEWeekPoint['status']]}
+      stroke="#0a0a12"
+      strokeWidth={2}
+    />
+  )
 }
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 
 function CustomTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null
-  const d = payload[0]?.payload as PEPoint
+  const d = payload[0]?.payload as PEWeekPoint
   if (!d) return null
+
+  const [yr, mo] = d.periodo.split('-')
+  const mesLabel  = `${MONTH_LABELS[mo] || mo} ${yr.slice(2)}`
 
   return (
     <div
       className="rounded-xl border p-4 min-w-[260px]"
       style={{
-        background:    'rgba(10,10,18,0.97)',
-        backdropFilter:'blur(20px)',
-        borderColor:   `${STATUS_COLOR[d.status]}40`,
+        background:     'rgba(10,10,18,0.97)',
+        backdropFilter: 'blur(20px)',
+        borderColor:    `${STATUS_COLOR[d.status]}40`,
       }}
     >
-      {/* Periodo */}
-      <div
-        className="text-amber-500 text-xs font-bold mb-3 tracking-widest uppercase"
-        style={{ fontFamily: 'Syne, sans-serif' }}
-      >
-        {d.name}
+      {/* Header */}
+      <div className="mb-3">
+        <div
+          className="text-amber-500 text-xs font-bold tracking-widest uppercase"
+          style={{ fontFamily: 'Syne, sans-serif' }}
+        >
+          Semana del {d.name}
+        </div>
+        <div className="text-white/30 text-[10px] mt-0.5">PE basado en {mesLabel}</div>
       </div>
 
       {/* Facturación */}
@@ -151,8 +231,8 @@ function CustomTooltip({ active, payload }: any) {
         style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
       >
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-sm" style={{ background: STATUS_COLOR[d.status] }} />
-          <span className="text-white/60 text-xs">Facturación</span>
+          <div className="w-2.5 h-2.5 rounded-full" style={{ background: STATUS_COLOR[d.status] }} />
+          <span className="text-white/60 text-xs">Facturación semanal</span>
         </div>
         <span className="font-mono text-sm font-bold" style={{ color: STATUS_COLOR[d.status] }}>
           {formatFullMoney(d.ventas)}
@@ -183,7 +263,7 @@ function CustomTooltip({ active, payload }: any) {
         className="flex justify-between items-center py-1.5 mt-1"
         style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
       >
-        <span className="text-white/40 text-xs">Margen de Contribución</span>
+        <span className="text-white/40 text-xs">MC% del mes</span>
         <span className="font-mono text-xs font-bold text-indigo-400">{formatPct(d.mc)}</span>
       </div>
 
@@ -204,21 +284,31 @@ function CustomTooltip({ active, payload }: any) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-interface PEEvolutivoChartProps {
-  data:       FinancialRow[]
-  isLoading?: boolean
+interface PESemanalChartProps {
+  salesData:     WeeklySaleRow[]
+  financialData: FinancialRow[]
+  isLoading?:    boolean
 }
 
-export default function PEEvolutivoChart({ data, isLoading }: PEEvolutivoChartProps) {
+export default function PESemanalChart({ salesData, financialData, isLoading }: PESemanalChartProps) {
   const [quarter, setQuarter] = useState<QuarterFilter>('Año')
 
-  const allPoints = useMemo(() => transformPEData(data), [data])
+  const allPoints = useMemo(
+    () => transformPESemanal(salesData, financialData),
+    [salesData, financialData],
+  )
 
   const chartData = useMemo(() => {
     if (quarter === 'Año') return allPoints
     const months = QUARTER_MONTHS[quarter]
     return allPoints.filter(p => months.includes(parseInt(p.periodo.split('-')[1])))
   }, [allPoints, quarter])
+
+  // Month-change x-values for reference lines
+  const monthBoundaries = useMemo(
+    () => chartData.filter(p => p.monthChange).map(p => p.name),
+    [chartData],
+  )
 
   const stats = useMemo(() => {
     const total          = chartData.length
@@ -229,13 +319,13 @@ export default function PEEvolutivoChart({ data, isLoading }: PEEvolutivoChartPr
   }, [chartData])
 
   if (isLoading) {
-    return <div className="animate-pulse rounded-2xl bg-white/5 h-[520px]" />
+    return <div className="animate-pulse rounded-2xl bg-white/5 h-[480px]" />
   }
 
   if (!chartData.length) {
     return (
       <div className="rounded-2xl bg-white/5 border border-white/10 p-8 text-center text-white/40">
-        Sin datos financieros disponibles
+        Sin datos semanales disponibles
       </div>
     )
   }
@@ -248,11 +338,11 @@ export default function PEEvolutivoChart({ data, isLoading }: PEEvolutivoChartPr
       {/* Ambient glows */}
       <div
         className="absolute inset-0 pointer-events-none"
-        style={{ background: 'radial-gradient(ellipse at 20% 20%, rgba(245,130,10,0.03) 0%, transparent 60%)' }}
+        style={{ background: 'radial-gradient(ellipse at 30% 20%, rgba(245,130,10,0.03) 0%, transparent 60%)' }}
       />
       <div
         className="absolute inset-0 pointer-events-none"
-        style={{ background: 'radial-gradient(ellipse at 80% 80%, rgba(34,197,94,0.02) 0%, transparent 60%)' }}
+        style={{ background: 'radial-gradient(ellipse at 70% 80%, rgba(99,102,241,0.02) 0%, transparent 60%)' }}
       />
 
       <div className="relative z-10">
@@ -269,13 +359,13 @@ export default function PEEvolutivoChart({ data, isLoading }: PEEvolutivoChartPr
             className="font-extrabold text-lg text-white tracking-tight m-0"
             style={{ fontFamily: 'Syne, sans-serif' }}
           >
-            PE Mensual Evolutivo
+            PE Semanal Evolutivo
           </h2>
           <div className="flex gap-5 items-end flex-wrap">
             {stats.lastPoint && (
               <>
                 <div className="text-right">
-                  <div className="text-[10px] text-white/35 tracking-wider uppercase">Último mes</div>
+                  <div className="text-[10px] text-white/35 tracking-wider uppercase">Última semana</div>
                   <div
                     className="font-mono text-base font-bold"
                     style={{ color: STATUS_COLOR[stats.lastPoint.status] }}
@@ -324,15 +414,16 @@ export default function PEEvolutivoChart({ data, isLoading }: PEEvolutivoChartPr
           className="rounded-xl p-4 pb-2"
           style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
         >
-          <ResponsiveContainer width="100%" height={340}>
-            <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
               <XAxis
                 dataKey="name"
-                tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }}
+                tick={{ fill: 'rgba(255,255,255,0.35)', fontSize: 10 }}
                 axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
                 tickLine={false}
                 dy={8}
+                interval="preserveStartEnd"
               />
               <YAxis
                 tickFormatter={formatMoney}
@@ -343,61 +434,74 @@ export default function PEEvolutivoChart({ data, isLoading }: PEEvolutivoChartPr
               />
               <Tooltip
                 content={<CustomTooltip />}
-                cursor={{ fill: 'rgba(245,130,10,0.06)' }}
+                cursor={{ stroke: 'rgba(245,130,10,0.15)', strokeWidth: 1 }}
               />
 
-              {/* Barras de facturación — color refleja estado vs PE */}
-              <Bar dataKey="ventas" name="Facturación" radius={[4, 4, 0, 0]} maxBarSize={52}>
-                {chartData.map((entry, idx) => (
-                  <Cell
-                    key={idx}
-                    fill={STATUS_COLOR[entry.status]}
-                    fillOpacity={0.75}
-                  />
-                ))}
-              </Bar>
+              {/* Separadores de mes */}
+              {monthBoundaries.map(name => (
+                <ReferenceLine
+                  key={name}
+                  x={name}
+                  stroke="rgba(255,255,255,0.08)"
+                  strokeDasharray="4 4"
+                  strokeWidth={1}
+                />
+              ))}
 
-              {/* Líneas PE dinámicas */}
+              {/* PE lines */}
               <Line
-                type="monotone"
+                type="stepAfter"
                 dataKey="peMinimo"
                 name="PE Mínimo"
                 stroke="#ef4444"
                 strokeWidth={1.5}
                 strokeDasharray="5 3"
                 dot={false}
-                activeDot={{ r: 5, fill: '#ef4444', stroke: '#0a0a12', strokeWidth: 2 }}
+                activeDot={{ r: 4, fill: '#ef4444', stroke: '#0a0a12', strokeWidth: 2 }}
                 animationDuration={600}
               />
               <Line
-                type="monotone"
+                type="stepAfter"
                 dataKey="peOperativo"
                 name="PE Operativo"
                 stroke="#f59e0b"
                 strokeWidth={2}
                 dot={false}
-                activeDot={{ r: 5, fill: '#f59e0b', stroke: '#0a0a12', strokeWidth: 2 }}
+                activeDot={{ r: 4, fill: '#f59e0b', stroke: '#0a0a12', strokeWidth: 2 }}
                 animationDuration={600}
               />
               <Line
-                type="monotone"
+                type="stepAfter"
                 dataKey="peIdeal"
                 name="PE Ideal (15% rent.)"
                 stroke="#22c55e"
                 strokeWidth={2}
                 strokeDasharray="8 3"
                 dot={false}
-                activeDot={{ r: 5, fill: '#22c55e', stroke: '#0a0a12', strokeWidth: 2 }}
+                activeDot={{ r: 4, fill: '#22c55e', stroke: '#0a0a12', strokeWidth: 2 }}
                 animationDuration={600}
               />
-            </ComposedChart>
+
+              {/* Línea de facturación — dots coloreados por status */}
+              <Line
+                type="monotone"
+                dataKey="ventas"
+                name="Facturación"
+                stroke="rgba(255,255,255,0.5)"
+                strokeWidth={2.5}
+                dot={<StatusDot />}
+                activeDot={<StatusActiveDot />}
+                animationDuration={800}
+                animationEasing="ease-out"
+              />
+            </LineChart>
           </ResponsiveContainer>
 
           {/* Legend */}
           <div className="flex flex-wrap gap-x-5 gap-y-2 justify-center pb-2 pt-1">
             <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded-sm opacity-75" style={{ background: '#22c55e' }} />
-              <span className="text-[11px] text-white/45">Facturación (color = estado PE)</span>
+              <div className="w-3 h-3 rounded-full" style={{ background: 'rgba(255,255,255,0.4)' }} />
+              <span className="text-[11px] text-white/45">Facturación (dot = estado PE)</span>
             </div>
             {([
               { color: '#ef4444', label: 'PE Mínimo',    dash: true  },
@@ -422,7 +526,7 @@ export default function PEEvolutivoChart({ data, isLoading }: PEEvolutivoChartPr
 
         {/* Status summary cards */}
         <div className="grid grid-cols-4 gap-2 mt-4">
-          {(Object.keys(STATUS_COLOR) as PEPoint['status'][]).map(status => {
+          {(Object.keys(STATUS_COLOR) as PEWeekPoint['status'][]).map(status => {
             const count = chartData.filter(p => p.status === status).length
             const pct   = stats.total ? Math.round((count / stats.total) * 100) : 0
             return (
@@ -443,7 +547,7 @@ export default function PEEvolutivoChart({ data, isLoading }: PEEvolutivoChartPr
                 >
                   {count}
                 </div>
-                <div className="text-[10px] text-white/30">{pct}% de meses</div>
+                <div className="text-[10px] text-white/30">{pct}% de semanas</div>
               </div>
             )
           })}

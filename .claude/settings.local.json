@@ -41,7 +41,20 @@
       "Bash(git commit:*)",
       "Bash(xargs grep:*)",
       "Bash(npx vitest:*)",
-      "Bash(node -e ':*)"
+      "Bash(node -e ':*)",
+      "Bash(npm start:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(npm test:*)",
+      "Bash(ls .env*)",
+      "Bash(npx tsx:*)",
+      "Bash(node:*)",
+      "Bash(export SUPABASE_SERVICE_ROLE_KEY=$\\(grep SUPABASE_SERVICE_ROLE_KEY .env.staging)",
+      "Read(//mnt/user-data/**)",
+      "Read(//c/mnt/user-data/**)",
+      "Bash(SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnanh5c2txaG5tdXF3a3Jic2h1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDI5MDc0MCwiZXhwIjoyMDg5ODY2NzQwfQ.FUQEPXE9ZzXEvQ7jE7ABYJNhlEKzleFNAkQ-Nr7Os_0 npx tsx:*)",
+      "Bash(npx supabase:*)",
+      "Bash(curl:*)",
+      "Bash(git restore:*)"
     ]
   }
 }
