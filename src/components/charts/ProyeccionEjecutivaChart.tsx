@@ -15,6 +15,11 @@ interface FinancialRow {
   monto:     number
 }
 
+interface RawComensalRow {
+  fecha:      string   // "2025-04-10"
+  comensales: number
+}
+
 interface DataPoint {
   periodo:    string
   label:      string
@@ -77,7 +82,16 @@ function addMonths(year: number, month: number, n: number): [number, number] {
 
 // ── Data Transform ────────────────────────────────────────────────────────────
 
-function transformRealData(rows: FinancialRow[]): DataPoint[] {
+function buildComensalesByMonth(rows: RawComensalRow[]): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const row of rows) {
+    const periodo = row.fecha.slice(0, 7)   // "2025-04"
+    map.set(periodo, (map.get(periodo) ?? 0) + row.comensales)
+  }
+  return map
+}
+
+function transformRealData(rows: FinancialRow[], comensalesByMonth: Map<string, number>): DataPoint[] {
   const byPeriod = new Map<string, Record<string, number>>()
   for (const row of rows) {
     if (!byPeriod.has(row.periodo)) byPeriod.set(row.periodo, {})
@@ -85,16 +99,16 @@ function transformRealData(rows: FinancialRow[]): DataPoint[] {
   }
 
   return Array.from(byPeriod.keys()).sort().map(periodo => {
-    const d          = byPeriod.get(periodo)!
-    const ventasARS  = d['VENTAS_NOCHE'] || 0
-    const cfARS      = d['TOTAL_GASTOS'] || 0
-    const [y, m]     = periodo.split('-').map(Number)
-    const comensales = calcComensalesMes(y, m)
+    const d         = byPeriod.get(periodo)!
+    const ventasARS = d['VENTAS_NOCHE'] || 0
+    const cfARS     = d['TOTAL_GASTOS'] || 0
+    const [y, m]    = periodo.split('-').map(Number)
+    const comensales = comensalesByMonth.get(periodo) ?? calcComensalesMes(y, m)
     return {
       periodo,
       label:      periodoLabel(periodo),
       ventas:     ventasARS / 1_000_000,
-      resultado:  (d['LIQ_FINAL'] || 0) / 1_000_000,
+      resultado:  (d['RESULTADO_NETO'] || 0) / 1_000_000,
       comensales,
       ticket:     comensales > 0 ? ventasARS / comensales / 1_000 : 0,
       tipo:       'real' as const,
@@ -201,14 +215,16 @@ function CustomTooltip({ active, payload }: any) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 interface ProyeccionEjecutivaChartProps {
-  data:       FinancialRow[]
-  isLoading?: boolean
+  data:            FinancialRow[]
+  comensalesData?: RawComensalRow[]
+  isLoading?:      boolean
 }
 
-export default function ProyeccionEjecutivaChart({ data, isLoading }: ProyeccionEjecutivaChartProps) {
+export default function ProyeccionEjecutivaChart({ data, comensalesData = [], isLoading }: ProyeccionEjecutivaChartProps) {
   const [view, setView] = useState<'facturacion' | 'recupero' | 'comensales'>('facturacion')
 
-  const realData = useMemo(() => transformRealData(data), [data])
+  const comensalesByMonth = useMemo(() => buildComensalesByMonth(comensalesData), [comensalesData])
+  const realData = useMemo(() => transformRealData(data, comensalesByMonth), [data, comensalesByMonth])
   const projData = useMemo(() => buildProjections(realData), [realData])
   const allData  = useMemo(() => [...realData, ...projData], [realData, projData])
 

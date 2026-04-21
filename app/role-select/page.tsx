@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
 
 // ─── BACKGROUND ───────────────────────────────────────────────────────────────
@@ -335,6 +336,42 @@ export default function RoleSelectPage() {
             disabled={isLoading}
           />
         </div>
+
+        {/* Upload link */}
+        <Link
+          href="/dashboard/upload"
+          style={{
+            marginTop: '28px',
+            display: 'inline-flex', alignItems: 'center', gap: '8px',
+            textDecoration: 'none',
+            padding: '10px 22px',
+            background: 'rgba(245,130,10,0.06)',
+            border: '1px solid rgba(245,130,10,0.18)',
+            borderRadius: '24px',
+            fontFamily: 'var(--font-display)', fontSize: '0.62rem',
+            letterSpacing: '0.18em', textTransform: 'uppercase',
+            color: 'rgba(245,130,10,0.7)',
+            transition: 'all 0.2s',
+          }}
+          onMouseEnter={e => {
+            const el = e.currentTarget as HTMLAnchorElement
+            el.style.background = 'rgba(245,130,10,0.12)'
+            el.style.borderColor = 'rgba(245,130,10,0.4)'
+            el.style.color = '#f5820a'
+          }}
+          onMouseLeave={e => {
+            const el = e.currentTarget as HTMLAnchorElement
+            el.style.background = 'rgba(245,130,10,0.06)'
+            el.style.borderColor = 'rgba(245,130,10,0.18)'
+            el.style.color = 'rgba(245,130,10,0.7)'
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="16 16 12 12 8 16" /><line x1="12" y1="12" x2="12" y2="21" />
+            <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+          </svg>
+          Carga de información
+        </Link>
 
         {/* Sign out */}
         <button
