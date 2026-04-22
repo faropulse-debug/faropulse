@@ -8,6 +8,7 @@ import { EstadoNegocioSection }       from '@/src/components/widgets/sections/Es
 import { ComensalesSection }          from '@/src/components/widgets/sections/ComensalesSection'
 import { TicketPromedioSection }      from '@/src/components/widgets/sections/TicketPromedioSection'
 import { ProyeccionSection }          from '@/src/components/widgets/sections/ProyeccionSection'
+import { MixCanalesSection }          from '@/src/components/widgets/sections/MixCanalesSection'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,24 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     kind:    'composite',
     section: 'punto-equilibrio',
+  },
+  {
+    id:            'mix-canales',
+    title:         'Mix de Canales',
+    description:   'Facturación por canal (Salón, Aplicaciones, Mostrador) con ticket promedio y participación %',
+    enabled:       true,
+    component:     MixCanalesSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      7,
+    category:      'diagnostic',
+    refreshPolicy: 'slow',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'mix-canales',
   },
   {
     id:            'evolutivo',
