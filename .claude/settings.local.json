@@ -54,7 +54,18 @@
       "Bash(SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnanh5c2txaG5tdXF3a3Jic2h1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDI5MDc0MCwiZXhwIjoyMDg5ODY2NzQwfQ.FUQEPXE9ZzXEvQ7jE7ABYJNhlEKzleFNAkQ-Nr7Os_0 npx tsx:*)",
       "Bash(npx supabase:*)",
       "Bash(curl:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(ls app/)",
+      "Bash(ls src/app/)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); deps={**d.get\\('dependencies',{}\\),**d.get\\('devDependencies',{}\\)}; [print\\(k,v\\) for k,v in deps.items\\(\\) if k in ['xlsx','next','@supabase/supabase-js']]\")",
+      "Bash(cat next.config.js)",
+      "Bash(cat next.config.ts)",
+      "Bash(cat next.config.mjs)",
+      "Bash(cat app/dashboard/layout.tsx)",
+      "Bash(cat app/dashboard/upload/layout.tsx)",
+      "Bash(grep -v \"^$\")",
+      "Bash(cat lib/env.ts)",
+      "Bash(cat src/lib/env.ts)"
     ]
   }
 }
