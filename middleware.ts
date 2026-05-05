@@ -3,12 +3,16 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 const PUBLIC_ROUTES = ['/login', '/forgot-password', '/reset-password']
+const PUBLIC_API_PREFIXES = ['/api/health', '/api/upload/']
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Allow public routes through immediately
-  if (PUBLIC_ROUTES.some(r => pathname === r)) {
+  // Allow public routes and unauthenticated API routes through immediately
+  if (
+    PUBLIC_ROUTES.some(r => pathname === r) ||
+    PUBLIC_API_PREFIXES.some(p => pathname.startsWith(p))
+  ) {
     return NextResponse.next()
   }
 
