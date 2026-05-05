@@ -1,16 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 
-const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
-const BATCH    = 500
-
-const SVC = {
-  'Content-Type':  'application/json',
-  'apikey':        SUPA_KEY,
-  'Authorization': `Bearer ${SUPA_KEY}`,
-  'Prefer':        'return=minimal',
-}
+const BATCH = 500
 
 // ─── Concepto → Categoría map ─────────────────────────────────────────────────
 // Maps exact concepto keys (as they appear in the Excel row labels) to DB categoria.
@@ -147,6 +138,26 @@ function parsePnL(buf: ArrayBuffer, orgId: string, locationId: string): { rows: 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const missingVars: string[] = []
+  if (!SUPA_URL) missingVars.push('NEXT_PUBLIC_SUPABASE_URL')
+  if (!SUPA_KEY) missingVars.push('SUPABASE_SERVICE_ROLE_KEY')
+  if (missingVars.length > 0) {
+    return NextResponse.json({
+      error: 'Configuración faltante',
+      details: missingVars.map(v => `Variable ${v} no está definida en el ambiente. Configurar en Vercel Settings → Environment Variables`).join(' '),
+      missingVars,
+    }, { status: 500 })
+  }
+
+  const SVC = {
+    'Content-Type':  'application/json',
+    'apikey':        SUPA_KEY!,
+    'Authorization': `Bearer ${SUPA_KEY}`,
+    'Prefer':        'return=minimal',
+  }
+
   try {
     const form = await req.formData()
 

@@ -1,19 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const SUPA_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const SUPA_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY!
-const BATCH     = 500
-
+const BATCH          = 500
 const CUCINAGO_BASE  = 'https://gd55d70ed7f53c9-o1anc1ft1sdt1pqp.adb.sa-santiago-1.oraclecloudapps.com/ords/restoweb'
 const CUCINAGO_SUCA  = '2216'
 const PAGE_SIZE      = 25
-
-const SVC = {
-  'Content-Type':  'application/json',
-  'apikey':        SUPA_KEY,
-  'Authorization': `Bearer ${SUPA_KEY}`,
-  'Prefer':        'return=minimal',
-}
 
 // ─── CucinaGo response types ──────────────────────────────────────────────────
 // Adjust field names to match the actual CucinaGo API response.
@@ -151,12 +141,17 @@ function transformItems(
 
 // ─── Supabase helpers ─────────────────────────────────────────────────────────
 
-async function supaInsertBatch(table: string, rows: unknown[]): Promise<number> {
+async function supaInsertBatch(
+  table:   string,
+  rows:    unknown[],
+  supaUrl: string,
+  svc:     Record<string, string>,
+): Promise<number> {
   let inserted = 0
   for (let i = 0; i < rows.length; i += BATCH) {
     const batch = rows.slice(i, i + BATCH)
-    const res   = await fetch(`${SUPA_URL}/rest/v1/${table}`, {
-      method: 'POST', headers: SVC,
+    const res   = await fetch(`${supaUrl}/rest/v1/${table}`, {
+      method: 'POST', headers: svc,
       body: JSON.stringify(batch),
     })
     if (!res.ok) {
@@ -171,6 +166,26 @@ async function supaInsertBatch(table: string, rows: unknown[]): Promise<number> 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const missingVars: string[] = []
+  if (!SUPA_URL) missingVars.push('NEXT_PUBLIC_SUPABASE_URL')
+  if (!SUPA_KEY) missingVars.push('SUPABASE_SERVICE_ROLE_KEY')
+  if (missingVars.length > 0) {
+    return NextResponse.json({
+      error: 'Configuración faltante',
+      details: missingVars.map(v => `Variable ${v} no está definida en el ambiente. Configurar en Vercel Settings → Environment Variables`).join(' '),
+      missingVars,
+    }, { status: 500 })
+  }
+
+  const SVC = {
+    'Content-Type':  'application/json',
+    'apikey':        SUPA_KEY!,
+    'Authorization': `Bearer ${SUPA_KEY}`,
+    'Prefer':        'return=minimal',
+  }
+
   try {
     const body       = await req.json() as { from: string; to: string; location_id: string; org_id: string }
     const { from, to, location_id: locationId, org_id: orgId } = body
@@ -223,8 +238,8 @@ export async function POST(req: NextRequest) {
       { method: 'DELETE', headers: SVC },
     )
 
-    const docsInserted  = await supaInsertBatch('sales_documents', docs)
-    const itemsInserted = await supaInsertBatch('sales_items',     items)
+    const docsInserted  = await supaInsertBatch('sales_documents', docs,  SUPA_URL!, SVC)
+    const itemsInserted = await supaInsertBatch('sales_items',     items, SUPA_URL!, SVC)
 
     return NextResponse.json({
       success: true,

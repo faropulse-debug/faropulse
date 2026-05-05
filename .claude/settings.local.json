@@ -65,7 +65,9 @@
       "Bash(cat app/dashboard/upload/layout.tsx)",
       "Bash(grep -v \"^$\")",
       "Bash(cat lib/env.ts)",
-      "Bash(cat src/lib/env.ts)"
+      "Bash(cat src/lib/env.ts)",
+      "Bash(gh issue *)",
+      "Bash(npm install *)"
     ]
   }
 }

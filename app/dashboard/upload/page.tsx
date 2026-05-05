@@ -14,14 +14,34 @@ interface FileSlot {
 }
 
 interface UploadResult {
+  // sales route
   docsInserted?:  number
+  docsSkipped?:   number
+  docsFailed?:    number
   itemsInserted?: number
-  rowsInserted?:  number
+  itemsSkipped?:  number
+  itemsFailed?:   number
   dateRange?:     string
+  errors?:        string[]
+  // financial route
+  rowsInserted?:  number
   periodos?:      string[]
+  // cucinago route
   rawItems?:      number
   message?:       string
 }
+
+type ZoneStatus = 'idle' | 'ready' | 'syncing' | 'success' | 'error'
+
+interface ZoneState {
+  file:     File | null
+  dragging: boolean
+  status:   ZoneStatus
+  result:   UploadResult | null
+  error:    string
+}
+
+const INIT_ZONE: ZoneState = { file: null, dragging: false, status: 'idle', result: null, error: '' }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -126,33 +146,66 @@ function StatusPill({ status }: { status: CardStatus }) {
 
 // ── Result Banner ─────────────────────────────────────────────────────────────
 
+// Used by P&L and CucinaGo cards
 function ResultBanner({ status, result, error }: { status: CardStatus; result: UploadResult | null; error: string }) {
   if (status !== 'success' && status !== 'error') return null
   const isOk  = status === 'success'
   const color = isOk ? GREEN : RED
   const bg    = isOk ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'
-
   return (
-    <div style={{
-      padding: '12px 16px',
-      background: bg, border: `1px solid ${color}30`,
-      borderRadius: 8, display: 'flex', alignItems: 'flex-start', gap: 10,
-    }}>
+    <div style={{ padding: '12px 16px', background: bg, border: `1px solid ${color}30`, borderRadius: 8, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, marginTop: 5, flexShrink: 0, boxShadow: `0 0 6px ${color}` }} />
       <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.78rem', color: 'rgba(255,255,255,0.65)', lineHeight: 1.55 }}>
         {isOk ? (
           <>
-            {result?.docsInserted  != null && <div>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.docsInserted.toLocaleString()}</strong> documentos insertados</div>}
-            {result?.itemsInserted != null && <div>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.itemsInserted.toLocaleString()}</strong> ítems insertados</div>}
             {result?.rowsInserted  != null && <div>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.rowsInserted.toLocaleString()}</strong> filas insertadas</div>}
-            {result?.dateRange     != null && <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.72rem' }}>Rango: {result.dateRange}</div>}
             {result?.periodos      != null && <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.72rem' }}>Períodos: {result.periodos.join(', ')}</div>}
+            {result?.docsInserted  != null && <div>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.docsInserted.toLocaleString()}</strong> órdenes</div>}
+            {result?.itemsInserted != null && <div>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.itemsInserted.toLocaleString()}</strong> ítems</div>}
             {result?.message       != null && <div>{result.message}</div>}
           </>
         ) : (
           <div style={{ color: '#fca5a5' }}>{error}</div>
         )}
       </div>
+    </div>
+  )
+}
+
+// Used by each independent ventas/items zone
+function ZoneResultBanner({ status, result, error, type }: {
+  status: ZoneStatus; result: UploadResult | null; error: string; type: 'ventas' | 'items'
+}) {
+  if (status !== 'success' && status !== 'error') return null
+  const isOk  = status === 'success'
+  const color = isOk ? GREEN : RED
+  const bg    = isOk ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)'
+  const inserted = type === 'ventas' ? result?.docsInserted  : result?.itemsInserted
+  const skipped  = type === 'ventas' ? result?.docsSkipped   : result?.itemsSkipped
+  const failed   = type === 'ventas' ? result?.docsFailed    : result?.itemsFailed
+  return (
+    <div style={{ padding: '8px 12px', background: bg, border: `1px solid ${color}25`, borderRadius: 7 }}>
+      {!isOk ? (
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.72rem', color: '#fca5a5' }}>{error}</span>
+      ) : (
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.72rem', color: 'rgba(255,255,255,0.65)', lineHeight: 1.6 }}>
+          {inserted != null && (
+            <span>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{inserted.toLocaleString()}</strong> insertados</span>
+          )}
+          {skipped != null && skipped > 0 && (
+            <span style={{ color: 'rgba(255,255,255,0.38)', marginLeft: 8 }}>{skipped.toLocaleString()} saltados</span>
+          )}
+          {failed != null && failed > 0 && (
+            <span style={{ color: '#fca5a5', marginLeft: 8 }}>{failed.toLocaleString()} fallidos</span>
+          )}
+          {type === 'ventas' && result?.dateRange && (
+            <div style={{ color: 'rgba(255,255,255,0.28)', fontSize: '0.65rem', marginTop: 2 }}>{result.dateRange}</div>
+          )}
+          {result?.errors?.map((e, i) => (
+            <div key={i} style={{ color: '#f59e0b', fontSize: '0.66rem', marginTop: 2 }}>⚠ {e}</div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
