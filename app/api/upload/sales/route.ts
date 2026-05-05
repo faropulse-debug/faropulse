@@ -161,6 +161,7 @@ async function supaGet(
   })
   if (!res.ok) {
     const text = await res.text()
+    console.error(`[upload/sales] SELECT ${url} FAILED status=${res.status}: ${text}`)
     throw new Error(`SELECT error: ${text}`)
   }
   const json = await res.json()
@@ -178,15 +179,18 @@ async function insertBatch(
   let failed   = 0
 
   for (let i = 0; i < rows.length; i += BATCH) {
-    const batch = rows.slice(i, i + BATCH)
-    const res   = await fetch(`${svcUrl}/rest/v1/${table}`, {
+    const batch     = rows.slice(i, i + BATCH)
+    const batchNum  = Math.floor(i / BATCH) + 1
+    console.log(`[upload/sales] INSERT ${table} batch=${batchNum} rows=${batch.length}`)
+    const res = await fetch(`${svcUrl}/rest/v1/${table}`, {
       method: 'POST',
       headers: svc,
       body: JSON.stringify(batch),
     })
     if (!res.ok) {
       const text = await res.text()
-      const msg  = `Batch ${Math.floor(i / BATCH) + 1} de ${table}: ${text.slice(0, 200)}`
+      console.error(`[upload/sales] INSERT ${table} batch=${batchNum} FAILED status=${res.status}: ${text}`)
+      const msg  = `Batch ${batchNum} de ${table}: ${text.slice(0, 200)}`
       errors.push(msg)
       failed += batch.length
     } else {
@@ -353,6 +357,8 @@ async function processItems(
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
+const mask = (s: string) => s.slice(0, 10) + '***'
+
 export async function POST(req: NextRequest) {
   const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -360,12 +366,14 @@ export async function POST(req: NextRequest) {
   if (!supaUrl) missingVars.push('NEXT_PUBLIC_SUPABASE_URL')
   if (!supaKey) missingVars.push('SUPABASE_SERVICE_ROLE_KEY')
   if (missingVars.length > 0) {
+    console.error('[upload/sales] missing env vars:', missingVars.join(', '))
     return NextResponse.json({
       error: 'Configuración faltante',
       details: missingVars.map(v => `Variable ${v} no está definida en el ambiente. Configurar en Vercel Settings → Environment Variables`).join(' '),
       missingVars,
     }, { status: 500 })
   }
+  console.log(`[upload/sales] env: url=${mask(supaUrl!)} key=${mask(supaKey!)}`)
 
   const svc: SvcHeaders = {
     'Content-Type':  'application/json',
@@ -380,6 +388,8 @@ export async function POST(req: NextRequest) {
     const itemsFile  = form.get('items')       as File   | null
     const locationId = form.get('location_id') as string | null
     const orgId      = form.get('org_id')      as string | null
+
+    console.log(`[upload/sales] location_id=${locationId} org_id=${orgId} ventasFile=${ventasFile?.name ?? 'none'} itemsFile=${itemsFile?.name ?? 'none'}`)
 
     if (!locationId || !orgId) {
       return NextResponse.json({ error: 'Faltan location_id u org_id' }, { status: 400 })
