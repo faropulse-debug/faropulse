@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "npx tsx scripts/check-env.ts",
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
@@ -30,6 +31,7 @@
     "eslint-config-next": "16.1.6",
     "jsdom": "^29.0.0",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^4.1.0"
   }
