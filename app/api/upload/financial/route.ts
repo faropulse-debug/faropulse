@@ -137,6 +137,8 @@ function parsePnL(buf: ArrayBuffer, orgId: string, locationId: string): { rows: 
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
+const mask = (s: string) => s.slice(0, 10) + '***'
+
 export async function POST(req: NextRequest) {
   const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
   const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -144,12 +146,14 @@ export async function POST(req: NextRequest) {
   if (!SUPA_URL) missingVars.push('NEXT_PUBLIC_SUPABASE_URL')
   if (!SUPA_KEY) missingVars.push('SUPABASE_SERVICE_ROLE_KEY')
   if (missingVars.length > 0) {
+    console.error('[upload/financial] missing env vars:', missingVars.join(', '))
     return NextResponse.json({
       error: 'Configuración faltante',
       details: missingVars.map(v => `Variable ${v} no está definida en el ambiente. Configurar en Vercel Settings → Environment Variables`).join(' '),
       missingVars,
     }, { status: 500 })
   }
+  console.log(`[upload/financial] env: url=${mask(SUPA_URL!)} key=${mask(SUPA_KEY!)}`)
 
   const SVC = {
     'Content-Type':  'application/json',
@@ -165,6 +169,8 @@ export async function POST(req: NextRequest) {
     const locationId = form.get('location_id') as string | null
     const orgId      = form.get('org_id')      as string | null
 
+    console.log(`[upload/financial] location_id=${locationId} org_id=${orgId} file=${pnlFile?.name ?? 'none'}`)
+
     if (!pnlFile || !locationId || !orgId) {
       return NextResponse.json({ error: 'Faltan campos: financial, location_id, org_id' }, { status: 400 })
     }
@@ -178,12 +184,14 @@ export async function POST(req: NextRequest) {
 
     // DELETE existing periods
     for (const periodo of periodos) {
+      console.log(`[upload/financial] DELETE financial_results periodo=${periodo} location_id=${locationId}`)
       const res = await fetch(
         `${SUPA_URL}/rest/v1/financial_results?location_id=eq.${locationId}&periodo=eq.${periodo}`,
         { method: 'DELETE', headers: SVC },
       )
       if (!res.ok) {
         const text = await res.text()
+        console.error(`[upload/financial] DELETE financial_results FAILED status=${res.status}: ${text}`)
         throw new Error(`DELETE financial_results (${periodo}): ${text}`)
       }
     }
@@ -191,14 +199,17 @@ export async function POST(req: NextRequest) {
     // INSERT in batches
     let rowsInserted = 0
     for (let i = 0; i < rows.length; i += BATCH) {
-      const batch = rows.slice(i, i + BATCH)
-      const res   = await fetch(`${SUPA_URL}/rest/v1/financial_results`, {
+      const batch    = rows.slice(i, i + BATCH)
+      const batchNum = Math.floor(i / BATCH) + 1
+      console.log(`[upload/financial] INSERT financial_results batch=${batchNum} rows=${batch.length}`)
+      const res = await fetch(`${SUPA_URL}/rest/v1/financial_results`, {
         method: 'POST', headers: SVC,
         body: JSON.stringify(batch),
       })
       if (!res.ok) {
         const text = await res.text()
-        throw new Error(`INSERT financial_results (batch ${Math.floor(i/BATCH)+1}): ${text}`)
+        console.error(`[upload/financial] INSERT financial_results batch=${batchNum} FAILED status=${res.status}: ${text}`)
+        throw new Error(`INSERT financial_results (batch ${batchNum}): ${text}`)
       }
       rowsInserted += batch.length
     }

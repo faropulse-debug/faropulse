@@ -149,14 +149,16 @@ async function supaInsertBatch(
 ): Promise<number> {
   let inserted = 0
   for (let i = 0; i < rows.length; i += BATCH) {
-    const batch = rows.slice(i, i + BATCH)
-    const res   = await fetch(`${supaUrl}/rest/v1/${table}`, {
+    const batch    = rows.slice(i, i + BATCH)
+    const batchNum = Math.floor(i / BATCH) + 1
+    const res      = await fetch(`${supaUrl}/rest/v1/${table}`, {
       method: 'POST', headers: svc,
       body: JSON.stringify(batch),
     })
     if (!res.ok) {
       const text = await res.text()
-      throw new Error(`INSERT ${table} (batch ${Math.floor(i/BATCH)+1}): ${text}`)
+      console.error(`[upload/cucinago] INSERT ${table} batch=${batchNum} FAILED status=${res.status}: ${text}`)
+      throw new Error(`INSERT ${table} (batch ${batchNum}): ${text}`)
     }
     inserted += batch.length
   }
@@ -165,6 +167,8 @@ async function supaInsertBatch(
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
+const mask = (s: string) => s.slice(0, 10) + '***'
+
 export async function POST(req: NextRequest) {
   const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
   const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -172,12 +176,14 @@ export async function POST(req: NextRequest) {
   if (!SUPA_URL) missingVars.push('NEXT_PUBLIC_SUPABASE_URL')
   if (!SUPA_KEY) missingVars.push('SUPABASE_SERVICE_ROLE_KEY')
   if (missingVars.length > 0) {
+    console.error('[upload/cucinago] missing env vars:', missingVars.join(', '))
     return NextResponse.json({
       error: 'Configuración faltante',
       details: missingVars.map(v => `Variable ${v} no está definida en el ambiente. Configurar en Vercel Settings → Environment Variables`).join(' '),
       missingVars,
     }, { status: 500 })
   }
+  console.log(`[upload/cucinago] env: url=${mask(SUPA_URL!)} key=${mask(SUPA_KEY!)}`)
 
   const SVC = {
     'Content-Type':  'application/json',
@@ -189,6 +195,8 @@ export async function POST(req: NextRequest) {
   try {
     const body       = await req.json() as { from: string; to: string; location_id: string; org_id: string }
     const { from, to, location_id: locationId, org_id: orgId } = body
+
+    console.log(`[upload/cucinago] from=${from} to=${to} location_id=${locationId} org_id=${orgId}`)
 
     if (!from || !to || !locationId || !orgId) {
       return NextResponse.json({ error: 'Faltan campos: from, to, location_id, org_id' }, { status: 400 })
@@ -210,6 +218,7 @@ export async function POST(req: NextRequest) {
 
       if (!res.ok) {
         const text = await res.text()
+        console.error(`[upload/cucinago] CucinaGo API error offset=${offset} status=${res.status}: ${text}`)
         throw new Error(`CucinaGo API error (offset=${offset}): ${res.status} ${text}`)
       }
 
@@ -229,16 +238,23 @@ export async function POST(req: NextRequest) {
     const { docs, items } = transformItems(allItems, orgId, locationId)
 
     // DELETE existing in date range
-    await fetch(
+    console.log(`[upload/cucinago] DELETE sales_documents location_id=${locationId} ${from}→${to}`)
+    const delDocs = await fetch(
       `${SUPA_URL}/rest/v1/sales_documents?location_id=eq.${locationId}&fecha=gte.${from}&fecha=lte.${to}&tipo_documento=eq.CUCINAGO`,
       { method: 'DELETE', headers: SVC },
     )
-    await fetch(
+    if (!delDocs.ok) console.error(`[upload/cucinago] DELETE sales_documents FAILED status=${delDocs.status}: ${await delDocs.text()}`)
+
+    console.log(`[upload/cucinago] DELETE sales_items location_id=${locationId} ${from}→${to}`)
+    const delItems = await fetch(
       `${SUPA_URL}/rest/v1/sales_items?location_id=eq.${locationId}&fecha_documento=gte.${from}&fecha_documento=lte.${to}`,
       { method: 'DELETE', headers: SVC },
     )
+    if (!delItems.ok) console.error(`[upload/cucinago] DELETE sales_items FAILED status=${delItems.status}: ${await delItems.text()}`)
 
+    console.log(`[upload/cucinago] INSERT sales_documents count=${docs.length}`)
     const docsInserted  = await supaInsertBatch('sales_documents', docs,  SUPA_URL!, SVC)
+    console.log(`[upload/cucinago] INSERT sales_items count=${items.length}`)
     const itemsInserted = await supaInsertBatch('sales_items',     items, SUPA_URL!, SVC)
 
     return NextResponse.json({
