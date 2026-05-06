@@ -83,6 +83,25 @@ function normalizeTipoZona(v: unknown): string | null {
   return s
 }
 
+// ─── Date validation ──────────────────────────────────────────────────────────
+
+const DATE_MIN = '2024-01-01'
+
+function maxAllowedDate(): string {
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  return d.toISOString().split('T')[0]
+}
+
+function isDateValid(dateStr: string | null): boolean {
+  if (!dateStr) return false
+  return dateStr >= DATE_MIN && dateStr <= maxAllowedDate()
+}
+
+function incReason(reasons: Record<string, number>, key: string): void {
+  reasons[key] = (reasons[key] ?? 0) + 1
+}
+
 // ─── Mappers ──────────────────────────────────────────────────────────────────
 
 type DocRow   = ReturnType<typeof mapVenta>
@@ -127,6 +146,7 @@ function mapItem(row: Record<string, unknown>, orgId: string, locationId: string
     es_variacion:    toStr(row.es_variacion),
     tipo_zona:       normalizeTipoZona(row.tipo_zona),
     camarero_nombre: toStr(row.camarero_nombre),       // nullable
+    fecha_caja:      toDate(row.fecha_caja),            // from "Fecha Caja" (Excel header → key "fecha_caja")
     fecha_documento: toDate(row.fecha_documento),      // from "Fecha Documento"
     fecha_item:      toTimestamp(row.fecha_item),
     turno:           toStr(row.turno),
@@ -203,11 +223,15 @@ async function insertBatch(
 // ─── Docs processing ──────────────────────────────────────────────────────────
 
 interface DocsResult {
-  inserted: number
-  skipped:  number
-  failed:   number
-  dateRange: string
-  errors:   string[]
+  processed:       number
+  inserted:        number
+  skipped:         number
+  failed:          number
+  rejected:        number
+  dateFrom:        string
+  dateTo:          string
+  rejectedReasons: Record<string, number>
+  errors:          string[]
 }
 
 async function processDocs(
@@ -217,24 +241,33 @@ async function processDocs(
   supaUrl:    string,
   svc:        SvcHeaders,
 ): Promise<DocsResult> {
-  const errors:  string[] = []
-  const buf      = await file.arrayBuffer()
-  const rawRows  = parseSheet(buf)
+  const errors:          string[] = []
+  const rejectedReasons: Record<string, number> = {}
+  const buf       = await file.arrayBuffer()
+  const rawRows   = parseSheet(buf)
+  const processed = rawRows.length
+  const maxDate   = maxAllowedDate()
 
-  // Validate: require numero, fecha, total
-  const valid:    DocRow[] = []
+  // Validate: require numero, fecha, total; reject dates outside [DATE_MIN, hoy+1]
+  const valid:   DocRow[] = []
   let   rejected = 0
 
   for (const r of rawRows) {
-    if (!toStr(r.numero) || !toDate(r.fecha) || toMoney(r.total) == null) {
-      rejected++
-      continue
+    const numero = toStr(r.numero)
+    const fecha  = toDate(r.fecha)
+    const total  = toMoney(r.total)
+
+    if (!numero) { incReason(rejectedReasons, 'sin_numero'); rejected++; continue }
+    if (!fecha || total == null) { incReason(rejectedReasons, 'datos_invalidos'); rejected++; continue }
+    if (!isDateValid(fecha)) {
+      console.log(`[upload/sales] fecha rechazada: ${fecha} (rango válido: ${DATE_MIN}–${maxDate})`)
+      incReason(rejectedReasons, 'fecha_invalida'); rejected++; continue
     }
     valid.push(mapVenta(r, orgId, locationId))
   }
 
-  if (rejected > 0) errors.push(`${rejected} fila(s) rechazada(s) por falta de Numero, Fecha o Total`)
-  if (valid.length === 0) return { inserted: 0, skipped: 0, failed: 0, dateRange: '', errors }
+  if (rejected > 0) errors.push(`${rejected} fila(s) rechazada(s)`)
+  if (valid.length === 0) return { processed, inserted: 0, skipped: 0, failed: 0, rejected, dateFrom: '', dateTo: '', rejectedReasons, errors }
 
   // Date range
   const dates    = [...new Set(valid.map(r => r.fecha).filter(Boolean))].sort() as string[]
@@ -273,16 +306,19 @@ async function processDocs(
     supaUrl, svc, errors,
   )
 
-  return { inserted, skipped, failed, dateRange: `${dateFrom} – ${dateTo}`, errors }
+  return { processed, inserted, skipped, failed, rejected, dateFrom, dateTo, rejectedReasons, errors }
 }
 
 // ─── Items processing ─────────────────────────────────────────────────────────
 
 interface ItemsResult {
-  inserted: number
-  skipped:  number
-  failed:   number
-  errors:   string[]
+  processed:       number
+  inserted:        number
+  skipped:         number
+  failed:          number
+  rejected:        number
+  rejectedReasons: Record<string, number>
+  errors:          string[]
 }
 
 async function processItems(
@@ -292,24 +328,33 @@ async function processItems(
   supaUrl:    string,
   svc:        SvcHeaders,
 ): Promise<ItemsResult> {
-  const errors:  string[] = []
-  const buf      = await file.arrayBuffer()
-  const rawRows  = parseSheet(buf)
+  const errors:          string[] = []
+  const rejectedReasons: Record<string, number> = {}
+  const buf       = await file.arrayBuffer()
+  const rawRows   = parseSheet(buf)
+  const processed = rawRows.length
+  const maxDate   = maxAllowedDate()
 
-  // Validate: require numero and descripcion
-  const valid:    ItemRow[] = []
+  // Validate: require numero and descripcion; reject bad fecha_documento
+  const valid:   ItemRow[] = []
   let   rejected = 0
 
   for (const r of rawRows) {
-    if (!toStr(r.numero) || !toStr(r.descripcion)) {
-      rejected++
-      continue
+    const numero = toStr(r.numero)
+    const desc   = toStr(r.descripcion)
+    const fecha  = toDate(r.fecha_documento)
+
+    if (!numero) { incReason(rejectedReasons, 'sin_numero'); rejected++; continue }
+    if (!desc)   { incReason(rejectedReasons, 'sin_descripcion'); rejected++; continue }
+    if (fecha && !isDateValid(fecha)) {
+      console.log(`[upload/sales] item fecha_documento rechazada: ${fecha} (rango válido: ${DATE_MIN}–${maxDate})`)
+      incReason(rejectedReasons, 'fecha_invalida'); rejected++; continue
     }
     valid.push(mapItem(r, orgId, locationId))
   }
 
-  if (rejected > 0) errors.push(`${rejected} fila(s) rechazada(s) por falta de Numero o Descripcion`)
-  if (valid.length === 0) return { inserted: 0, skipped: 0, failed: 0, errors }
+  if (rejected > 0) errors.push(`${rejected} ítem(s) rechazado(s)`)
+  if (valid.length === 0) return { processed, inserted: 0, skipped: 0, failed: 0, rejected, rejectedReasons, errors }
 
   // Dedup: composite key external_id|codigo|descripcion
   // Fetch existing from fecha_documento range
@@ -352,7 +397,7 @@ async function processItems(
     supaUrl, svc, errors,
   )
 
-  return { inserted, skipped, failed, errors }
+  return { processed, inserted, skipped, failed, rejected, rejectedReasons, errors }
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -401,43 +446,49 @@ export async function POST(req: NextRequest) {
     const allErrors: string[] = []
 
     // ── Ventas ────────────────────────────────────────────────────────────────
-    let docsInserted = 0
-    let docsSkipped  = 0
-    let docsFailed   = 0
-    let dateRange    = ''
+    const EMPTY_DOCS: DocsResult  = { processed: 0, inserted: 0, skipped: 0, failed: 0, rejected: 0, dateFrom: '', dateTo: '', rejectedReasons: {}, errors: [] }
+    const EMPTY_ITEMS: ItemsResult = { processed: 0, inserted: 0, skipped: 0, failed: 0, rejected: 0, rejectedReasons: {}, errors: [] }
+
+    let docsResult  = EMPTY_DOCS
+    let itemsResult = EMPTY_ITEMS
 
     if (ventasFile) {
-      const r = await processDocs(ventasFile, orgId, locationId, supaUrl!, svc)
-      docsInserted = r.inserted
-      docsSkipped  = r.skipped
-      docsFailed   = r.failed
-      dateRange    = r.dateRange
-      allErrors.push(...r.errors)
+      docsResult = await processDocs(ventasFile, orgId, locationId, supaUrl!, svc)
+      allErrors.push(...docsResult.errors)
     }
 
     // ── Items ─────────────────────────────────────────────────────────────────
-    let itemsInserted = 0
-    let itemsSkipped  = 0
-    let itemsFailed   = 0
-
     if (itemsFile) {
-      const r = await processItems(itemsFile, orgId, locationId, supaUrl!, svc)
-      itemsInserted = r.inserted
-      itemsSkipped  = r.skipped
-      itemsFailed   = r.failed
-      allErrors.push(...r.errors)
+      itemsResult = await processItems(itemsFile, orgId, locationId, supaUrl!, svc)
+      allErrors.push(...itemsResult.errors)
     }
 
+    // Merge rejected reasons from both files
+    const rejectedReasons: Record<string, number> = {}
+    for (const [k, v] of Object.entries(docsResult.rejectedReasons))  rejectedReasons[k] = (rejectedReasons[k] ?? 0) + v
+    for (const [k, v] of Object.entries(itemsResult.rejectedReasons)) rejectedReasons[k] = (rejectedReasons[k] ?? 0) + v
+
     return NextResponse.json({
-      success:      true,
-      docsInserted,
-      docsSkipped,
-      docsFailed,
-      itemsInserted,
-      itemsSkipped,
-      itemsFailed,
-      dateRange,
-      errors:       allErrors,
+      success: true,
+      summary: {
+        documentsProcessed: docsResult.processed,
+        documentsInserted:  docsResult.inserted,
+        documentsSkipped:   docsResult.skipped,
+        documentsRejected:  docsResult.rejected,
+        itemsProcessed:     itemsResult.processed,
+        itemsInserted:      itemsResult.inserted,
+        dateRange:          docsResult.dateFrom ? { from: docsResult.dateFrom, to: docsResult.dateTo } : null,
+        rejectedReasons,
+      },
+      // flat fields (backward compat)
+      docsInserted:  docsResult.inserted,
+      docsSkipped:   docsResult.skipped,
+      docsFailed:    docsResult.failed,
+      itemsInserted: itemsResult.inserted,
+      itemsSkipped:  itemsResult.skipped,
+      itemsFailed:   itemsResult.failed,
+      dateRange:     docsResult.dateFrom ? `${docsResult.dateFrom} – ${docsResult.dateTo}` : '',
+      errors:        allErrors,
     })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
