@@ -164,30 +164,6 @@ type SvcHeaders = {
   'Prefer':        string
 }
 
-async function supaGet(
-  url: string,
-  svc: SvcHeaders,
-  select: string,
-  filters: [string, string][],
-): Promise<unknown[]> {
-  const qs = [
-    `select=${encodeURIComponent(select)}`,
-    ...filters.map(([k, v]) => `${k}=${encodeURIComponent(v)}`),
-    'limit=50000',
-  ].join('&')
-
-  const res = await fetch(`${url}?${qs}`, {
-    headers: { ...svc, 'Range': '0-49999', 'Prefer': 'return=representation' },
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    console.error(`[upload/sales] SELECT ${url} FAILED status=${res.status}: ${text}`)
-    throw new Error(`SELECT error: ${text}`)
-  }
-  const json = await res.json()
-  return Array.isArray(json) ? json : []
-}
-
 async function insertBatch(
   table:    string,
   rows:     Record<string, unknown>[],
@@ -199,19 +175,18 @@ async function insertBatch(
   let failed   = 0
 
   for (let i = 0; i < rows.length; i += BATCH) {
-    const batch     = rows.slice(i, i + BATCH)
-    const batchNum  = Math.floor(i / BATCH) + 1
+    const batch    = rows.slice(i, i + BATCH)
+    const batchNum = Math.floor(i / BATCH) + 1
     console.log(`[upload/sales] INSERT ${table} batch=${batchNum} rows=${batch.length}`)
     const res = await fetch(`${svcUrl}/rest/v1/${table}`, {
-      method: 'POST',
+      method:  'POST',
       headers: svc,
-      body: JSON.stringify(batch),
+      body:    JSON.stringify(batch),
     })
     if (!res.ok) {
       const text = await res.text()
       console.error(`[upload/sales] INSERT ${table} batch=${batchNum} FAILED status=${res.status}: ${text}`)
-      const msg  = `Batch ${batchNum} de ${table}: ${text.slice(0, 200)}`
-      errors.push(msg)
+      errors.push(`Batch ${batchNum} de ${table}: ${text.slice(0, 200)}`)
       failed += batch.length
     } else {
       inserted += batch.length
@@ -220,12 +195,79 @@ async function insertBatch(
   return { inserted, failed }
 }
 
+// DELETE existing rows by external_id list — chunked to stay within URL limits.
+// PostgREST in.() filter: double-quote each value to handle spaces/dashes safely.
+async function deleteByExternalIds(
+  table:      string,
+  locationId: string,
+  ids:        string[],
+  supaUrl:    string,
+  svc:        SvcHeaders,
+): Promise<number> {
+  if (ids.length === 0) return 0
+
+  let deleted = 0
+  const total = Math.ceil(ids.length / BATCH)
+
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const chunk  = ids.slice(i, i + BATCH)
+    const inVal  = `in.(${chunk.map(id => `"${id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')})`
+    const url    = `${supaUrl}/rest/v1/${table}?location_id=eq.${encodeURIComponent(locationId)}&external_id=${encodeURIComponent(inVal)}`
+    const n      = Math.floor(i / BATCH) + 1
+
+    console.log(`[upload/sales] DELETE ${table} chunk=${n}/${total} ids=${chunk.length}`)
+    const res = await fetch(url, {
+      method:  'DELETE',
+      headers: { ...svc, 'Prefer': 'return=representation' },
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      console.error(`[upload/sales] DELETE ${table} chunk=${n} FAILED status=${res.status}: ${text.slice(0, 200)}`)
+      throw new Error(`DELETE ${table} chunk ${n}: ${text.slice(0, 200)}`)
+    }
+    const rows  = await res.json()
+    deleted    += Array.isArray(rows) ? rows.length : 0
+  }
+
+  console.log(`[upload/sales] DELETE ${table} total deleted=${deleted}`)
+  return deleted
+}
+
+// Non-blocking upsert to data_freshness tracking table.
+// Requires the table to be created via scripts/migration-data-freshness.sql first.
+async function upsertFreshness(
+  locationId:   string,
+  dataset:      string,
+  rowsAffected: number,
+  supaUrl:      string,
+  svc:          SvcHeaders,
+): Promise<void> {
+  try {
+    const res = await fetch(`${supaUrl}/rest/v1/data_freshness`, {
+      method:  'POST',
+      headers: { ...svc, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body:    JSON.stringify({
+        location_id:   locationId,
+        dataset,
+        rows_affected: rowsAffected,
+        last_upload:   new Date().toISOString(),
+      }),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      console.warn(`[upload/sales] data_freshness upsert skipped (${res.status}): ${text.slice(0, 100)}`)
+    }
+  } catch (e) {
+    console.warn('[upload/sales] data_freshness upsert failed (non-blocking):', e)
+  }
+}
+
 // ─── Docs processing ──────────────────────────────────────────────────────────
 
 interface DocsResult {
   processed:       number
   inserted:        number
-  skipped:         number
+  deleted:         number
   failed:          number
   rejected:        number
   dateFrom:        string
@@ -267,46 +309,26 @@ async function processDocs(
   }
 
   if (rejected > 0) errors.push(`${rejected} fila(s) rechazada(s)`)
-  if (valid.length === 0) return { processed, inserted: 0, skipped: 0, failed: 0, rejected, dateFrom: '', dateTo: '', rejectedReasons, errors }
+  if (valid.length === 0) return { processed, inserted: 0, deleted: 0, failed: 0, rejected, dateFrom: '', dateTo: '', rejectedReasons, errors }
 
   // Date range
   const dates    = [...new Set(valid.map(r => r.fecha).filter(Boolean))].sort() as string[]
   const dateFrom = dates[0]
   const dateTo   = dates[dates.length - 1]
 
-  // Fetch existing external_ids in date range
-  const existing = await supaGet(
-    `${supaUrl}/rest/v1/sales_documents`, svc,
-    'external_id',
-    [
-      ['location_id', `eq.${locationId}`],
-      ['fecha',       `gte.${dateFrom}`],
-      ['fecha',       `lte.${dateTo}`],
-    ],
-  )
-  const existingSet = new Set(
-    (existing as { external_id: string }[]).map(r => r.external_id)
-  )
-
-  // Split into new vs duplicate
-  const toInsert: DocRow[] = []
-  let   skipped  = 0
-
-  for (const row of valid) {
-    if (row.external_id && existingSet.has(row.external_id)) {
-      skipped++
-    } else {
-      toInsert.push(row)
-    }
-  }
+  // Delete-then-insert: idempotent re-upload of the same file produces identical state
+  const externalIds = [...new Set(valid.map(r => r.external_id).filter(Boolean))] as string[]
+  const deleted     = await deleteByExternalIds('sales_documents', locationId, externalIds, supaUrl, svc)
 
   const { inserted, failed } = await insertBatch(
     'sales_documents',
-    toInsert as unknown as Record<string, unknown>[],
+    valid as unknown as Record<string, unknown>[],
     supaUrl, svc, errors,
   )
 
-  return { processed, inserted, skipped, failed, rejected, dateFrom, dateTo, rejectedReasons, errors }
+  await upsertFreshness(locationId, 'sales_documents', inserted, supaUrl, svc)
+
+  return { processed, inserted, deleted, failed, rejected, dateFrom, dateTo, rejectedReasons, errors }
 }
 
 // ─── Items processing ─────────────────────────────────────────────────────────
@@ -314,7 +336,7 @@ async function processDocs(
 interface ItemsResult {
   processed:       number
   inserted:        number
-  skipped:         number
+  deleted:         number
   failed:          number
   rejected:        number
   rejectedReasons: Record<string, number>
@@ -354,50 +376,21 @@ async function processItems(
   }
 
   if (rejected > 0) errors.push(`${rejected} ítem(s) rechazado(s)`)
-  if (valid.length === 0) return { processed, inserted: 0, skipped: 0, failed: 0, rejected, rejectedReasons, errors }
+  if (valid.length === 0) return { processed, inserted: 0, deleted: 0, failed: 0, rejected, rejectedReasons, errors }
 
-  // Dedup: composite key external_id|codigo|descripcion
-  // Fetch existing from fecha_documento range
-  const fechas   = [...new Set(valid.map(r => r.fecha_documento).filter(Boolean))].sort() as string[]
-  const dateFrom = fechas[0]
-  const dateTo   = fechas[fechas.length - 1]
-
-  const existingItems = dateFrom && dateTo
-    ? await supaGet(
-        `${supaUrl}/rest/v1/sales_items`, svc,
-        'external_id,codigo,descripcion',
-        [
-          ['location_id',     `eq.${locationId}`],
-          ['fecha_documento',  `gte.${dateFrom}`],
-          ['fecha_documento',  `lte.${dateTo}`],
-        ],
-      )
-    : []
-
-  type ExItem = { external_id: string; codigo: number | null; descripcion: string | null }
-  const existingSet = new Set(
-    (existingItems as ExItem[]).map(r => `${r.external_id}|${r.codigo ?? ''}|${r.descripcion ?? ''}`)
-  )
-
-  const toInsert: ItemRow[] = []
-  let   skipped  = 0
-
-  for (const row of valid) {
-    const key = `${row.external_id ?? ''}|${row.codigo ?? ''}|${row.descripcion ?? ''}`
-    if (existingSet.has(key)) {
-      skipped++
-    } else {
-      toInsert.push(row)
-    }
-  }
+  // Delete-then-insert by external_id (ticket number): idempotent, no dedup logic needed
+  const externalIds = [...new Set(valid.map(r => r.external_id).filter(Boolean))] as string[]
+  const deleted     = await deleteByExternalIds('sales_items', locationId, externalIds, supaUrl, svc)
 
   const { inserted, failed } = await insertBatch(
     'sales_items',
-    toInsert as unknown as Record<string, unknown>[],
+    valid as unknown as Record<string, unknown>[],
     supaUrl, svc, errors,
   )
 
-  return { processed, inserted, skipped, failed, rejected, rejectedReasons, errors }
+  await upsertFreshness(locationId, 'sales_items', inserted, supaUrl, svc)
+
+  return { processed, inserted, deleted, failed, rejected, rejectedReasons, errors }
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -446,8 +439,8 @@ export async function POST(req: NextRequest) {
     const allErrors: string[] = []
 
     // ── Ventas ────────────────────────────────────────────────────────────────
-    const EMPTY_DOCS: DocsResult  = { processed: 0, inserted: 0, skipped: 0, failed: 0, rejected: 0, dateFrom: '', dateTo: '', rejectedReasons: {}, errors: [] }
-    const EMPTY_ITEMS: ItemsResult = { processed: 0, inserted: 0, skipped: 0, failed: 0, rejected: 0, rejectedReasons: {}, errors: [] }
+    const EMPTY_DOCS: DocsResult   = { processed: 0, inserted: 0, deleted: 0, failed: 0, rejected: 0, dateFrom: '', dateTo: '', rejectedReasons: {}, errors: [] }
+    const EMPTY_ITEMS: ItemsResult = { processed: 0, inserted: 0, deleted: 0, failed: 0, rejected: 0, rejectedReasons: {}, errors: [] }
 
     let docsResult  = EMPTY_DOCS
     let itemsResult = EMPTY_ITEMS
@@ -473,19 +466,20 @@ export async function POST(req: NextRequest) {
       summary: {
         documentsProcessed: docsResult.processed,
         documentsInserted:  docsResult.inserted,
-        documentsSkipped:   docsResult.skipped,
+        documentsDeleted:   docsResult.deleted,
         documentsRejected:  docsResult.rejected,
         itemsProcessed:     itemsResult.processed,
         itemsInserted:      itemsResult.inserted,
+        itemsDeleted:       itemsResult.deleted,
         dateRange:          docsResult.dateFrom ? { from: docsResult.dateFrom, to: docsResult.dateTo } : null,
         rejectedReasons,
       },
       // flat fields (backward compat)
       docsInserted:  docsResult.inserted,
-      docsSkipped:   docsResult.skipped,
+      docsDeleted:   docsResult.deleted,
       docsFailed:    docsResult.failed,
       itemsInserted: itemsResult.inserted,
-      itemsSkipped:  itemsResult.skipped,
+      itemsDeleted:  itemsResult.deleted,
       itemsFailed:   itemsResult.failed,
       dateRange:     docsResult.dateFrom ? `${docsResult.dateFrom} – ${docsResult.dateTo}` : '',
       errors:        allErrors,

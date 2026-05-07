@@ -120,6 +120,38 @@ async function run() {
     assert(r.total === r.con_fecha, `${r.total - r.con_fecha} rows tienen fecha_caja NULL (total=${r.total}, con_fecha=${r.con_fecha})`)
   })
 
+  // ── Idempotencia: el patrón delete-then-insert no debe dejar duplicados ──────
+
+  await test('sales_documents: sin external_id duplicado por location', async () => {
+    const rows = await sql(`
+      SELECT count(*)::int as dup_groups
+      FROM (
+        SELECT external_id
+        FROM sales_documents
+        WHERE location_id = '${LOCATION_ID}'
+        GROUP BY external_id
+        HAVING count(*) > 1
+      ) sub
+    `)
+    const n = (rows[0] as { dup_groups: number }).dup_groups
+    assert(n === 0, `${n} external_ids con duplicados en sales_documents (re-upload no fue idempotente)`)
+  })
+
+  await test('sales_items: sin duplicados por (external_id, codigo, descripcion, cantidad, precio_total, fecha_item)', async () => {
+    const rows = await sql(`
+      SELECT count(*)::int as dup_groups
+      FROM (
+        SELECT external_id, codigo, descripcion, cantidad, precio_total, fecha_item
+        FROM sales_items
+        WHERE location_id = '${LOCATION_ID}'
+        GROUP BY external_id, codigo, descripcion, cantidad, precio_total, fecha_item
+        HAVING count(*) > 1
+      ) sub
+    `)
+    const n = (rows[0] as { dup_groups: number }).dup_groups
+    assert(n === 0, `${n} grupos duplicados en sales_items (re-upload no fue idempotente)`)
+  })
+
   await test('financial_results: count = 363', async () => {
     const rows = await sql(`SELECT count(*)::int as n FROM financial_results WHERE location_id = '${LOCATION_ID}'`)
     const n = (rows[0] as { n: number }).n

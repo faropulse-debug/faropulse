@@ -13,8 +13,22 @@ interface FileSlot {
   dragging: boolean
 }
 
+interface SalesSummary {
+  documentsProcessed: number
+  documentsInserted:  number
+  documentsDeleted:   number
+  documentsRejected:  number
+  itemsProcessed:     number
+  itemsInserted:      number
+  itemsDeleted?:      number
+  dateRange:          { from: string; to: string } | null
+  rejectedReasons:    Record<string, number>
+}
+
 interface UploadResult {
-  // sales route
+  // sales route (structured summary)
+  summary?:       SalesSummary
+  // sales route (flat, backward compat)
   docsInserted?:  number
   docsSkipped?:   number
   docsFailed?:    number
@@ -157,13 +171,52 @@ function ResultBanner({ status, result, error }: { status: CardStatus; result: U
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, marginTop: 5, flexShrink: 0, boxShadow: `0 0 6px ${color}` }} />
       <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.78rem', color: 'rgba(255,255,255,0.65)', lineHeight: 1.55 }}>
         {isOk ? (
-          <>
-            {result?.rowsInserted  != null && <div>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.rowsInserted.toLocaleString()}</strong> filas insertadas</div>}
-            {result?.periodos      != null && <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.72rem' }}>Períodos: {result.periodos.join(', ')}</div>}
-            {result?.docsInserted  != null && <div>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.docsInserted.toLocaleString()}</strong> órdenes</div>}
-            {result?.itemsInserted != null && <div>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.itemsInserted.toLocaleString()}</strong> ítems</div>}
-            {result?.message       != null && <div>{result.message}</div>}
-          </>
+          result?.summary ? (
+            <>
+              <div>
+                ✓ Cargados{' '}
+                <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.summary.documentsInserted.toLocaleString()}</strong>
+                {' '}documentos
+                {result.summary.dateRange && (
+                  <> del{' '}
+                    <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.summary.dateRange.from}</strong>
+                    {' '}al{' '}
+                    <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.summary.dateRange.to}</strong>
+                  </>
+                )}.
+              </div>
+              {result.summary.itemsInserted > 0 && (
+                <div>
+                  +{' '}
+                  <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.summary.itemsInserted.toLocaleString()}</strong>
+                  {' '}ítems cargados.
+                </div>
+              )}
+              {result.summary.documentsDeleted > 0 && (
+                <div style={{ color: 'rgba(255,255,255,0.4)' }}>
+                  {result.summary.documentsDeleted.toLocaleString()} documentos anteriores reemplazados.
+                </div>
+              )}
+              {result.summary.documentsRejected > 0 && (
+                <div style={{ color: '#f59e0b' }}>
+                  Rechazados {result.summary.documentsRejected.toLocaleString()}
+                  {result.summary.rejectedReasons.fecha_invalida
+                    ? ` (${result.summary.rejectedReasons.fecha_invalida} fechas inválidas)`
+                    : result.summary.rejectedReasons.sin_numero
+                    ? ` (${result.summary.rejectedReasons.sin_numero} sin número)`
+                    : ' (datos inválidos)'}.
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {result?.rowsInserted  != null && <div>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.rowsInserted.toLocaleString()}</strong> filas insertadas</div>}
+              {result?.periodos      != null && <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.72rem' }}>Períodos: {result.periodos.join(', ')}</div>}
+              {result?.docsInserted  != null && <div>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.docsInserted.toLocaleString()}</strong> órdenes</div>}
+              {result?.itemsInserted != null && <div>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{result.itemsInserted.toLocaleString()}</strong> ítems</div>}
+              {result?.message       != null && <div>{result.message}</div>}
+            </>
+          )
         ) : (
           <div style={{ color: '#fca5a5' }}>{error}</div>
         )}
