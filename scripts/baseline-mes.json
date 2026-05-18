@@ -1,0 +1,20 @@
+{
+  "_meta": {
+    "captured_at": "2026-05-17",
+    "rpc": "get_facturacion_mes",
+    "location_id": "bbbbbbbb-0000-0000-0000-000000000001",
+    "env": "STG"
+  },
+  "facturacion_mes_actual_acumulada": 0,
+  "facturacion_mismo_periodo_mes_anterior": 31542295,
+  "pct_vs_mes_anterior": -100.0,
+  "facturacion_mes_anterior_cerrado": 47656692,
+  "pct_ultimo_mes_vs_anterior": -0.7,
+  "facturacion_mismo_mes_anio_anterior": 58977981.5,
+  "proyeccion_cierre_lineal": 0,
+  "proyeccion_cierre_ponderada": 0,
+  "promedio_diario_mes_actual": 0,
+  "meta_diaria_igualar_mes_anterior": 1537313,
+  "meta_diaria_superar_10pct": 1691044,
+  "desvio_acumulado_pct": -100.0
+}

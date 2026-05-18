@@ -1,0 +1,18 @@
+{
+  "_meta": {
+    "captured_at": "2026-05-17",
+    "rpc": "get_facturacion_semana",
+    "location_id": "bbbbbbbb-0000-0000-0000-000000000001",
+    "env": "STG"
+  },
+  "facturacion_semana_actual": 0,
+  "facturacion_misma_semana_mes_anterior": 10474580,
+  "pct_vs_mes_anterior": -100.0,
+  "facturacion_misma_semana_anio_anterior": 12994462.1,
+  "pct_vs_anio_anterior": -100.0,
+  "promedio_diario_semana_actual": 0,
+  "promedio_diario_semana_mes_anterior": 1496369,
+  "rolling_28_dias": 4079720,
+  "rolling_28_dias_anterior": 45265772,
+  "pct_rolling": -91.0
+}
