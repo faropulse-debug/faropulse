@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
+import { generateTicketHash } from '@/src/lib/upload/generate-ticket-hash'
 
 const BATCH           = 200
 const ABORT_THRESHOLD = 0.05
@@ -183,26 +184,40 @@ type DocRow  = ReturnType<typeof mapVenta>
 type ItemRow = ReturnType<typeof mapItem>
 
 function mapVenta(row: Record<string, unknown>, orgId: string, locationId: string) {
+  const external_id    = toStr(row.numero)
+  const fecha_caja     = toDate(row.fecha_caja)
+  const hora           = toHora(row.hora)
+  const camarero       = toStr(row.camarero)
+  const total          = toMoney(row.total)
+  const comensales     = toInt(row.comensales)
+  const cliente        = toStr(row.cliente)
+  const tipo_documento = toStr(row.tipo_documento)
+  const punto_venta    = toStr(row.punto_venta)
+  const zona           = toStr(row.zona)
+  const descuento      = toMoney(row.descuento) ?? 0
+  const recargo        = toMoney(row.recargo)   ?? 0
+
   return {
     org_id:          orgId,
     location_id:     locationId,
-    external_id:     toStr(row.numero),
+    external_id,
     fecha:           toDate(row.fecha),
-    total:           toMoney(row.total),
-    comensales:      toInt(row.comensales),
+    total,
+    comensales,
     camarero_nombre: toStr(row.camarero_nombre),
     tipo_zona:       normalizeTipoZona(row.tipo_zona),
-    zona:            toStr(row.zona),
-    punto_venta:     toStr(row.punto_venta),
-    tipo_documento:  toStr(row.tipo_documento),
-    fecha_caja:      toDate(row.fecha_caja),
+    zona,
+    punto_venta,
+    tipo_documento,
+    fecha_caja,
     turno:           toStr(row.turno),
-    hora:            toHora(row.hora),
-    descuento:       toMoney(row.descuento) ?? 0,
-    recargo:         toMoney(row.recargo)   ?? 0,
-    cliente:         toStr(row.cliente),
+    hora,
+    descuento,
+    recargo,
+    cliente,
     formas_pago:     toStr(row.formas_pago),
-    camarero:        toStr(row.camarero),
+    camarero,
+    ticket_hash:     generateTicketHash({ external_id, fecha_caja, hora, camarero, total, comensales, cliente, tipo_documento, punto_venta, zona, descuento, recargo }),
   }
 }
 
@@ -353,6 +368,62 @@ async function queryExistingIds(
     }
   }
   return existing
+}
+
+// Query which ticket_hashes from the given list already exist in sales_documents.
+async function queryExistingHashes(
+  locationId: string,
+  hashes:     string[],
+  supaUrl:    string,
+  svc:        SvcHeaders,
+): Promise<Set<string>> {
+  if (hashes.length === 0) return new Set()
+  const existing = new Set<string>()
+  for (let i = 0; i < hashes.length; i += BATCH) {
+    const chunk = hashes.slice(i, i + BATCH)
+    const inVal = `in.(${chunk.map(h => `"${h}"`).join(',')})`
+    const url   = `${supaUrl}/rest/v1/sales_documents?location_id=eq.${encodeURIComponent(locationId)}&ticket_hash=${encodeURIComponent(inVal)}&select=ticket_hash`
+    const res   = await fetch(url, { headers: svc })
+    if (res.ok) {
+      const rows = await res.json() as { ticket_hash: string }[]
+      for (const r of rows) existing.add(r.ticket_hash)
+    } else {
+      console.warn(`[upload/sales] queryExistingHashes chunk=${Math.floor(i / BATCH) + 1} failed: ${res.status}`)
+    }
+  }
+  return existing
+}
+
+// DELETE existing sales_documents rows by ticket_hash — chunked to stay within URL limits.
+async function deleteByTicketHashes(
+  locationId: string,
+  hashes:     string[],
+  supaUrl:    string,
+  svc:        SvcHeaders,
+): Promise<number> {
+  if (hashes.length === 0) return 0
+  let deleted = 0
+  const total = Math.ceil(hashes.length / BATCH)
+  for (let i = 0; i < hashes.length; i += BATCH) {
+    const chunk = hashes.slice(i, i + BATCH)
+    const inVal = `in.(${chunk.map(h => `"${h}"`).join(',')})`
+    const url   = `${supaUrl}/rest/v1/sales_documents?location_id=eq.${encodeURIComponent(locationId)}&ticket_hash=${encodeURIComponent(inVal)}`
+    const n     = Math.floor(i / BATCH) + 1
+    console.log(`[upload/sales] DELETE sales_documents by hash chunk=${n}/${total} hashes=${chunk.length}`)
+    const res = await fetch(url, {
+      method:  'DELETE',
+      headers: { ...svc, 'Prefer': 'return=representation' },
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      console.error(`[upload/sales] DELETE sales_documents by hash chunk=${n} FAILED status=${res.status}: ${text.slice(0, 200)}`)
+      throw new Error(`DELETE sales_documents by hash chunk ${n}: ${text.slice(0, 200)}`)
+    }
+    const rows = await res.json()
+    deleted   += Array.isArray(rows) ? rows.length : 0
+  }
+  console.log(`[upload/sales] DELETE sales_documents by hash total deleted=${deleted}`)
+  return deleted
 }
 
 // Read data_freshness rows for this location after upload.
@@ -559,12 +630,12 @@ async function insertDocs(
     return { processed, new: 0, updated: 0, inserted: 0, deleted: 0, failed: 0, rejected, dateFrom, dateTo, rejectionReasons, errors }
   }
 
-  const externalIds  = [...new Set(valid.map(r => r.external_id).filter(Boolean))] as string[]
-  const existingIds  = await queryExistingIds('sales_documents', locationId, externalIds, supaUrl, svc)
-  const newCount     = externalIds.length - existingIds.size
-  const updatedCount = existingIds.size
+  const hashes         = [...new Set(valid.map(r => r.ticket_hash))]
+  const existingHashes = await queryExistingHashes(locationId, hashes, supaUrl, svc)
+  const newCount       = hashes.length - existingHashes.size
+  const updatedCount   = existingHashes.size
 
-  const deleted              = await deleteByExternalIds('sales_documents', locationId, externalIds, supaUrl, svc)
+  const deleted              = await deleteByTicketHashes(locationId, hashes, supaUrl, svc)
   const { inserted, failed } = await insertBatch('sales_documents', valid as unknown as Record<string, unknown>[], supaUrl, svc, errors)
 
   await upsertFreshness(locationId, 'sales_documents', inserted, supaUrl, svc)
