@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
+import { generateTicketHash } from '@/src/lib/upload/generate-ticket-hash'
 
 // ── Mock Supabase before importing processor ──────────────────────────────────
 vi.mock('@/lib/supabase', () => ({
@@ -441,6 +442,103 @@ describe('POST /api/upload/sales — validación de identidad de archivo', () =>
       expect(body.error).not.toBe('FILE_IDENTITY_FAILED')
       expect(res.status).toBe(200)
       expect(body.success).toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+})
+
+// ─── ticket_hash — idempotencia por hash sintético ────────────────────────────
+
+// Helper: mock fetch que refleja los hashes recibidos en queryExistingHashes
+function makeHashFetchMock(returnSlice: (hashes: string[]) => string[]) {
+  return vi.fn().mockImplementation(async (url: unknown, options?: unknown) => {
+    const urlStr = String(url)
+    const method = (options as RequestInit | undefined)?.method ?? 'GET'
+    if (method === 'GET' && urlStr.includes('ticket_hash') && urlStr.includes('select=ticket_hash')) {
+      const match  = urlStr.match(/ticket_hash=([^&]+)/)
+      const all    = match
+        ? decodeURIComponent(match[1]).match(/"([a-f0-9]{64})"/g)?.map(h => h.replace(/"/g, '')) ?? []
+        : []
+      return { ok: true, json: async () => returnSlice(all).map(h => ({ ticket_hash: h })), text: async () => '' }
+    }
+    return { ok: true, json: async () => [], text: async () => '' }
+  })
+}
+
+describe('ticket_hash — idempotencia por hash sintético', () => {
+  it('TEST A: mismo external_id con campos distintos genera hashes distintos', () => {
+    const base = {
+      external_id:    'B 00002-00000009',
+      fecha_caja:     '2025-06-15',
+      camarero:       '1001',
+      total:          10000 as number | null,
+      comensales:     4     as number | null,
+      cliente:        null  as string | null,
+      tipo_documento: 'TICKET' as string | null,
+      punto_venta:    null  as string | null,
+      zona:           null  as string | null,
+      descuento:      0     as number | null,
+      recargo:        0     as number | null,
+    }
+    const hash1 = generateTicketHash({ ...base, hora: '20:30' })
+    const hash2 = generateTicketHash({ ...base, hora: '21:00' })                          // hora distinta
+    const hash3 = generateTicketHash({ ...base, hora: '22:15', total: 15000, camarero: '1002' }) // total y camarero distintos
+
+    expect(new Set([hash1, hash2, hash3]).size).toBe(3)
+  })
+
+  it('TEST B: re-carga del mismo archivo → documents.new=0, documents.updated=N', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    vi.stubGlobal('fetch', makeHashFetchMock(all => all))  // refleja todos como existentes
+
+    try {
+      const N    = 5
+      const rows = Array.from({ length: N }, (_, i) => ({
+        Sucursal: 'Casa Central', Numero: `T-${i + 1}`,
+        Fecha: '2025-06-15', 'Fecha Caja': '2025-06-15',
+        Total: String((i + 1) * 1000), Comensales: '4', 'Tipo Documento': 'TICKET',
+      }))
+      const file = makeXlsx(rows)
+      const { POST } = await import('@/app/api/upload/sales/route')
+      const req  = makeReq({ ventas: file, items: null, location_id: 'loc-1', org_id: 'org-1' })
+      const res  = await POST(req)
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as { success: boolean; documents: { new: number; updated: number; rejected: number } }
+      expect(body.success).toBe(true)
+      expect(body.documents.new).toBe(0)
+      expect(body.documents.updated).toBe(N)
+      expect(body.documents.rejected).toBe(0)
+    } finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('TEST C: carga incremental con solapamiento → documents.new=4, documents.updated=6', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    vi.stubGlobal('fetch', makeHashFetchMock(all => all.slice(0, 6)))  // primeros 6 como existentes
+
+    try {
+      const rows = Array.from({ length: 10 }, (_, i) => ({
+        Sucursal: 'Casa Central', Numero: `T-${i + 1}`,
+        Fecha: '2025-06-15', 'Fecha Caja': '2025-06-15',
+        Total: String((i + 1) * 1000), Comensales: '4', 'Tipo Documento': 'TICKET',
+      }))
+      const file = makeXlsx(rows)
+      const { POST } = await import('@/app/api/upload/sales/route')
+      const req  = makeReq({ ventas: file, items: null, location_id: 'loc-1', org_id: 'org-1' })
+      const res  = await POST(req)
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as { success: boolean; documents: { new: number; updated: number } }
+      expect(body.success).toBe(true)
+      expect(body.documents.new).toBe(4)
+      expect(body.documents.updated).toBe(6)
     } finally {
       vi.unstubAllGlobals()
       vi.unstubAllEnvs()
