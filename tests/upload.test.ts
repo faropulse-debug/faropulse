@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+import type { NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
 
 // ── Mock Supabase before importing processor ──────────────────────────────────
@@ -186,7 +187,90 @@ describe('mapVentas', () => {
   })
 })
 
-// ─── validateFile — items ────────────────────────────────────────────────────
+// ─── POST /api/upload/sales — 5% abort threshold ─────────────────────────────
+//
+// The File object loses its binary content when round-tripped through the
+// multipart FormData → Request body → req.formData() cycle in jsdom. We bypass
+// that cycle by providing a mock req whose formData() returns the File directly.
+
+function makeReq(fields: Record<string, string | File | null>): NextRequest {
+  return {
+    formData: async () => ({ get: (k: string) => fields[k] ?? null }),
+  } as unknown as NextRequest
+}
+
+describe('POST /api/upload/sales — 5% abort threshold', () => {
+  it('returns 422 without any DB calls when ventas has >5% invalid rows', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    try {
+      // 17 rows total: 2 with empty Numero = 11.8% invalid → exceeds 5% → abort
+      const baseVentasRow = { Sucursal: 'X', Fecha: '2025-01-15', 'Fecha Caja': '2025-01-15', Comensales: '10', 'Tipo Documento': 'TICKET' }
+      const rows: Record<string, unknown>[] = [
+        { ...baseVentasRow, Numero: '', Total: '100' },
+        { ...baseVentasRow, Numero: '', Total: '200' },
+        ...Array.from({ length: 15 }, (_, i) => ({
+          ...baseVentasRow,
+          Numero: `V-${i + 1}`,
+          Total:  String((i + 1) * 100),
+        })),
+      ]
+      const file = makeXlsx(rows)
+      const { POST } = await import('@/app/api/upload/sales/route')
+      const req = makeReq({ ventas: file, items: null, location_id: 'loc-test', org_id: 'org-test' })
+      const res = await POST(req)
+
+      expect(res.status).toBe(422)
+      expect(fetchSpy).not.toHaveBeenCalled()
+      const body = await res.json() as { success: boolean; abortReason: string; abortDetails: unknown[] }
+      expect(body.success).toBe(false)
+      expect(body.abortReason).toMatch(/5%/)
+      expect(body.abortDetails).toHaveLength(1)
+    } finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('does NOT abort when rejection rate is exactly 5% (boundary)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    // Simulate successful DB responses so the route completes without errors
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true, json: async () => [], text: async () => '',
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    try {
+      // 20 rows: 1 invalid (5.0%) → NOT > 5% → should proceed to DB
+      const baseVentasRow = { Sucursal: 'X', Fecha: '2025-01-15', 'Fecha Caja': '2025-01-15', Comensales: '10', 'Tipo Documento': 'TICKET' }
+      const rows: Record<string, unknown>[] = [
+        { ...baseVentasRow, Numero: '', Total: '100' },
+        ...Array.from({ length: 19 }, (_, i) => ({
+          ...baseVentasRow,
+          Numero: `V-${i + 1}`,
+          Total:  String((i + 1) * 100),
+        })),
+      ]
+      const file = makeXlsx(rows)
+      const { POST } = await import('@/app/api/upload/sales/route')
+      const req = makeReq({ ventas: file, items: null, location_id: 'loc-test', org_id: 'org-test' })
+      const res = await POST(req)
+
+      // Should NOT be 422 — DB was reached
+      expect(res.status).not.toBe(422)
+      expect(fetchSpy).toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+})
+
+// ─── validateFile — items ─────────────────────────────────────────────────────
 
 describe('validateFile (items)', () => {
   it('passes with only numero and sucursal present', async () => {
@@ -271,5 +355,95 @@ describe('validateFile (items)', () => {
     expect(result.ok).toBe(true)
     // defval:'' means empty cells are '' — mapper converts to null
     expect(result.rows[0]['descripcion']).toBe('')
+  })
+})
+
+// ─── POST /api/upload/sales — FILE_IDENTITY validation ───────────────────────
+
+describe('POST /api/upload/sales — validación de identidad de archivo', () => {
+  it('rechaza archivo jpg (extensión inválida)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    try {
+      const jpgFile = new File([new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0])], 'foto.jpg', { type: 'image/jpeg' })
+      const { POST } = await import('@/app/api/upload/sales/route')
+      const req = makeReq({ ventas: jpgFile, items: null, location_id: 'loc-1', org_id: 'org-1' })
+      const res = await POST(req)
+      expect(res.status).toBe(422)
+      const body = await res.json() as { error: string; message: string }
+      expect(body.error).toBe('FILE_IDENTITY_FAILED')
+      expect(body.message).toMatch(/no es Excel/i)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('rechaza xlsx vacío (sin filas de datos)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    try {
+      const emptyFile = makeXlsx([])
+      const { POST } = await import('@/app/api/upload/sales/route')
+      const req = makeReq({ ventas: emptyFile, items: null, location_id: 'loc-1', org_id: 'org-1' })
+      const res = await POST(req)
+      expect(res.status).toBe(422)
+      const body = await res.json() as { error: string; message: string }
+      expect(body.error).toBe('FILE_IDENTITY_FAILED')
+      expect(body.message).toMatch(/vac/i)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('rechaza xlsx con columnas faltantes y reporta cuáles faltan', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    try {
+      // Solo Sucursal y Numero — faltan Fecha Caja, Total, Comensales, Tipo Documento
+      const file = makeXlsx([{ Sucursal: 'Casa Central', Numero: '1001' }])
+      const { POST } = await import('@/app/api/upload/sales/route')
+      const req = makeReq({ ventas: file, items: null, location_id: 'loc-1', org_id: 'org-1' })
+      const res = await POST(req)
+      expect(res.status).toBe(422)
+      const body = await res.json() as { error: string; message: string; missing: string[] }
+      expect(body.error).toBe('FILE_IDENTITY_FAILED')
+      expect(body.message).toMatch(/Faltan columnas requeridas/)
+      expect(body.missing).toContain('fecha_caja')
+      expect(body.missing).toContain('total')
+      expect(body.missing).toContain('comensales')
+      expect(body.missing).toContain('tipo_documento')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('acepta xlsx con todas las columnas requeridas y datos válidos', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true, json: async () => [], text: async () => '',
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    try {
+      const file = makeXlsx([{
+        Sucursal:          'Casa Central',
+        Numero:            '5001',
+        Fecha:             '2025-01-15',
+        'Fecha Caja':      '2025-01-15',
+        Total:             '10000',
+        Comensales:        '20',
+        'Tipo Documento':  'TICKET',
+      }])
+      const { POST } = await import('@/app/api/upload/sales/route')
+      const req = makeReq({ ventas: file, items: null, location_id: 'loc-1', org_id: 'org-1' })
+      const res = await POST(req)
+      const body = await res.json() as { success?: boolean; error?: string }
+      expect(body.error).not.toBe('FILE_IDENTITY_FAILED')
+      expect(res.status).toBe(200)
+      expect(body.success).toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
   })
 })

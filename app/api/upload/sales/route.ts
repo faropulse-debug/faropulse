@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 
-const BATCH = 200
+const BATCH           = 200
+const ABORT_THRESHOLD = 0.05
+
+const VENTAS_REQUIRED_COLUMNS = ['Sucursal', 'Numero', 'Fecha Caja', 'Total', 'Comensales', 'Tipo Documento'] as const
+const ITEMS_REQUIRED_COLUMNS  = ['Sucursal', 'Numero', 'Descripcion', 'Cantidad', 'Precio Total', 'Fecha Caja', 'Familia'] as const
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -98,14 +102,85 @@ function isDateValid(dateStr: string | null): boolean {
   return dateStr >= DATE_MIN && dateStr <= maxAllowedDate()
 }
 
-function incReason(reasons: Record<string, number>, key: string): void {
-  reasons[key] = (reasons[key] ?? 0) + 1
+// ─── Rejection tracking ───────────────────────────────────────────────────────
+
+interface RejectionEntry {
+  reason:   string
+  count:    number
+  examples: string[]
+}
+
+function addRejection(reasons: Map<string, string[]>, reason: string, example: string): void {
+  const arr = reasons.get(reason) ?? []
+  arr.push(example)
+  reasons.set(reason, arr)
+}
+
+function buildRejectionReasons(reasons: Map<string, string[]>): RejectionEntry[] {
+  return Array.from(reasons.entries()).map(([reason, examples]) => ({
+    reason,
+    count:    examples.length,
+    examples: examples.slice(0, 3),
+  }))
+}
+
+// ─── File identity validation ─────────────────────────────────────────────────
+
+type IdentityOk   = { ok: true }
+type IdentityFail = { ok: false; message: string; expected: string[]; received: string[]; missing: string[]; extra: string[] }
+type IdentityResult = IdentityOk | IdentityFail
+
+async function validateFileIdentity(file: File, expectedType: 'ventas' | 'items'): Promise<IdentityResult> {
+  const required     = expectedType === 'ventas' ? [...VENTAS_REQUIRED_COLUMNS] : [...ITEMS_REQUIRED_COLUMNS]
+  const requiredNorm = required.map(normalizeHeader)
+
+  const ext = file.name.split('.').pop()?.toLowerCase()
+  if (ext !== 'xlsx') {
+    return { ok: false, message: 'Archivo no es Excel', expected: requiredNorm, received: [], missing: requiredNorm, extra: [] }
+  }
+
+  const buf   = await file.arrayBuffer()
+  const magic = new Uint8Array(buf.slice(0, 4))
+  // XLSX is ZIP-based: magic bytes PK\x03\x04
+  const isZip = magic[0] === 0x50 && magic[1] === 0x4B && magic[2] === 0x03 && magic[3] === 0x04
+  if (!isZip) {
+    return { ok: false, message: 'Archivo no es Excel', expected: requiredNorm, received: [], missing: requiredNorm, extra: [] }
+  }
+
+  let wb: XLSX.WorkBook
+  try {
+    wb = XLSX.read(new Uint8Array(buf), { type: 'array' })
+  } catch {
+    return { ok: false, message: 'Archivo no es Excel', expected: requiredNorm, received: [], missing: requiredNorm, extra: [] }
+  }
+
+  if (wb.SheetNames.length === 0) {
+    return { ok: false, message: 'Excel vacío', expected: requiredNorm, received: [], missing: requiredNorm, extra: [] }
+  }
+
+  const sheet   = wb.Sheets[wb.SheetNames[0]]
+  const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false })
+
+  if (rawRows.length === 0) {
+    return { ok: false, message: 'Excel vacío', expected: requiredNorm, received: [], missing: requiredNorm, extra: [] }
+  }
+
+  const received = Object.keys(rawRows[0]).map(normalizeHeader)
+  const missing  = requiredNorm.filter(c => !received.includes(c))
+  const extra    = received.filter(c => !requiredNorm.includes(c))
+
+  if (missing.length > 0) {
+    const message = `Faltan columnas requeridas: [${missing.join(', ')}]. Sobran columnas: [${extra.join(', ')}]`
+    return { ok: false, message, expected: requiredNorm, received, missing, extra }
+  }
+
+  return { ok: true }
 }
 
 // ─── Mappers ──────────────────────────────────────────────────────────────────
 
-type DocRow   = ReturnType<typeof mapVenta>
-type ItemRow  = ReturnType<typeof mapItem>
+type DocRow  = ReturnType<typeof mapVenta>
+type ItemRow = ReturnType<typeof mapItem>
 
 function mapVenta(row: Record<string, unknown>, orgId: string, locationId: string) {
   return {
@@ -114,8 +189,8 @@ function mapVenta(row: Record<string, unknown>, orgId: string, locationId: strin
     external_id:     toStr(row.numero),
     fecha:           toDate(row.fecha),
     total:           toMoney(row.total),
-    comensales:      toInt(row.comensales),            // int, nullable
-    camarero_nombre: toStr(row.camarero_nombre),       // nullable
+    comensales:      toInt(row.comensales),
+    camarero_nombre: toStr(row.camarero_nombre),
     tipo_zona:       normalizeTipoZona(row.tipo_zona),
     zona:            toStr(row.zona),
     punto_venta:     toStr(row.punto_venta),
@@ -125,9 +200,9 @@ function mapVenta(row: Record<string, unknown>, orgId: string, locationId: strin
     hora:            toHora(row.hora),
     descuento:       toMoney(row.descuento) ?? 0,
     recargo:         toMoney(row.recargo)   ?? 0,
-    cliente:         toStr(row.cliente),               // nullable
+    cliente:         toStr(row.cliente),
     formas_pago:     toStr(row.formas_pago),
-    camarero:        toStr(row.camarero),              // nullable
+    camarero:        toStr(row.camarero),
   }
 }
 
@@ -137,17 +212,17 @@ function mapItem(row: Record<string, unknown>, orgId: string, locationId: string
     location_id:     locationId,
     external_id:     toStr(row.numero),
     descripcion:     toStr(row.descripcion),
-    cantidad:        toInt(row.cantidad),              // int
+    cantidad:        toInt(row.cantidad),
     precio_unitario: toMoney(row.precio_unitario),
     precio_total:    toMoney(row.precio_total),
-    codigo:          toInt(row.codigo),                // int
-    familia:         toStr(row.familia),               // nullable
-    subfamilia:      toStr(row.subfamilia),            // nullable
+    codigo:          toInt(row.codigo),
+    familia:         toStr(row.familia),
+    subfamilia:      toStr(row.subfamilia),
     es_variacion:    toStr(row.es_variacion),
     tipo_zona:       normalizeTipoZona(row.tipo_zona),
-    camarero_nombre: toStr(row.camarero_nombre),       // nullable
-    fecha_caja:      toDate(row.fecha_caja),            // from "Fecha Caja" (Excel header → key "fecha_caja")
-    fecha_documento: toDate(row.fecha_documento),      // from "Fecha Documento"
+    camarero_nombre: toStr(row.camarero_nombre),
+    fecha_caja:      toDate(row.fecha_caja),
+    fecha_documento: toDate(row.fecha_documento),
     fecha_item:      toTimestamp(row.fecha_item),
     turno:           toStr(row.turno),
     zona:            toStr(row.zona),
@@ -165,15 +240,14 @@ type SvcHeaders = {
 }
 
 async function insertBatch(
-  table:    string,
-  rows:     Record<string, unknown>[],
-  svcUrl:   string,
-  svc:      SvcHeaders,
-  errors:   string[],
+  table:  string,
+  rows:   Record<string, unknown>[],
+  svcUrl: string,
+  svc:    SvcHeaders,
+  errors: string[],
 ): Promise<{ inserted: number; failed: number }> {
   let inserted = 0
   let failed   = 0
-
   for (let i = 0; i < rows.length; i += BATCH) {
     const batch    = rows.slice(i, i + BATCH)
     const batchNum = Math.floor(i / BATCH) + 1
@@ -196,7 +270,6 @@ async function insertBatch(
 }
 
 // DELETE existing rows by external_id list — chunked to stay within URL limits.
-// PostgREST in.() filter: double-quote each value to handle spaces/dashes safely.
 async function deleteByExternalIds(
   table:      string,
   locationId: string,
@@ -205,16 +278,13 @@ async function deleteByExternalIds(
   svc:        SvcHeaders,
 ): Promise<number> {
   if (ids.length === 0) return 0
-
   let deleted = 0
   const total = Math.ceil(ids.length / BATCH)
-
   for (let i = 0; i < ids.length; i += BATCH) {
     const chunk  = ids.slice(i, i + BATCH)
     const inVal  = `in.(${chunk.map(id => `"${id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')})`
     const url    = `${supaUrl}/rest/v1/${table}?location_id=eq.${encodeURIComponent(locationId)}&external_id=${encodeURIComponent(inVal)}`
     const n      = Math.floor(i / BATCH) + 1
-
     console.log(`[upload/sales] DELETE ${table} chunk=${n}/${total} ids=${chunk.length}`)
     const res = await fetch(url, {
       method:  'DELETE',
@@ -228,13 +298,11 @@ async function deleteByExternalIds(
     const rows  = await res.json()
     deleted    += Array.isArray(rows) ? rows.length : 0
   }
-
   console.log(`[upload/sales] DELETE ${table} total deleted=${deleted}`)
   return deleted
 }
 
 // Non-blocking upsert to data_freshness tracking table.
-// Requires the table to be created via scripts/migration-data-freshness.sql first.
 async function upsertFreshness(
   locationId:   string,
   dataset:      string,
@@ -262,135 +330,274 @@ async function upsertFreshness(
   }
 }
 
-// ─── Docs processing ──────────────────────────────────────────────────────────
-
-interface DocsResult {
-  processed:       number
-  inserted:        number
-  deleted:         number
-  failed:          number
-  rejected:        number
-  dateFrom:        string
-  dateTo:          string
-  rejectedReasons: Record<string, number>
-  errors:          string[]
+// Query which external_ids from the given list already exist in the DB.
+async function queryExistingIds(
+  table:      string,
+  locationId: string,
+  ids:        string[],
+  supaUrl:    string,
+  svc:        SvcHeaders,
+): Promise<Set<string>> {
+  if (ids.length === 0) return new Set()
+  const existing = new Set<string>()
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const chunk = ids.slice(i, i + BATCH)
+    const inVal = `in.(${chunk.map(id => `"${id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')})`
+    const url   = `${supaUrl}/rest/v1/${table}?location_id=eq.${encodeURIComponent(locationId)}&external_id=${encodeURIComponent(inVal)}&select=external_id`
+    const res   = await fetch(url, { headers: svc })
+    if (res.ok) {
+      const rows = await res.json() as { external_id: string }[]
+      for (const r of rows) existing.add(r.external_id)
+    } else {
+      console.warn(`[upload/sales] queryExistingIds ${table} chunk=${Math.floor(i / BATCH) + 1} failed: ${res.status}`)
+    }
+  }
+  return existing
 }
 
-async function processDocs(
-  file:       File,
-  orgId:      string,
+// Read data_freshness rows for this location after upload.
+async function queryFreshness(
+  locationId: string,
+  supaUrl:    string,
+  svc:        SvcHeaders,
+): Promise<{ datasets: Record<string, string | null>; lastUpload: string | null }> {
+  try {
+    const url = `${supaUrl}/rest/v1/data_freshness?location_id=eq.${encodeURIComponent(locationId)}&select=dataset,last_upload`
+    const res = await fetch(url, { headers: svc })
+    if (!res.ok) return { datasets: {}, lastUpload: null }
+    const rows = await res.json() as { dataset: string; last_upload: string }[]
+    const datasets: Record<string, string | null> = {}
+    let lastUpload: string | null = null
+    for (const r of rows) {
+      datasets[r.dataset] = r.last_upload
+      if (!lastUpload || r.last_upload > lastUpload) lastUpload = r.last_upload
+    }
+    return { datasets, lastUpload }
+  } catch {
+    return { datasets: {}, lastUpload: null }
+  }
+}
+
+// ─── Parse phase (pure — no DB calls) ────────────────────────────────────────
+
+interface ParsedDocs {
+  processed:      number
+  valid:          DocRow[]
+  rejected:       number
+  reasons:        Map<string, string[]>
+  rejectedPct:    number
+  fechaCajaCount: number
+  sumTotal:       number
+  dateFrom:       string
+  dateTo:         string
+}
+
+interface ParsedItems {
+  processed:      number
+  valid:          ItemRow[]
+  rejected:       number
+  reasons:        Map<string, string[]>
+  rejectedPct:    number
+  fechaCajaCount: number
+  sumPrecioTotal: number
+}
+
+function parseDocs(buf: ArrayBuffer, orgId: string, locationId: string): ParsedDocs {
+  const rawRows   = parseSheet(buf)
+  const processed = rawRows.length
+  const valid:    DocRow[] = []
+  let   rejected  = 0
+  const reasons   = new Map<string, string[]>()
+  let   fechaCajaCount = 0
+  let   sumTotal       = 0
+  const maxDate        = maxAllowedDate()
+
+  for (const r of rawRows) {
+    const numero       = toStr(r.numero)
+    const fecha        = toDate(r.fecha)
+    const total        = toMoney(r.total)
+    const fechaCaja    = toDate(r.fecha_caja)
+    const fechaCajaRaw = toStr(r.fecha_caja)
+
+    if (!numero) {
+      addRejection(reasons, 'external_id_null', `row-${valid.length + rejected + 1}`)
+      rejected++; continue
+    }
+    if (!fecha || total == null) {
+      addRejection(reasons, 'datos_invalidos', numero)
+      rejected++; continue
+    }
+    if (!isDateValid(fecha)) {
+      console.log(`[upload/sales] fecha rechazada: ${fecha} (rango válido: ${DATE_MIN}–${maxDate})`)
+      addRejection(reasons, 'fecha_invalida', numero)
+      rejected++; continue
+    }
+    if (total < 0) {
+      addRejection(reasons, 'total_negativo', numero)
+      rejected++; continue
+    }
+    if (fechaCajaRaw && !fechaCaja) {
+      addRejection(reasons, 'fecha_caja_invalida', numero)
+      rejected++; continue
+    }
+
+    if (fechaCaja) fechaCajaCount++
+    sumTotal += total
+    valid.push(mapVenta(r, orgId, locationId))
+  }
+
+  const fechas = [...new Set(valid.map(r => r.fecha).filter(Boolean))].sort() as string[]
+  return {
+    processed,
+    valid,
+    rejected,
+    reasons,
+    rejectedPct:    processed > 0 ? rejected / processed : 0,
+    fechaCajaCount,
+    sumTotal,
+    dateFrom: fechas[0] ?? '',
+    dateTo:   fechas[fechas.length - 1] ?? '',
+  }
+}
+
+function parseItems(buf: ArrayBuffer, orgId: string, locationId: string): ParsedItems {
+  const rawRows   = parseSheet(buf)
+  const processed = rawRows.length
+  const valid:    ItemRow[] = []
+  let   rejected  = 0
+  const reasons   = new Map<string, string[]>()
+  let   fechaCajaCount  = 0
+  let   sumPrecioTotal  = 0
+  const maxDate         = maxAllowedDate()
+
+  for (const r of rawRows) {
+    const numero       = toStr(r.numero)
+    const desc         = toStr(r.descripcion)
+    const fecha        = toDate(r.fecha_documento)
+    const fechaCaja    = toDate(r.fecha_caja)
+    const fechaCajaRaw = toStr(r.fecha_caja)
+    const precioTotal  = toMoney(r.precio_total)
+
+    if (!numero) {
+      addRejection(reasons, 'external_id_null', `row-${valid.length + rejected + 1}`)
+      rejected++; continue
+    }
+    if (!desc) {
+      addRejection(reasons, 'descripcion_vacia', numero)
+      rejected++; continue
+    }
+    if (fecha && !isDateValid(fecha)) {
+      console.log(`[upload/sales] item fecha_documento rechazada: ${fecha} (rango válido: ${DATE_MIN}–${maxDate})`)
+      addRejection(reasons, 'fecha_invalida', numero)
+      rejected++; continue
+    }
+    if (precioTotal != null && precioTotal < 0) {
+      addRejection(reasons, 'total_negativo', numero)
+      rejected++; continue
+    }
+    if (fechaCajaRaw && !fechaCaja) {
+      addRejection(reasons, 'fecha_caja_invalida', numero)
+      rejected++; continue
+    }
+
+    if (fechaCaja) fechaCajaCount++
+    sumPrecioTotal += precioTotal ?? 0
+    valid.push(mapItem(r, orgId, locationId))
+  }
+
+  return {
+    processed,
+    valid,
+    rejected,
+    reasons,
+    rejectedPct:   processed > 0 ? rejected / processed : 0,
+    fechaCajaCount,
+    sumPrecioTotal,
+  }
+}
+
+// ─── Insert phase (DB operations) ─────────────────────────────────────────────
+
+interface DocsResult {
+  processed:        number
+  new:              number
+  updated:          number
+  inserted:         number
+  deleted:          number
+  failed:           number
+  rejected:         number
+  dateFrom:         string
+  dateTo:           string
+  rejectionReasons: RejectionEntry[]
+  errors:           string[]
+}
+
+interface ItemsResult {
+  processed:        number
+  new:              number
+  updated:          number
+  inserted:         number
+  deleted:          number
+  failed:           number
+  rejected:         number
+  rejectionReasons: RejectionEntry[]
+  errors:           string[]
+}
+
+async function insertDocs(
+  parsed:     ParsedDocs,
   locationId: string,
   supaUrl:    string,
   svc:        SvcHeaders,
 ): Promise<DocsResult> {
-  const errors:          string[] = []
-  const rejectedReasons: Record<string, number> = {}
-  const buf       = await file.arrayBuffer()
-  const rawRows   = parseSheet(buf)
-  const processed = rawRows.length
-  const maxDate   = maxAllowedDate()
-
-  // Validate: require numero, fecha, total; reject dates outside [DATE_MIN, hoy+1]
-  const valid:   DocRow[] = []
-  let   rejected = 0
-
-  for (const r of rawRows) {
-    const numero = toStr(r.numero)
-    const fecha  = toDate(r.fecha)
-    const total  = toMoney(r.total)
-
-    if (!numero) { incReason(rejectedReasons, 'sin_numero'); rejected++; continue }
-    if (!fecha || total == null) { incReason(rejectedReasons, 'datos_invalidos'); rejected++; continue }
-    if (!isDateValid(fecha)) {
-      console.log(`[upload/sales] fecha rechazada: ${fecha} (rango válido: ${DATE_MIN}–${maxDate})`)
-      incReason(rejectedReasons, 'fecha_invalida'); rejected++; continue
-    }
-    valid.push(mapVenta(r, orgId, locationId))
-  }
+  const { processed, valid, rejected, reasons, dateFrom, dateTo } = parsed
+  const errors:           string[]         = []
+  const rejectionReasons: RejectionEntry[] = buildRejectionReasons(reasons)
 
   if (rejected > 0) errors.push(`${rejected} fila(s) rechazada(s)`)
-  if (valid.length === 0) return { processed, inserted: 0, deleted: 0, failed: 0, rejected, dateFrom: '', dateTo: '', rejectedReasons, errors }
+  if (valid.length === 0) {
+    return { processed, new: 0, updated: 0, inserted: 0, deleted: 0, failed: 0, rejected, dateFrom, dateTo, rejectionReasons, errors }
+  }
 
-  // Date range
-  const dates    = [...new Set(valid.map(r => r.fecha).filter(Boolean))].sort() as string[]
-  const dateFrom = dates[0]
-  const dateTo   = dates[dates.length - 1]
+  const externalIds  = [...new Set(valid.map(r => r.external_id).filter(Boolean))] as string[]
+  const existingIds  = await queryExistingIds('sales_documents', locationId, externalIds, supaUrl, svc)
+  const newCount     = externalIds.length - existingIds.size
+  const updatedCount = existingIds.size
 
-  // Delete-then-insert: idempotent re-upload of the same file produces identical state
-  const externalIds = [...new Set(valid.map(r => r.external_id).filter(Boolean))] as string[]
-  const deleted     = await deleteByExternalIds('sales_documents', locationId, externalIds, supaUrl, svc)
-
-  const { inserted, failed } = await insertBatch(
-    'sales_documents',
-    valid as unknown as Record<string, unknown>[],
-    supaUrl, svc, errors,
-  )
+  const deleted              = await deleteByExternalIds('sales_documents', locationId, externalIds, supaUrl, svc)
+  const { inserted, failed } = await insertBatch('sales_documents', valid as unknown as Record<string, unknown>[], supaUrl, svc, errors)
 
   await upsertFreshness(locationId, 'sales_documents', inserted, supaUrl, svc)
 
-  return { processed, inserted, deleted, failed, rejected, dateFrom, dateTo, rejectedReasons, errors }
+  return { processed, new: newCount, updated: updatedCount, inserted, deleted, failed, rejected, dateFrom, dateTo, rejectionReasons, errors }
 }
 
-// ─── Items processing ─────────────────────────────────────────────────────────
-
-interface ItemsResult {
-  processed:       number
-  inserted:        number
-  deleted:         number
-  failed:          number
-  rejected:        number
-  rejectedReasons: Record<string, number>
-  errors:          string[]
-}
-
-async function processItems(
-  file:       File,
-  orgId:      string,
+async function insertItems(
+  parsed:     ParsedItems,
   locationId: string,
   supaUrl:    string,
   svc:        SvcHeaders,
 ): Promise<ItemsResult> {
-  const errors:          string[] = []
-  const rejectedReasons: Record<string, number> = {}
-  const buf       = await file.arrayBuffer()
-  const rawRows   = parseSheet(buf)
-  const processed = rawRows.length
-  const maxDate   = maxAllowedDate()
-
-  // Validate: require numero and descripcion; reject bad fecha_documento
-  const valid:   ItemRow[] = []
-  let   rejected = 0
-
-  for (const r of rawRows) {
-    const numero = toStr(r.numero)
-    const desc   = toStr(r.descripcion)
-    const fecha  = toDate(r.fecha_documento)
-
-    if (!numero) { incReason(rejectedReasons, 'sin_numero'); rejected++; continue }
-    if (!desc)   { incReason(rejectedReasons, 'sin_descripcion'); rejected++; continue }
-    if (fecha && !isDateValid(fecha)) {
-      console.log(`[upload/sales] item fecha_documento rechazada: ${fecha} (rango válido: ${DATE_MIN}–${maxDate})`)
-      incReason(rejectedReasons, 'fecha_invalida'); rejected++; continue
-    }
-    valid.push(mapItem(r, orgId, locationId))
-  }
+  const { processed, valid, rejected, reasons } = parsed
+  const errors:           string[]         = []
+  const rejectionReasons: RejectionEntry[] = buildRejectionReasons(reasons)
 
   if (rejected > 0) errors.push(`${rejected} ítem(s) rechazado(s)`)
-  if (valid.length === 0) return { processed, inserted: 0, deleted: 0, failed: 0, rejected, rejectedReasons, errors }
+  if (valid.length === 0) {
+    return { processed, new: 0, updated: 0, inserted: 0, deleted: 0, failed: 0, rejected, rejectionReasons, errors }
+  }
 
-  // Delete-then-insert by external_id (ticket number): idempotent, no dedup logic needed
-  const externalIds = [...new Set(valid.map(r => r.external_id).filter(Boolean))] as string[]
-  const deleted     = await deleteByExternalIds('sales_items', locationId, externalIds, supaUrl, svc)
+  const externalIds  = [...new Set(valid.map(r => r.external_id).filter(Boolean))] as string[]
+  const existingIds  = await queryExistingIds('sales_items', locationId, externalIds, supaUrl, svc)
+  const newCount     = externalIds.length - existingIds.size
+  const updatedCount = existingIds.size
 
-  const { inserted, failed } = await insertBatch(
-    'sales_items',
-    valid as unknown as Record<string, unknown>[],
-    supaUrl, svc, errors,
-  )
+  const deleted              = await deleteByExternalIds('sales_items', locationId, externalIds, supaUrl, svc)
+  const { inserted, failed } = await insertBatch('sales_items', valid as unknown as Record<string, unknown>[], supaUrl, svc, errors)
 
   await upsertFreshness(locationId, 'sales_items', inserted, supaUrl, svc)
 
-  return { processed, inserted, deleted, failed, rejected, rejectedReasons, errors }
+  return { processed, new: newCount, updated: updatedCount, inserted, deleted, failed, rejected, rejectionReasons, errors }
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -436,45 +643,122 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Se requiere al menos un archivo (ventas o items)' }, { status: 400 })
     }
 
+    // ── Phase 0: File identity — extension, magic bytes, required columns ─────────
+    if (ventasFile) {
+      const identity = await validateFileIdentity(ventasFile, 'ventas')
+      if (!identity.ok) {
+        console.warn(`[upload/sales] FILE_IDENTITY_FAILED ventas: ${identity.message}`)
+        return NextResponse.json({
+          success:  false,
+          error:    'FILE_IDENTITY_FAILED',
+          message:  identity.message,
+          expected: identity.expected,
+          received: identity.received,
+          missing:  identity.missing,
+          extra:    identity.extra,
+        }, { status: 422 })
+      }
+    }
+    if (itemsFile) {
+      const identity = await validateFileIdentity(itemsFile, 'items')
+      if (!identity.ok) {
+        console.warn(`[upload/sales] FILE_IDENTITY_FAILED items: ${identity.message}`)
+        return NextResponse.json({
+          success:  false,
+          error:    'FILE_IDENTITY_FAILED',
+          message:  identity.message,
+          expected: identity.expected,
+          received: identity.received,
+          missing:  identity.missing,
+          extra:    identity.extra,
+        }, { status: 422 })
+      }
+    }
+
+    // ── Phase 1: Parse + validate both files (no DB) ───────────────────────────
+    const parsedDocs  = ventasFile ? parseDocs(await ventasFile.arrayBuffer(), orgId, locationId)  : null
+    const parsedItems = itemsFile  ? parseItems(await itemsFile.arrayBuffer(), orgId, locationId)  : null
+
+    // ── Phase 2: 5% abort check — bail before touching DB ──────────────────────
+    const docsAbort  = parsedDocs  && parsedDocs.rejectedPct  > ABORT_THRESHOLD
+    const itemsAbort = parsedItems && parsedItems.rejectedPct > ABORT_THRESHOLD
+
+    if (docsAbort || itemsAbort) {
+      const abortDetails = []
+      if (docsAbort)  abortDetails.push({ file: 'ventas', rejectedPct: +(parsedDocs!.rejectedPct  * 100).toFixed(1), reasons: buildRejectionReasons(parsedDocs!.reasons)  })
+      if (itemsAbort) abortDetails.push({ file: 'items',  rejectedPct: +(parsedItems!.rejectedPct * 100).toFixed(1), reasons: buildRejectionReasons(parsedItems!.reasons) })
+      console.warn(`[upload/sales] ABORT: rechazo supera ${ABORT_THRESHOLD * 100}%`, JSON.stringify(abortDetails))
+      return NextResponse.json({
+        success:      false,
+        abortReason:  `Más del ${ABORT_THRESHOLD * 100}% de filas son inválidas. No se insertó nada.`,
+        abortDetails,
+      }, { status: 422 })
+    }
+
+    // ── Phase 3: DB operations ─────────────────────────────────────────────────
+    const EMPTY_DOCS:  DocsResult  = { processed: 0, new: 0, updated: 0, inserted: 0, deleted: 0, failed: 0, rejected: 0, dateFrom: '', dateTo: '', rejectionReasons: [], errors: [] }
+    const EMPTY_ITEMS: ItemsResult = { processed: 0, new: 0, updated: 0, inserted: 0, deleted: 0, failed: 0, rejected: 0, rejectionReasons: [], errors: [] }
+
     const allErrors: string[] = []
-
-    // ── Ventas ────────────────────────────────────────────────────────────────
-    const EMPTY_DOCS: DocsResult   = { processed: 0, inserted: 0, deleted: 0, failed: 0, rejected: 0, dateFrom: '', dateTo: '', rejectedReasons: {}, errors: [] }
-    const EMPTY_ITEMS: ItemsResult = { processed: 0, inserted: 0, deleted: 0, failed: 0, rejected: 0, rejectedReasons: {}, errors: [] }
-
     let docsResult  = EMPTY_DOCS
     let itemsResult = EMPTY_ITEMS
 
-    if (ventasFile) {
-      docsResult = await processDocs(ventasFile, orgId, locationId, supaUrl!, svc)
-      allErrors.push(...docsResult.errors)
-    }
+    if (parsedDocs)  { docsResult  = await insertDocs(parsedDocs,   locationId, supaUrl!, svc); allErrors.push(...docsResult.errors)  }
+    if (parsedItems) { itemsResult = await insertItems(parsedItems,  locationId, supaUrl!, svc); allErrors.push(...itemsResult.errors) }
 
-    // ── Items ─────────────────────────────────────────────────────────────────
-    if (itemsFile) {
-      itemsResult = await processItems(itemsFile, orgId, locationId, supaUrl!, svc)
-      allErrors.push(...itemsResult.errors)
-    }
+    // ── Phase 4: Freshness after insert ───────────────────────────────────────
+    const fresh = await queryFreshness(locationId, supaUrl!, svc)
 
-    // Merge rejected reasons from both files
-    const rejectedReasons: Record<string, number> = {}
-    for (const [k, v] of Object.entries(docsResult.rejectedReasons))  rejectedReasons[k] = (rejectedReasons[k] ?? 0) + v
-    for (const [k, v] of Object.entries(itemsResult.rejectedReasons)) rejectedReasons[k] = (rejectedReasons[k] ?? 0) + v
+    // ── Phase 5: Computed validations ─────────────────────────────────────────
+    const totalProcessed        = (parsedDocs?.processed ?? 0) + (parsedItems?.processed ?? 0)
+    const fechaCajaCount        = (parsedDocs?.fechaCajaCount ?? 0) + (parsedItems?.fechaCajaCount ?? 0)
+    const fechaCajaCompleteness = totalProcessed > 0
+      ? +(fechaCajaCount / totalProcessed * 100).toFixed(1)
+      : 0
+    const sumDocs            = parsedDocs?.sumTotal       ?? 0
+    const sumItems           = parsedItems?.sumPrecioTotal ?? 0
+    const itemsVsDocsDiffPct = sumDocs > 0
+      ? +((Math.abs(sumItems - sumDocs) / sumDocs) * 100).toFixed(1)
+      : null
+
+    // ── Phase 6: Summary string ────────────────────────────────────────────────
+    const parts: string[] = []
+    if (docsResult.processed  > 0) parts.push(`${docsResult.inserted} docs (${docsResult.new} nuevos, ${docsResult.updated} actualizados)`)
+    if (itemsResult.processed > 0) parts.push(`${itemsResult.inserted} ítems (${itemsResult.new} nuevos, ${itemsResult.updated} actualizados)`)
+    const summary = parts.join('; ') || 'Sin datos procesados'
 
     return NextResponse.json({
       success: true,
-      summary: {
-        documentsProcessed: docsResult.processed,
-        documentsInserted:  docsResult.inserted,
-        documentsDeleted:   docsResult.deleted,
-        documentsRejected:  docsResult.rejected,
-        itemsProcessed:     itemsResult.processed,
-        itemsInserted:      itemsResult.inserted,
-        itemsDeleted:       itemsResult.deleted,
-        dateRange:          docsResult.dateFrom ? { from: docsResult.dateFrom, to: docsResult.dateTo } : null,
-        rejectedReasons,
+      summary,
+
+      // ── Expanded telemetry ─────────────────────────────────────────────────
+      documents: {
+        processed:        docsResult.processed,
+        new:              docsResult.new,
+        updated:          docsResult.updated,
+        rejected:         docsResult.rejected,
+        rejectionReasons: docsResult.rejectionReasons,
       },
-      // flat fields (backward compat)
+      items: {
+        processed:        itemsResult.processed,
+        new:              itemsResult.new,
+        updated:          itemsResult.updated,
+        rejected:         itemsResult.rejected,
+        rejectionReasons: itemsResult.rejectionReasons,
+      },
+      validations: {
+        fechaCajaCompleteness,
+        totalsConsistency: { itemsVsDocsDiffPct },
+      },
+      freshness: {
+        lastUpload: fresh.lastUpload ?? new Date().toISOString(),
+        datasets: {
+          sales_documents: fresh.datasets['sales_documents'] ?? null,
+          sales_items:     fresh.datasets['sales_items']     ?? null,
+        },
+      },
+
+      // ── Backward compat flat fields ────────────────────────────────────────
       docsInserted:  docsResult.inserted,
       docsDeleted:   docsResult.deleted,
       docsFailed:    docsResult.failed,
