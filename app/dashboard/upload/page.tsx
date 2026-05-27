@@ -25,8 +25,14 @@ interface SalesSummary {
   rejectedReasons:    Record<string, number>
 }
 
+interface DocsSummary  { processed: number; new: number; updated: number; rejected: number }
+interface ItemsSummary { processed: number; new: number; updated: number; rejected: number }
+
 interface UploadResult {
-  // sales route (structured summary)
+  // structured fields (from /api/upload/sales and /api/upload/items)
+  documents?:     DocsSummary
+  items?:         ItemsSummary
+  // sales route (structured summary — legacy)
   summary?:       SalesSummary
   // sales route (flat, backward compat)
   docsInserted?:  number
@@ -45,18 +51,6 @@ interface UploadResult {
   message?:       string
 }
 
-type ZoneStatus = 'idle' | 'ready' | 'syncing' | 'success' | 'error'
-
-interface ZoneState {
-  file:     File | null
-  dragging: boolean
-  status:   ZoneStatus
-  result:   UploadResult | null
-  error:    string
-}
-
-const INIT_ZONE: ZoneState = { file: null, dragging: false, status: 'idle', result: null, error: '' }
-
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const AMBER      = '#f5820a'
@@ -65,6 +59,7 @@ const CYAN       = '#06b6d4'
 const RED        = '#ef4444'
 const CARD_BG    = 'rgba(255,255,255,0.025)'
 const CARD_BORDER = 'rgba(255,255,255,0.07)'
+const VIOLET      = '#a78bfa'
 
 // ── Background ────────────────────────────────────────────────────────────────
 
@@ -225,40 +220,38 @@ function ResultBanner({ status, result, error }: { status: CardStatus; result: U
   )
 }
 
-// Used by each independent ventas/items zone
-function ZoneResultBanner({ status, result, error, type }: {
-  status: ZoneStatus; result: UploadResult | null; error: string; type: 'ventas' | 'items'
+// Used by CardVentas and CardItems — shows new/updated/rejected from structured API response
+function SalesZoneBanner({ status, result, error, type }: {
+  status: CardStatus; result: UploadResult | null; error: string; type: 'ventas' | 'items'
 }) {
   if (status !== 'success' && status !== 'error') return null
-  const isOk  = status === 'success'
+  const isOk = status === 'success'
   const color = isOk ? GREEN : RED
   const bg    = isOk ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)'
-  const inserted = type === 'ventas' ? result?.docsInserted  : result?.itemsInserted
-  const skipped  = type === 'ventas' ? result?.docsSkipped   : result?.itemsSkipped
-  const failed   = type === 'ventas' ? result?.docsFailed    : result?.itemsFailed
+  const summ  = type === 'ventas' ? result?.documents : result?.items
   return (
     <div style={{ padding: '8px 12px', background: bg, border: `1px solid ${color}25`, borderRadius: 7 }}>
       {!isOk ? (
         <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.72rem', color: '#fca5a5' }}>{error}</span>
-      ) : (
+      ) : summ ? (
         <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.72rem', color: 'rgba(255,255,255,0.65)', lineHeight: 1.6 }}>
-          {inserted != null && (
-            <span>✓ <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{inserted.toLocaleString()}</strong> insertados</span>
+          <span>
+            ✓{' '}
+            <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{summ.new.toLocaleString()}</strong> nuevos
+            {' · '}
+            <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{summ.updated.toLocaleString()}</strong> actualizados
+          </span>
+          {summ.rejected > 0 && (
+            <span style={{ color: '#f59e0b', marginLeft: 8 }}>{summ.rejected.toLocaleString()} rechazados</span>
           )}
-          {skipped != null && skipped > 0 && (
-            <span style={{ color: 'rgba(255,255,255,0.38)', marginLeft: 8 }}>{skipped.toLocaleString()} saltados</span>
-          )}
-          {failed != null && failed > 0 && (
-            <span style={{ color: '#fca5a5', marginLeft: 8 }}>{failed.toLocaleString()} fallidos</span>
-          )}
-          {type === 'ventas' && result?.dateRange && (
+          {result?.dateRange && (
             <div style={{ color: 'rgba(255,255,255,0.28)', fontSize: '0.65rem', marginTop: 2 }}>{result.dateRange}</div>
           )}
           {result?.errors?.map((e, i) => (
             <div key={i} style={{ color: '#f59e0b', fontSize: '0.66rem', marginTop: 2 }}>⚠ {e}</div>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   )
 }
@@ -470,30 +463,25 @@ function CardPnL({ locationId, orgId }: { locationId: string; orgId: string }) {
   )
 }
 
-// ── Card B: Ventas + Items ────────────────────────────────────────────────────
+// ── Card B: Ventas (independent) ─────────────────────────────────────────────
 
-function CardVentasItems({ locationId, orgId }: { locationId: string; orgId: string }) {
-  const [ventas,  setVentas]  = useState<FileSlot>({ file: null, dragging: false })
-  const [items,   setItems]   = useState<FileSlot>({ file: null, dragging: false })
-  const [status,  setStatus]  = useState<CardStatus>('idle')
-  const [result,  setResult]  = useState<UploadResult | null>(null)
-  const [error,   setError]   = useState('')
+function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }) {
+  const [slot,   setSlot]   = useState<FileSlot>({ file: null, dragging: false })
+  const [status, setStatus] = useState<CardStatus>('idle')
+  const [result, setResult] = useState<UploadResult | null>(null)
+  const [error,  setError]  = useState('')
 
-  const ready    = !!ventas.file && !!items.file && status !== 'syncing'
-  const cardStatus: CardStatus = status !== 'idle' ? status : (ventas.file && items.file) ? 'ready' : 'idle'
+  const ready      = !!slot.file && status !== 'syncing'
+  const cardStatus: CardStatus = status !== 'idle' ? status : slot.file ? 'ready' : 'idle'
 
-  function reset() {
-    setVentas({ file: null, dragging: false }); setItems({ file: null, dragging: false })
-    setStatus('idle'); setResult(null); setError('')
-  }
+  function reset() { setSlot({ file: null, dragging: false }); setStatus('idle'); setResult(null); setError('') }
 
   async function process() {
-    if (!ventas.file || !items.file || !locationId) return
+    if (!slot.file || !locationId) return
     setStatus('syncing'); setError(''); setResult(null)
     try {
       const form = new FormData()
-      form.append('ventas',      ventas.file)
-      form.append('items',       items.file)
+      form.append('ventas',      slot.file)
       form.append('location_id', locationId)
       form.append('org_id',      orgId)
       const res  = await fetch('/api/upload/sales', { method: 'POST', body: form })
@@ -505,36 +493,23 @@ function CardVentasItems({ locationId, orgId }: { locationId: string; orgId: str
     }
   }
 
-  const disabled = status === 'syncing'
-
   return (
     <CardShell accent="#fb923c">
       <CardHeader
         icon={<ReceiptIcon size={26} />}
-        title="Cargar Ventas + Ítems"
-        description="Exportaciones del sistema POS. Cargá el reporte de ventas y el detalle de ítems del período."
+        title="Cargar Ventas"
+        description="Reporte de ventas del POS. Cada carga reemplaza los documentos del período."
         status={cardStatus} accent="#fb923c"
       />
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.6rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)' }}>Archivo de Ventas</span>
-          <DropZone label="Excel de ventas" file={ventas.file} dragging={ventas.dragging} disabled={disabled}
-            onFile={f => { setVentas(s => ({ ...s, file: f })); setStatus('idle') }}
-            onDragEnter={() => setVentas(s => ({ ...s, dragging: true }))}
-            onDragLeave={() => setVentas(s => ({ ...s, dragging: false }))}
-            accent="#fb923c" />
-        </div>
-        <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.6rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)' }}>Archivo de Ítems</span>
-          <DropZone label="Excel de ítems" file={items.file} dragging={items.dragging} disabled={disabled}
-            onFile={f => { setItems(s => ({ ...s, file: f })); setStatus('idle') }}
-            onDragEnter={() => setItems(s => ({ ...s, dragging: true }))}
-            onDragLeave={() => setItems(s => ({ ...s, dragging: false }))}
-            accent="#fb923c" />
-        </div>
-      </div>
-      <ResultBanner status={status} result={result} error={error} />
-      {(ventas.file || items.file || status !== 'idle') && (
+      <DropZone label="Excel de ventas" file={slot.file} dragging={slot.dragging}
+        disabled={status === 'syncing'}
+        onFile={f => { setSlot(s => ({ ...s, file: f })); setStatus('idle') }}
+        onDragEnter={() => setSlot(s => ({ ...s, dragging: true }))}
+        onDragLeave={() => setSlot(s => ({ ...s, dragging: false }))}
+        accent="#fb923c"
+      />
+      <SalesZoneBanner status={status} result={result} error={error} type="ventas" />
+      {(slot.file || status !== 'idle') && (
         <div style={{ display: 'flex', gap: 8 }}>
           <PrimaryBtn
             label={status === 'syncing' ? 'Procesando…' : 'Procesar Ventas'}
@@ -550,7 +525,69 @@ function CardVentasItems({ locationId, orgId }: { locationId: string; orgId: str
   )
 }
 
-// ── Card C: CucinaGo ──────────────────────────────────────────────────────────
+// ── Card C: Ítems (independent) ───────────────────────────────────────────────
+
+function CardItems({ locationId, orgId }: { locationId: string; orgId: string }) {
+  const [slot,   setSlot]   = useState<FileSlot>({ file: null, dragging: false })
+  const [status, setStatus] = useState<CardStatus>('idle')
+  const [result, setResult] = useState<UploadResult | null>(null)
+  const [error,  setError]  = useState('')
+
+  const ready      = !!slot.file && status !== 'syncing'
+  const cardStatus: CardStatus = status !== 'idle' ? status : slot.file ? 'ready' : 'idle'
+
+  function reset() { setSlot({ file: null, dragging: false }); setStatus('idle'); setResult(null); setError('') }
+
+  async function process() {
+    if (!slot.file || !locationId) return
+    setStatus('syncing'); setError(''); setResult(null)
+    try {
+      const form = new FormData()
+      form.append('items',       slot.file)
+      form.append('location_id', locationId)
+      form.append('org_id',      orgId)
+      const res  = await fetch('/api/upload/items', { method: 'POST', body: form })
+      const data = await res.json()
+      if (!res.ok || data.error) { setError(data.error ?? `HTTP ${res.status}`); setStatus('error'); return }
+      setResult(data); setStatus('success')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e)); setStatus('error')
+    }
+  }
+
+  return (
+    <CardShell accent={VIOLET}>
+      <CardHeader
+        icon={<SpreadsheetIcon size={26} />}
+        title="Cargar Ítems"
+        description="Detalle de ítems por orden del POS. Puede cargarse independientemente de las ventas."
+        status={cardStatus} accent={VIOLET}
+      />
+      <DropZone label="Excel de ítems" file={slot.file} dragging={slot.dragging}
+        disabled={status === 'syncing'}
+        onFile={f => { setSlot(s => ({ ...s, file: f })); setStatus('idle') }}
+        onDragEnter={() => setSlot(s => ({ ...s, dragging: true }))}
+        onDragLeave={() => setSlot(s => ({ ...s, dragging: false }))}
+        accent={VIOLET}
+      />
+      <SalesZoneBanner status={status} result={result} error={error} type="items" />
+      {(slot.file || status !== 'idle') && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <PrimaryBtn
+            label={status === 'syncing' ? 'Procesando…' : 'Procesar Ítems'}
+            onClick={process}
+            disabled={!ready || !locationId}
+            accent={VIOLET}
+            loading={status === 'syncing'}
+          />
+          <SecondaryBtn label="Limpiar" onClick={reset} />
+        </div>
+      )}
+    </CardShell>
+  )
+}
+
+// ── Card D: CucinaGo ──────────────────────────────────────────────────────────
 
 function CardCucinaGo({ locationId, orgId }: { locationId: string; orgId: string }) {
   const today        = new Date().toISOString().slice(0, 10)
@@ -694,9 +731,10 @@ export default function UploadPage() {
 
         {/* Cards */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <CardPnL          locationId={locationId} orgId={orgId} />
-          <CardVentasItems  locationId={locationId} orgId={orgId} />
-          <CardCucinaGo     locationId={locationId} orgId={orgId} />
+          <CardPnL      locationId={locationId} orgId={orgId} />
+          <CardVentas   locationId={locationId} orgId={orgId} />
+          <CardItems    locationId={locationId} orgId={orgId} />
+          <CardCucinaGo locationId={locationId} orgId={orgId} />
         </div>
       </div>
 

@@ -1,3 +1,6 @@
+// DEPRECATED — esta página usa excelProcessor legacy (sin ticket_hash).
+// Reemplazada por /dashboard/upload con ticket_hash + endpoints separados.
+// Eliminar o migrar al framework Capa 4 en Sprint 2.
 'use client'
 
 import { useState } from 'react'
