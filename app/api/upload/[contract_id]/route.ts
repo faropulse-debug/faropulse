@@ -3,6 +3,7 @@ import { getContract, listContracts } from '@/src/lib/upload/contracts/registry'
 import { recordEvent } from '@/src/lib/upload/pipeline/recordEvent'
 import { buildSvcHeaders } from '@/src/lib/upload/pipeline/types'
 import { computeRequestHash } from '@/src/lib/upload/pipeline/computeRequestHash'
+import { queryCommittedByRequestHash } from '@/src/lib/upload/pipeline/queryCommittedByRequestHash'
 import { queryExistingHashes } from '@/src/lib/upload/pipeline/queryExistingHashes'
 import { deleteByHashes } from '@/src/lib/upload/pipeline/deleteByHashes'
 import { insertBatch } from '@/src/lib/upload/pipeline/insertBatch'
@@ -64,6 +65,33 @@ export async function POST(
       serviceKey,
     )
     eventId = received.event_id
+
+    // ── idempotency short-circuit ─────────────────────────────────────────────
+    const cached = await queryCommittedByRequestHash(requestHash, contract_id, locationId, supaUrl, svc)
+    if (cached) {
+      await recordEvent(
+        { eventId, eventType: 'upload.duplicate_skipped', contractId: contract_id, orgId, locationId,
+          payload: { requestHash, originalEventId: cached.event_id } },
+        supaUrl, serviceKey,
+      )
+      const p = cached.payload
+      return NextResponse.json({
+        success:          true,
+        event_id:         eventId,
+        contract_id,
+        request_hash:     requestHash,
+        status:           'duplicate_skipped',
+        original_event_id: cached.event_id,
+        [contract.datasetType]: {
+          processed: ((p.newCount as number) ?? 0) + ((p.updatedCount as number) ?? 0),
+          new:       (p.newCount     as number) ?? 0,
+          updated:   (p.updatedCount as number) ?? 0,
+          rejected:  0,
+          failed:    (p.failed       as number) ?? 0,
+        },
+        errors: [],
+      })
+    }
 
     const pctx   = { orgId, locationId, eventId }
     const source = { type: contract.sourceType, payload: file }

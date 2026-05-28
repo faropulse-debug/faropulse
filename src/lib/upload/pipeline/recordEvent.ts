@@ -10,7 +10,8 @@ export type EventType =
   | 'upload.rejected'
   | 'upload.failed'
   | 'upload.rolled_back'
-  | 'upload.anomaly';
+  | 'upload.anomaly'
+  | 'upload.duplicate_skipped';
 
 export interface RecordEventParams {
   /** If omitted, a new UUID is generated. */
