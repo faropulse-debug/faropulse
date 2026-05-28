@@ -3,6 +3,7 @@ export interface SvcHeaders {
   apikey: string;
   Authorization: string;
   'Content-Type': string;
+  [key: string]: string;
 }
 
 /** Builds the standard service-role header set for Supabase REST requests. */
