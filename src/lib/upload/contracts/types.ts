@@ -72,8 +72,8 @@ export interface DataSourceContract<TRow> {
   /** Yields raw records lazily from the source. */
   extract(source: DataSource, ctx: ParseContext): AsyncIterable<unknown>;
 
-  /** Converts a single raw record into a typed TRow. */
-  parseRow(raw: unknown, ctx: ParseContext): TRow;
+  /** Converts a single raw record into a typed TRow, or null to skip the row. */
+  parseRow(raw: unknown, ctx: ParseContext): TRow | null;
 
   /** Column(s) used to compute the idempotency hash. */
   hashColumn: keyof TRow | Array<keyof TRow>;
