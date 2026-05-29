@@ -41,7 +41,7 @@ const MES_TO_NUM: Record<string, string> = {
 // ─── Period label parser ───────────────────────────────────────────────────────
 // Converts "Ene 25", "Ene-25", "enero 2025", "2025-01", "01/2025" → "YYYY-MM"
 
-function parsePeriodoLabel(label: string): string | null {
+export function parsePeriodoLabel(label: string): string | null {
   const s = String(label).trim().toLowerCase()
 
   // YYYY-MM
@@ -52,7 +52,12 @@ function parsePeriodoLabel(label: string): string | null {
   if (m1) {
     const mesNum = MES_TO_NUM[m1[1]]
     if (mesNum) {
-      const yr = Number(m1[2]) >= 25 ? `20${m1[2]}` : `20${m1[2]}`
+      // P&L data is always 21st century; 2-digit year = 20xx
+      const yr       = `20${m1[2]}`
+      const fullYear = Number(yr)
+      if (fullYear < 2015 || fullYear > 2040) {
+        console.warn(`[upload/financial] parsePeriodoLabel: suspicious year ${fullYear} from label "${label}"`)
+      }
       return `${yr}-${mesNum}`
     }
   }
