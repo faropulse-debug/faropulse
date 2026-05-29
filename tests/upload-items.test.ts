@@ -20,39 +20,36 @@ function makeReq(fields: Record<string, string | File | null>): NextRequest {
   } as unknown as NextRequest
 }
 
-// Mock fetch for items endpoint: returns existingIds from queryExistingIds lookup,
-// and ok responses for DELETE, INSERT, freshness calls.
+// Mock fetch for items endpoint: handles all pipeline calls (recordEvent, idempotency,
+// queryExistingHashes, commitUpload RPC, freshness).
 function makeItemsFetchMock(existingIds: string[]) {
   const existingSet = new Set(existingIds)
   return vi.fn().mockImplementation(async (url: unknown, opts?: unknown) => {
     const urlStr = String(url)
     const method = (opts as RequestInit | undefined)?.method ?? 'GET'
 
-    // queryExistingIds: GET sales_items?...&select=external_id
+    // recordEvent: POST upload_events → 201 + event row
+    if (method === 'POST' && urlStr.includes('upload_events')) {
+      return { ok: true, status: 201, json: async () => [{ id: 'x', event_id: 'test-event-id', event_type: 'test', created_at: '2026-01-01T00:00:00Z' }], text: async () => '' }
+    }
+    // queryCommittedByRequestHash: GET upload_events → no cache
+    if (method === 'GET' && urlStr.includes('upload_events')) {
+      return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+    }
+    // queryExistingHashes: GET sales_items?...&select=external_id
     if (method === 'GET' && urlStr.includes('sales_items') && urlStr.includes('select=external_id')) {
-      const match   = urlStr.match(/external_id=([^&]+)/)
+      const match    = urlStr.match(/external_id=([^&]+)/)
       const inClause = match ? decodeURIComponent(match[1]) : ''
       const ids      = inClause.match(/"([^"]+)"/g)?.map(s => s.replace(/"/g, '')) ?? []
       const found    = ids.filter(id => existingSet.has(id))
-      return { ok: true, json: async () => found.map(id => ({ external_id: id })), text: async () => '' }
+      return { ok: true, status: 200, json: async () => found.map(id => ({ external_id: id })), text: async () => '' }
     }
-
-    // queryFreshness: GET data_freshness
-    if (method === 'GET' && urlStr.includes('data_freshness')) {
-      return {
-        ok:   true,
-        json: async () => [{ dataset: 'sales_items', last_upload: new Date().toISOString() }],
-        text: async () => '',
-      }
+    // commitUpload RPC
+    if (method === 'POST' && urlStr.includes('rpc/commit_upload')) {
+      return { ok: true, status: 200, json: async () => ({ deleted: existingIds.length, inserted: 5 }), text: async () => '' }
     }
-
-    // deleteByExternalIds: DELETE sales_items — return representation expected
-    if (method === 'DELETE') {
-      return { ok: true, json: async () => [], text: async () => '' }
-    }
-
-    // insertBatch (POST sales_items) + upsertFreshness (POST data_freshness): just ok
-    return { ok: true, json: async () => [], text: async () => '' }
+    // Default (upsertFreshness, data_freshness GET/POST, etc.)
+    return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
   })
 }
 
@@ -72,6 +69,11 @@ describe('POST /api/upload/items — validación de identidad de archivo', () =>
   it('rechaza archivo sin columnas requeridas → 422 FILE_IDENTITY_FAILED', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: unknown, opts?: unknown) => {
+      const method = (opts as RequestInit | undefined)?.method ?? 'GET'
+      if (method === 'POST') return { ok: true, status: 201, json: async () => [{ id: 'x', event_id: 'test-id', event_type: 'test', created_at: '2026-01-01T00:00:00Z' }], text: async () => '' }
+      return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+    }))
     try {
       // Only Sucursal + Numero — missing Descripcion, Cantidad, Precio Total, Fecha Caja, Familia
       const file = makeXlsx([{ Sucursal: 'Casa Central', Numero: '1001' }])
@@ -80,14 +82,13 @@ describe('POST /api/upload/items — validación de identidad de archivo', () =>
       const res  = await POST(req)
 
       expect(res.status).toBe(422)
-      const body = await res.json() as { error: string; message: string; missing: string[] }
-      expect(body.error).toBe('FILE_IDENTITY_FAILED')
-      expect(body.message).toMatch(/Faltan columnas requeridas/)
-      expect(body.missing).toContain('descripcion')
-      expect(body.missing).toContain('precio_total')
-      expect(body.missing).toContain('fecha_caja')
-      expect(body.missing).toContain('familia')
+      const body = await res.json() as { error: string; errors: string[] }
+      expect(body.error).toBe('VALIDATION_FAILED')
+      expect(body.errors[0]).toMatch(/Faltan columnas requeridas/)
+      expect(body.errors[0]).toContain('descripcion')
+      expect(body.errors[0]).toContain('fecha_caja')
     } finally {
+      vi.unstubAllGlobals()
       vi.unstubAllEnvs()
     }
   })

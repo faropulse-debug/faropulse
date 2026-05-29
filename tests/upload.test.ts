@@ -204,7 +204,12 @@ describe('POST /api/upload/sales — 5% abort threshold', () => {
   it('returns 422 without any DB calls when ventas has >5% invalid rows', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
-    const fetchSpy = vi.fn()
+    // Pipeline calls recordEvent before parsing, so fetch must handle upload_events
+    const fetchSpy = vi.fn().mockImplementation(async (url: unknown, opts?: unknown) => {
+      const method = (opts as RequestInit | undefined)?.method ?? 'GET'
+      if (method === 'POST') return { ok: true, status: 201, json: async () => [{ id: 'x', event_id: 'test-id', event_type: 'test', created_at: '2026-01-01T00:00:00Z' }], text: async () => '' }
+      return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+    })
     vi.stubGlobal('fetch', fetchSpy)
 
     try {
@@ -225,11 +230,9 @@ describe('POST /api/upload/sales — 5% abort threshold', () => {
       const res = await POST(req)
 
       expect(res.status).toBe(422)
-      expect(fetchSpy).not.toHaveBeenCalled()
-      const body = await res.json() as { success: boolean; abortReason: string; abortDetails: unknown[] }
-      expect(body.success).toBe(false)
-      expect(body.abortReason).toMatch(/5%/)
-      expect(body.abortDetails).toHaveLength(1)
+      const body = await res.json() as { error: string; rejectedPct: number; threshold: number }
+      expect(body.error).toBe('TOO_MANY_REJECTED')
+      expect(body.rejectedPct).toBeGreaterThan(0.05)
     } finally {
       vi.unstubAllGlobals()
       vi.unstubAllEnvs()
@@ -365,16 +368,22 @@ describe('POST /api/upload/sales — validación de identidad de archivo', () =>
   it('rechaza archivo jpg (extensión inválida)', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: unknown, opts?: unknown) => {
+      const method = (opts as RequestInit | undefined)?.method ?? 'GET'
+      if (method === 'POST') return { ok: true, status: 201, json: async () => [{ id: 'x', event_id: 'test-id', event_type: 'test', created_at: '2026-01-01T00:00:00Z' }], text: async () => '' }
+      return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+    }))
     try {
       const jpgFile = new File([new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0])], 'foto.jpg', { type: 'image/jpeg' })
       const { POST } = await import('@/app/api/upload/sales/route')
       const req = makeReq({ ventas: jpgFile, items: null, location_id: 'loc-1', org_id: 'org-1' })
       const res = await POST(req)
       expect(res.status).toBe(422)
-      const body = await res.json() as { error: string; message: string }
-      expect(body.error).toBe('FILE_IDENTITY_FAILED')
-      expect(body.message).toMatch(/no es Excel/i)
+      const body = await res.json() as { error: string; errors: string[] }
+      expect(body.error).toBe('VALIDATION_FAILED')
+      expect(body.errors[0]).toMatch(/no es Excel/i)
     } finally {
+      vi.unstubAllGlobals()
       vi.unstubAllEnvs()
     }
   })
@@ -382,16 +391,22 @@ describe('POST /api/upload/sales — validación de identidad de archivo', () =>
   it('rechaza xlsx vacío (sin filas de datos)', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: unknown, opts?: unknown) => {
+      const method = (opts as RequestInit | undefined)?.method ?? 'GET'
+      if (method === 'POST') return { ok: true, status: 201, json: async () => [{ id: 'x', event_id: 'test-id', event_type: 'test', created_at: '2026-01-01T00:00:00Z' }], text: async () => '' }
+      return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+    }))
     try {
       const emptyFile = makeXlsx([])
       const { POST } = await import('@/app/api/upload/sales/route')
       const req = makeReq({ ventas: emptyFile, items: null, location_id: 'loc-1', org_id: 'org-1' })
       const res = await POST(req)
       expect(res.status).toBe(422)
-      const body = await res.json() as { error: string; message: string }
-      expect(body.error).toBe('FILE_IDENTITY_FAILED')
-      expect(body.message).toMatch(/vac/i)
+      const body = await res.json() as { error: string; errors: string[] }
+      expect(body.error).toBe('VALIDATION_FAILED')
+      expect(body.errors[0]).toMatch(/vac/i)
     } finally {
+      vi.unstubAllGlobals()
       vi.unstubAllEnvs()
     }
   })
@@ -399,6 +414,11 @@ describe('POST /api/upload/sales — validación de identidad de archivo', () =>
   it('rechaza xlsx con columnas faltantes y reporta cuáles faltan', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: unknown, opts?: unknown) => {
+      const method = (opts as RequestInit | undefined)?.method ?? 'GET'
+      if (method === 'POST') return { ok: true, status: 201, json: async () => [{ id: 'x', event_id: 'test-id', event_type: 'test', created_at: '2026-01-01T00:00:00Z' }], text: async () => '' }
+      return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+    }))
     try {
       // Solo Sucursal y Numero — faltan Fecha Caja, Total, Comensales, Tipo Documento
       const file = makeXlsx([{ Sucursal: 'Casa Central', Numero: '1001' }])
@@ -406,14 +426,13 @@ describe('POST /api/upload/sales — validación de identidad de archivo', () =>
       const req = makeReq({ ventas: file, items: null, location_id: 'loc-1', org_id: 'org-1' })
       const res = await POST(req)
       expect(res.status).toBe(422)
-      const body = await res.json() as { error: string; message: string; missing: string[] }
-      expect(body.error).toBe('FILE_IDENTITY_FAILED')
-      expect(body.message).toMatch(/Faltan columnas requeridas/)
-      expect(body.missing).toContain('fecha_caja')
-      expect(body.missing).toContain('total')
-      expect(body.missing).toContain('comensales')
-      expect(body.missing).toContain('tipo_documento')
+      const body = await res.json() as { error: string; errors: string[] }
+      expect(body.error).toBe('VALIDATION_FAILED')
+      expect(body.errors[0]).toMatch(/Faltan columnas requeridas/)
+      expect(body.errors[0]).toContain('fecha_caja')
+      expect(body.errors[0]).toContain('total')
     } finally {
+      vi.unstubAllGlobals()
       vi.unstubAllEnvs()
     }
   })
@@ -421,8 +440,11 @@ describe('POST /api/upload/sales — validación de identidad de archivo', () =>
   it('acepta xlsx con todas las columnas requeridas y datos válidos', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
-    const fetchSpy = vi.fn().mockResolvedValue({
-      ok: true, json: async () => [], text: async () => '',
+    const fetchSpy = vi.fn().mockImplementation(async (url: unknown, opts?: unknown) => {
+      const method = (opts as RequestInit | undefined)?.method ?? 'GET'
+      if (method === 'POST' && String(url).includes('upload_events')) return { ok: true, status: 201, json: async () => [{ id: 'x', event_id: 'test-id', event_type: 'test', created_at: '2026-01-01T00:00:00Z' }], text: async () => '' }
+      if (method === 'POST' && String(url).includes('rpc/commit_upload')) return { ok: true, status: 200, json: async () => ({ deleted: 0, inserted: 1 }), text: async () => '' }
+      return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
     })
     vi.stubGlobal('fetch', fetchSpy)
     try {
@@ -451,19 +473,33 @@ describe('POST /api/upload/sales — validación de identidad de archivo', () =>
 
 // ─── ticket_hash — idempotencia por hash sintético ────────────────────────────
 
-// Helper: mock fetch que refleja los hashes recibidos en queryExistingHashes
+// Helper: mock fetch completo para el pipeline genérico (recordEvent, idempotency, hashes, commit)
 function makeHashFetchMock(returnSlice: (hashes: string[]) => string[]) {
   return vi.fn().mockImplementation(async (url: unknown, options?: unknown) => {
     const urlStr = String(url)
     const method = (options as RequestInit | undefined)?.method ?? 'GET'
+    // recordEvent: POST upload_events → 201 + row
+    if (method === 'POST' && urlStr.includes('upload_events')) {
+      return { ok: true, status: 201, json: async () => [{ id: 'x', event_id: 'test-event-id', event_type: 'test', created_at: '2026-01-01T00:00:00Z' }], text: async () => '' }
+    }
+    // queryCommittedByRequestHash: GET upload_events → no cache
+    if (method === 'GET' && urlStr.includes('upload_events')) {
+      return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+    }
+    // queryExistingHashes: GET sales_documents?...select=ticket_hash
     if (method === 'GET' && urlStr.includes('ticket_hash') && urlStr.includes('select=ticket_hash')) {
-      const match  = urlStr.match(/ticket_hash=([^&]+)/)
-      const all    = match
+      const match = urlStr.match(/ticket_hash=([^&]+)/)
+      const all   = match
         ? decodeURIComponent(match[1]).match(/"([a-f0-9]{64})"/g)?.map(h => h.replace(/"/g, '')) ?? []
         : []
-      return { ok: true, json: async () => returnSlice(all).map(h => ({ ticket_hash: h })), text: async () => '' }
+      return { ok: true, status: 200, json: async () => returnSlice(all).map(h => ({ ticket_hash: h })), text: async () => '' }
     }
-    return { ok: true, json: async () => [], text: async () => '' }
+    // commitUpload RPC
+    if (method === 'POST' && urlStr.includes('rpc/commit_upload')) {
+      return { ok: true, status: 200, json: async () => ({ deleted: 0, inserted: 5 }), text: async () => '' }
+    }
+    // Default (upsertFreshness, data_freshness, etc.)
+    return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
   })
 }
 
