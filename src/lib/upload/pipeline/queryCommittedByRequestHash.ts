@@ -31,7 +31,12 @@ export async function queryCommittedByRequestHash(
 
   const res = await fetch(`${supaUrl}/rest/v1/upload_events?${params}`, { headers: svc })
 
-  if (!res.ok) return null
+  if (!res.ok) {
+    console.error(
+      `[pipeline] queryCommittedByRequestHash failed: ${res.status} ${await res.text()} — proceeding as non-duplicate`,
+    )
+    return null
+  }
 
   const rows = (await res.json()) as CommittedCacheEntry[]
   return rows.length > 0 ? rows[0] : null

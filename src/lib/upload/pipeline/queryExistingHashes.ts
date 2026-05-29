@@ -31,7 +31,10 @@ export async function queryExistingHashes(
       const rows = await res.json() as Record<string, string>[]
       for (const r of rows) existing.add(r[col])
     } else {
-      console.warn(`[pipeline] queryExistingHashes ${table} chunk=${Math.floor(i / BATCH) + 1} failed: ${res.status}`)
+      const body = await res.text()
+      throw new Error(
+        `[pipeline] queryExistingHashes ${table} chunk=${Math.floor(i / BATCH) + 1} failed: ${res.status} ${body}`,
+      )
     }
   }
   return existing
