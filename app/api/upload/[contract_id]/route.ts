@@ -5,8 +5,7 @@ import { buildSvcHeaders } from '@/src/lib/upload/pipeline/types'
 import { computeRequestHash } from '@/src/lib/upload/pipeline/computeRequestHash'
 import { queryCommittedByRequestHash } from '@/src/lib/upload/pipeline/queryCommittedByRequestHash'
 import { queryExistingHashes } from '@/src/lib/upload/pipeline/queryExistingHashes'
-import { deleteByHashes } from '@/src/lib/upload/pipeline/deleteByHashes'
-import { insertBatch } from '@/src/lib/upload/pipeline/insertBatch'
+import { commitUpload } from '@/src/lib/upload/pipeline/commitUpload'
 
 export async function POST(
   req: NextRequest,
@@ -147,15 +146,14 @@ export async function POST(
     )
 
     // ── commit ────────────────────────────────────────────────────────────────
-    const hashes       = rows.map(r => contract.computeHash(r))
-    const existing     = await queryExistingHashes(contract, locationId, hashes, supaUrl, svc)
-    const newCount     = hashes.length - existing.size
-    const updatedCount = existing.size
-    const deleted      = await deleteByHashes(contract, locationId, hashes, supaUrl, svc)
-    const { inserted, failed } = await insertBatch(contract.table, rows, supaUrl, svc)
+    const hashes            = rows.map(r => contract.computeHash(r))
+    const existing          = await queryExistingHashes(contract, locationId, hashes, supaUrl, svc)
+    const newCount          = hashes.length - existing.size
+    const updatedCount      = existing.size
+    const { deleted, inserted } = await commitUpload(contract, locationId, hashes, rows, supaUrl, svc)
     await recordEvent(
       { eventId, eventType: 'upload.committed', contractId: contract_id, orgId, locationId,
-        payload: { inserted, newCount, updatedCount, deleted, failed, requestHash } },
+        payload: { inserted, newCount, updatedCount, deleted, failed: 0, requestHash } },
       supaUrl, serviceKey,
     )
 
@@ -170,7 +168,7 @@ export async function POST(
         new:       newCount,
         updated:   updatedCount,
         rejected:  rejected.length,
-        failed,
+        failed:    0,
       },
       errors: [],
     })
