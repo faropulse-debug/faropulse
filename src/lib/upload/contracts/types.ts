@@ -81,6 +81,9 @@ export interface DataSourceContract<TRow> {
   /** Derives the idempotency hash from a parsed row. */
   computeHash(row: TRow): string;
 
+  /** Columna de fecha para el dateRange visible. Si se omite, no se calcula rango. */
+  dateColumn?: string;
+
   /** UI display metadata for the upload card component. */
   uiConfig: UIConfig;
 

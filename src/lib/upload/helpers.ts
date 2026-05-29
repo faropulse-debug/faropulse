@@ -287,7 +287,7 @@ export async function upsertFreshness(
   svc:          SvcHeaders,
 ): Promise<void> {
   try {
-    const res = await fetch(`${supaUrl}/rest/v1/data_freshness`, {
+    const res = await fetch(`${supaUrl}/rest/v1/data_freshness?on_conflict=location_id,dataset`, {
       method:  'POST',
       headers: { ...svc, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
       body:    JSON.stringify({

@@ -102,7 +102,8 @@ export const maxirestSalesContract: DataSourceContract<MaxirestSalesRow> = {
     }
   },
 
-  hashColumn: 'ticket_hash',
+  hashColumn:  'ticket_hash',
+  dateColumn:  'fecha',
 
   computeHash(row: MaxirestSalesRow): string {
     return row.ticket_hash

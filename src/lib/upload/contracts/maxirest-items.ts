@@ -86,6 +86,7 @@ export const maxirestItemsContract: DataSourceContract<MaxirestItemsRow> = {
   // Items use external_id as the idempotency key for now (no ticket_hash yet).
   // A dedicated hash will be added in a future sprint.
   hashColumn: 'external_id',
+  dateColumn: 'fecha_caja',
 
   computeHash(row: MaxirestItemsRow): string {
     return String(row.external_id)

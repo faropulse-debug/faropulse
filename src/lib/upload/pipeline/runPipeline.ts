@@ -6,6 +6,7 @@ import { recordEvent } from './recordEvent'
 import { queryCommittedByRequestHash } from './queryCommittedByRequestHash'
 import { queryExistingHashes } from './queryExistingHashes'
 import { commitUpload } from './commitUpload'
+import { upsertFreshness } from '../helpers'
 
 export interface PipelineResult {
   httpStatus: number
@@ -132,6 +133,19 @@ export async function runUploadPipeline(
     const newCount          = hashes.length - existing.size
     const updatedCount      = existing.size
     const { deleted, inserted } = await commitUpload(contract, locationId, hashes, rows, supaUrl, svc)
+
+    // ── dateRange (visible in upload UI) ──────────────────────────────────────
+    const dc        = contract.dateColumn
+    let   dateRange = ''
+    if (dc) {
+      const fechas = [...new Set(rows.map(r => r[dc]).filter(Boolean))].sort() as string[]
+      if (fechas.length) dateRange = `${fechas[0]} – ${fechas[fechas.length - 1]}`
+    }
+
+    // ── freshness (non-blocking write to data_freshness table) ────────────────
+    // Spread Prefer to satisfy helpers.SvcHeaders type; upsertFreshness overrides it internally.
+    await upsertFreshness(locationId, contract.table, inserted, supaUrl, { ...svc, Prefer: '' })
+
     await recordEvent(
       { eventId, eventType: 'upload.committed', contractId, orgId, locationId,
         payload: { inserted, newCount, updatedCount, deleted, failed: 0, requestHash } },
@@ -153,6 +167,7 @@ export async function runUploadPipeline(
           rejected:  rejected.length,
           failed:    0,
         },
+        dateRange,
         errors: [],
       },
     }
