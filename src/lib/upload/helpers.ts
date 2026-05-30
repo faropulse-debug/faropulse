@@ -113,24 +113,10 @@ export function isDateValid(dateStr: string | null): boolean {
 
 // ─── Rejection tracking ───────────────────────────────────────────────────────
 
-export interface RejectionEntry {
-  reason:   string
-  count:    number
-  examples: string[]
-}
-
 export function addRejection(reasons: Map<string, string[]>, reason: string, example: string): void {
   const arr = reasons.get(reason) ?? []
   arr.push(example)
   reasons.set(reason, arr)
-}
-
-export function buildRejectionReasons(reasons: Map<string, string[]>): RejectionEntry[] {
-  return Array.from(reasons.entries()).map(([reason, examples]) => ({
-    reason,
-    count:    examples.length,
-    examples: examples.slice(0, 3),
-  }))
 }
 
 // ─── File identity validation ─────────────────────────────────────────────────
@@ -216,69 +202,6 @@ export function mapItem(row: Record<string, unknown>, orgId: string, locationId:
 
 // ─── Supabase helpers ─────────────────────────────────────────────────────────
 
-export async function insertBatch(
-  table:  string,
-  rows:   Record<string, unknown>[],
-  svcUrl: string,
-  svc:    SvcHeaders,
-  errors: string[],
-): Promise<{ inserted: number; failed: number }> {
-  let inserted = 0
-  let failed   = 0
-  const total  = Math.ceil(rows.length / BATCH)
-  for (let i = 0; i < rows.length; i += BATCH) {
-    const batch    = rows.slice(i, i + BATCH)
-    const batchNum = Math.floor(i / BATCH) + 1
-    console.log(`[upload] INSERT ${table} batch=${batchNum}/${total} rows=${batch.length}`)
-    const res = await fetch(`${svcUrl}/rest/v1/${table}`, {
-      method:  'POST',
-      headers: svc,
-      body:    JSON.stringify(batch),
-    })
-    if (!res.ok) {
-      const text = await res.text()
-      console.error(`[upload] INSERT ${table} batch=${batchNum} FAILED status=${res.status}: ${text}`)
-      errors.push(`Batch ${batchNum} de ${table}: ${text.slice(0, 200)}`)
-      failed += batch.length
-    } else {
-      inserted += batch.length
-    }
-  }
-  return { inserted, failed }
-}
-
-export async function deleteByExternalIds(
-  table:      string,
-  locationId: string,
-  ids:        string[],
-  supaUrl:    string,
-  svc:        SvcHeaders,
-): Promise<number> {
-  if (ids.length === 0) return 0
-  let deleted = 0
-  const total = Math.ceil(ids.length / BATCH)
-  for (let i = 0; i < ids.length; i += BATCH) {
-    const chunk  = ids.slice(i, i + BATCH)
-    const inVal  = `in.(${chunk.map(id => `"${id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')})`
-    const url    = `${supaUrl}/rest/v1/${table}?location_id=eq.${encodeURIComponent(locationId)}&external_id=${encodeURIComponent(inVal)}`
-    const n      = Math.floor(i / BATCH) + 1
-    console.log(`[upload] DELETE ${table} chunk=${n}/${total} ids=${chunk.length}`)
-    const res = await fetch(url, {
-      method:  'DELETE',
-      headers: { ...svc, 'Prefer': 'return=representation' },
-    })
-    if (!res.ok) {
-      const text = await res.text()
-      console.error(`[upload] DELETE ${table} chunk=${n} FAILED status=${res.status}: ${text.slice(0, 200)}`)
-      throw new Error(`DELETE ${table} chunk ${n}: ${text.slice(0, 200)}`)
-    }
-    const rows = await res.json()
-    deleted   += Array.isArray(rows) ? rows.length : 0
-  }
-  console.log(`[upload] DELETE ${table} total deleted=${deleted}`)
-  return deleted
-}
-
 export async function upsertFreshness(
   locationId:   string,
   dataset:      string,
@@ -304,30 +227,6 @@ export async function upsertFreshness(
   } catch (e) {
     console.warn('[upload] data_freshness upsert failed (non-blocking):', e)
   }
-}
-
-export async function queryExistingIds(
-  table:      string,
-  locationId: string,
-  ids:        string[],
-  supaUrl:    string,
-  svc:        SvcHeaders,
-): Promise<Set<string>> {
-  if (ids.length === 0) return new Set()
-  const existing = new Set<string>()
-  for (let i = 0; i < ids.length; i += BATCH) {
-    const chunk = ids.slice(i, i + BATCH)
-    const inVal = `in.(${chunk.map(id => `"${id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')})`
-    const url   = `${supaUrl}/rest/v1/${table}?location_id=eq.${encodeURIComponent(locationId)}&external_id=${encodeURIComponent(inVal)}&select=external_id`
-    const res   = await fetch(url, { headers: svc })
-    if (res.ok) {
-      const rows = await res.json() as { external_id: string }[]
-      for (const r of rows) existing.add(r.external_id)
-    } else {
-      console.warn(`[upload] queryExistingIds ${table} chunk=${Math.floor(i / BATCH) + 1} failed: ${res.status}`)
-    }
-  }
-  return existing
 }
 
 export async function queryFreshness(
@@ -425,46 +324,3 @@ export function parseItems(buf: ArrayBuffer, orgId: string, locationId: string):
   }
 }
 
-// ─── Insert phase (DB operations) ─────────────────────────────────────────────
-
-export interface ItemsResult {
-  processed:        number
-  new:              number
-  updated:          number
-  inserted:         number
-  deleted:          number
-  failed:           number
-  rejected:         number
-  dateFrom:         string
-  dateTo:           string
-  rejectionReasons: RejectionEntry[]
-  errors:           string[]
-}
-
-export async function insertItems(
-  parsed:     ParsedItems,
-  locationId: string,
-  supaUrl:    string,
-  svc:        SvcHeaders,
-): Promise<ItemsResult> {
-  const { processed, valid, rejected, reasons, dateFrom, dateTo } = parsed
-  const errors:           string[]         = []
-  const rejectionReasons: RejectionEntry[] = buildRejectionReasons(reasons)
-
-  if (rejected > 0) errors.push(`${rejected} ítem(s) rechazado(s)`)
-  if (valid.length === 0) {
-    return { processed, new: 0, updated: 0, inserted: 0, deleted: 0, failed: 0, rejected, dateFrom, dateTo, rejectionReasons, errors }
-  }
-
-  const externalIds  = [...new Set(valid.map(r => r.external_id).filter(Boolean))] as string[]
-  const existingIds  = await queryExistingIds('sales_items', locationId, externalIds, supaUrl, svc)
-  const newCount     = externalIds.length - existingIds.size
-  const updatedCount = existingIds.size
-
-  const deleted              = await deleteByExternalIds('sales_items', locationId, externalIds, supaUrl, svc)
-  const { inserted, failed } = await insertBatch('sales_items', valid as unknown as Record<string, unknown>[], supaUrl, svc, errors)
-
-  await upsertFreshness(locationId, 'sales_items', inserted, supaUrl, svc)
-
-  return { processed, new: newCount, updated: updatedCount, inserted, deleted, failed, rejected, dateFrom, dateTo, rejectionReasons, errors }
-}
