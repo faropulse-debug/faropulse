@@ -20,24 +20,12 @@ interface PulsoDatos {
   vsAnterior:       { ventas: number; tickets: number }
 }
 
-// ─── Mock fallback ────────────────────────────────────────────────────────────
+// ─── Empty fallback (loading / no data) ──────────────────────────────────────
 
-const MOCK: Record<Periodo, PulsoDatos> = {
-  semana: {
-    ventas: 19_800_000, resultadoNeto: null, tickets: 538,
-    comensalesTotal: 1_526, ticketProm: 36_800, ticketPorPersona: 12_974,
-    vsAnterior: { ventas: 8.2, tickets: 6.4 },
-  },
-  mes: {
-    ventas: 82_100_000, resultadoNeto: null, tickets: 2_290,
-    comensalesTotal: 6_780, ticketProm: 35_850, ticketPorPersona: 12_109,
-    vsAnterior: { ventas: 57.0, tickets: 46.8 },
-  },
-  '6m': {
-    ventas: 306_700_000, resultadoNeto: null, tickets: 9_870,
-    comensalesTotal: 28_400, ticketProm: 31_075, ticketPorPersona: 10_800,
-    vsAnterior: { ventas: 22.4, tickets: 19.2 },
-  },
+const EMPTY: Record<Periodo, PulsoDatos> = {
+  semana: { ventas: 0, resultadoNeto: null, tickets: 0, comensalesTotal: 0, ticketProm: 0, ticketPorPersona: null, vsAnterior: { ventas: 0, tickets: 0 } },
+  mes:    { ventas: 0, resultadoNeto: null, tickets: 0, comensalesTotal: 0, ticketProm: 0, ticketPorPersona: null, vsAnterior: { ventas: 0, tickets: 0 } },
+  '6m':   { ventas: 0, resultadoNeto: null, tickets: 0, comensalesTotal: 0, ticketProm: 0, ticketPorPersona: null, vsAnterior: { ventas: 0, tickets: 0 } },
 }
 
 const AMBER = '#f5820a'
@@ -86,7 +74,8 @@ export function ElPulsoSection({ locationId }: Props) {
   const { data: liveData, isLoading } = useDashboardData(locationId)
 
   const datosPorPeriodo = useMemo((): Record<Periodo, PulsoDatos> => {
-    if (!liveData) return MOCK
+    // A2: no data yet (loading / error) → honest zeros, not pizzería mock
+    if (!liveData) return EMPTY
 
     const pct = (a: number, b: number) => b > 0 ? ((a - b) / b) * 100 : 0
     const n   = (v: number | string) => Number(v)
@@ -95,11 +84,16 @@ export function ElPulsoSection({ locationId }: Props) {
     const semT = liveData.ventasDiarias.reduce((s, d) => s + n(d.tickets), 0)
     const semC = liveData.ventasDiarias.reduce((s, d) => s + n(d.comensales), 0)
 
+    // A3: real vsAnterior from weekly series — last ISO week vs the one before it
+    const semAct  = liveData.ventasSemanales.at(-1)
+    const semPrev = liveData.ventasSemanales.at(-2)
+
     const mes     = liveData.ventasMensuales.at(-1)
     const prevMes = liveData.ventasMensuales.at(-2)
-    const mesV = mes     ? n(mes.ventas)     : MOCK.mes.ventas
-    const mesT = mes     ? n(mes.tickets)    : MOCK.mes.tickets
-    const mesC = mes     ? n(mes.comensales) : MOCK.mes.comensalesTotal
+    // A4: no current month data → 0, not 82M mock
+    const mesV = mes     ? n(mes.ventas)     : 0
+    const mesT = mes     ? n(mes.tickets)    : 0
+    const mesC = mes     ? n(mes.comensales) : 0
     const prevMesV = prevMes ? n(prevMes.ventas)  : 0
     const prevMesT = prevMes ? n(prevMes.tickets) : 0
 
@@ -114,36 +108,42 @@ export function ElPulsoSection({ locationId }: Props) {
 
     return {
       semana: {
-        ventas:           semV > 0 ? semV : MOCK.semana.ventas,
+        ventas:           semV,
         resultadoNeto:    null,
-        tickets:          semT > 0 ? semT : MOCK.semana.tickets,
+        tickets:          semT,
         comensalesTotal:  semC,
-        ticketProm:       semT > 0 ? semV / semT : MOCK.semana.ticketProm,
+        ticketProm:       semT > 0 ? semV / semT : 0,
         ticketPorPersona: semC > 0 ? semV / semC : null,
-        vsAnterior: { ventas: MOCK.semana.vsAnterior.ventas, tickets: MOCK.semana.vsAnterior.tickets },
+        // A3: real weekly delta; 0 if only one week of history available
+        vsAnterior: {
+          ventas:  semAct && semPrev ? pct(n(semAct.ventas),  n(semPrev.ventas))  : 0,
+          tickets: semAct && semPrev ? pct(n(semAct.tickets), n(semPrev.tickets)) : 0,
+        },
       },
       mes: {
         ventas:           mesV,
         resultadoNeto:    null,
         tickets:          mesT,
         comensalesTotal:  mesC,
-        ticketProm:       mesT > 0 ? mesV / mesT : MOCK.mes.ticketProm,
+        ticketProm:       mesT > 0 ? mesV / mesT : 0,
         ticketPorPersona: mesC > 0 ? mesV / mesC : null,
         vsAnterior: {
-          ventas:  prevMesV > 0 ? pct(mesV, prevMesV) : MOCK.mes.vsAnterior.ventas,
-          tickets: prevMesT > 0 ? pct(mesT, prevMesT) : MOCK.mes.vsAnterior.tickets,
+          // A5: no previous month → 0, not mock
+          ventas:  prevMesV > 0 ? pct(mesV, prevMesV) : 0,
+          tickets: prevMesT > 0 ? pct(mesT, prevMesT) : 0,
         },
       },
       '6m': {
-        ventas:           s6V > 0 ? s6V : MOCK['6m'].ventas,
+        ventas:           s6V,
         resultadoNeto:    null,
-        tickets:          s6T > 0 ? s6T : MOCK['6m'].tickets,
+        tickets:          s6T,
         comensalesTotal:  s6C,
-        ticketProm:       s6T > 0 ? s6V / s6T : MOCK['6m'].ticketProm,
+        ticketProm:       s6T > 0 ? s6V / s6T : 0,
         ticketPorPersona: s6C > 0 ? s6V / s6C : null,
         vsAnterior: {
-          ventas:  firstHalfV > 0 ? pct(secondHalfV, firstHalfV) : MOCK['6m'].vsAnterior.ventas,
-          tickets: firstHalfT > 0 ? pct(secondHalfT, firstHalfT) : MOCK['6m'].vsAnterior.tickets,
+          // A6: insufficient history → 0, not mock
+          ventas:  firstHalfV > 0 ? pct(secondHalfV, firstHalfV) : 0,
+          tickets: firstHalfT > 0 ? pct(secondHalfT, firstHalfT) : 0,
         },
       },
     }
