@@ -58,6 +58,9 @@ export function groupByComprobante(
       map.set(key, { total: item.precio_total, lineas: 1 })
     }
   }
+  // Round totals to nearest integer — floating-point accumulation of integer
+  // prices (e.g. 17600 + 13700 + ...) can produce sub-cent diffs like 7.2e-12.
+  for (const d of map.values()) d.total = Math.round(d.total)
   return map
 }
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState }                     from 'react'
+import Link                              from 'next/link'
 import { useAuth }                       from '@/hooks/useAuth'
 import { DashboardFiltersProvider }      from '@/src/context/dashboard-filters'
 import { WidgetError }                   from '@/src/components/widgets'
@@ -170,6 +171,18 @@ export default function OwnerDashboardV2() {
               </button>
             )
           })}
+        </div>
+
+        {/* Reconcile shortcut */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px' }}>
+          <Link href="/dashboard/reconcile" style={{
+            fontFamily: FONT_MONO, fontSize: '0.58rem', letterSpacing: '0.14em',
+            textTransform: 'uppercase', color: MUTED, textDecoration: 'none',
+            padding: '5px 10px', border: '1px solid rgba(255,255,255,0.07)',
+            borderRadius: '6px', transition: 'color 0.15s, border-color 0.15s',
+          }}>
+            Reconciliar vs CucinaGo →
+          </Link>
         </div>
 
         {/* Content */}
