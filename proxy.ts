@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 const PUBLIC_ROUTES = ['/login', '/forgot-password', '/reset-password']
-const PUBLIC_API_PREFIXES = ['/api/health', '/api/upload/']
+const PUBLIC_API_PREFIXES = ['/api/health', '/api/upload/', '/api/reconcile/']
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
