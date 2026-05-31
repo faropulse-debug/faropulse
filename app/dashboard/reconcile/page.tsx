@@ -32,10 +32,13 @@ function firstOfMonth(): string {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ReconcileResult {
-  ok:       boolean
-  from:     string
-  to:       string
-  rawItems: number
+  ok:          boolean
+  from:        string
+  to:          string
+  rawItems:    number
+  generatedAt: string
+  range:       { from: string; to: string }
+  source:      string
   resumen: {
     coincidenCount:     number
     discrepanciasCount: number
@@ -309,6 +312,16 @@ export default function ReconcilePage() {
               <span style={{ marginLeft: 'auto', fontFamily: FONT_MONO, fontSize: '0.58rem', color: MUTED, letterSpacing: '0.1em' }}>
                 {result.from} → {result.to} · {result.rawItems} líneas CucinaGo
               </span>
+            </div>
+
+            {/* Provenance stamp */}
+            <div style={{
+              fontFamily: FONT_MONO, fontSize: '0.58rem', color: MUTED_LO,
+              letterSpacing: '0.07em', marginBottom: '20px',
+            }}>
+              Datos de CucinaGo en vivo
+              {' · '}rango {result.range.from} a {result.range.to}
+              {' · '}consultado {new Date(result.generatedAt).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'medium' })}
             </div>
 
             {/* Stat cards */}

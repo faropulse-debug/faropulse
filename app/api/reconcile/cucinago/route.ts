@@ -82,10 +82,13 @@ export async function POST(req: NextRequest) {
     const result      = reconcile(cucinagoMap, maxirestMap)
 
     return NextResponse.json({
-      ok:      true,
+      ok:          true,
       from,
       to,
-      rawItems: rawItems.length,
+      rawItems:    rawItems.length,
+      generatedAt: new Date().toISOString(),
+      range:       { from, to },
+      source:      'cucinago-vs-maxirest',
       ...result,
     })
   } catch (err: unknown) {
