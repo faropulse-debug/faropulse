@@ -2,10 +2,6 @@ import * as XLSX from 'xlsx'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-export const BATCH           = 200
-export const ABORT_THRESHOLD = 0.05
-export const DATE_MIN        = '2024-01-01'
-
 export const VENTAS_REQUIRED_COLUMNS = ['Sucursal', 'Numero', 'Fecha Caja', 'Total', 'Comensales', 'Tipo Documento'] as const
 export const ITEMS_REQUIRED_COLUMNS  = ['Sucursal', 'Numero', 'Descripcion', 'Cantidad', 'Precio Total', 'Fecha Caja', 'Familia'] as const
 
@@ -25,16 +21,6 @@ export function normalizeHeader(h: string): string {
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .replace(/\s+/g, '_')
-}
-
-export function parseSheet(buf: ArrayBuffer): Record<string, unknown>[] {
-  const wb    = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true })
-  const sheet = wb.Sheets[wb.SheetNames[0]]
-  return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-    defval: '', raw: false, dateNF: 'yyyy-mm-dd',
-  }).map(r => Object.fromEntries(
-    Object.entries(r).map(([k, v]) => [normalizeHeader(k), v])
-  ))
 }
 
 export function toStr(v: unknown): string | null {
@@ -98,27 +84,6 @@ export function normalizeTipoZona(v: unknown): string | null {
   return s
 }
 
-// ─── Date validation ──────────────────────────────────────────────────────────
-
-export function maxAllowedDate(): string {
-  const d = new Date()
-  d.setDate(d.getDate() + 1)
-  return d.toISOString().split('T')[0]
-}
-
-export function isDateValid(dateStr: string | null): boolean {
-  if (!dateStr) return false
-  return dateStr >= DATE_MIN && dateStr <= maxAllowedDate()
-}
-
-// ─── Rejection tracking ───────────────────────────────────────────────────────
-
-export function addRejection(reasons: Map<string, string[]>, reason: string, example: string): void {
-  const arr = reasons.get(reason) ?? []
-  arr.push(example)
-  reasons.set(reason, arr)
-}
-
 // ─── File identity validation ─────────────────────────────────────────────────
 
 type IdentityOk   = { ok: true }
@@ -172,34 +137,6 @@ export async function validateFileIdentity(file: File, expectedType: 'ventas' | 
   return { ok: true }
 }
 
-// ─── Item mapper ──────────────────────────────────────────────────────────────
-
-export type ItemRow = ReturnType<typeof mapItem>
-
-export function mapItem(row: Record<string, unknown>, orgId: string, locationId: string) {
-  return {
-    org_id:          orgId,
-    location_id:     locationId,
-    external_id:     toStr(row.numero),
-    descripcion:     toStr(row.descripcion),
-    cantidad:        toInt(row.cantidad),
-    precio_unitario: toMoney(row.precio_unitario),
-    precio_total:    toMoney(row.precio_total),
-    codigo:          toInt(row.codigo),
-    familia:         toStr(row.familia),
-    subfamilia:      toStr(row.subfamilia),
-    es_variacion:    toStr(row.es_variacion),
-    tipo_zona:       normalizeTipoZona(row.tipo_zona),
-    camarero_nombre: toStr(row.camarero_nombre),
-    fecha_caja:      toDate(row.fecha_caja),
-    fecha_documento: toDate(row.fecha_documento),
-    fecha_item:      toTimestamp(row.fecha_item),
-    turno:           toStr(row.turno),
-    zona:            toStr(row.zona),
-    numero_ticket:   toStr(row.numero),
-  }
-}
-
 // ─── Supabase helpers ─────────────────────────────────────────────────────────
 
 export async function upsertFreshness(
@@ -228,99 +165,3 @@ export async function upsertFreshness(
     console.warn('[upload] data_freshness upsert failed (non-blocking):', e)
   }
 }
-
-export async function queryFreshness(
-  locationId: string,
-  supaUrl:    string,
-  svc:        SvcHeaders,
-): Promise<{ datasets: Record<string, string | null>; lastUpload: string | null }> {
-  try {
-    const url = `${supaUrl}/rest/v1/data_freshness?location_id=eq.${encodeURIComponent(locationId)}&select=dataset,last_upload`
-    const res = await fetch(url, { headers: svc })
-    if (!res.ok) return { datasets: {}, lastUpload: null }
-    const rows = await res.json() as { dataset: string; last_upload: string }[]
-    const datasets: Record<string, string | null> = {}
-    let lastUpload: string | null = null
-    for (const r of rows) {
-      datasets[r.dataset] = r.last_upload
-      if (!lastUpload || r.last_upload > lastUpload) lastUpload = r.last_upload
-    }
-    return { datasets, lastUpload }
-  } catch {
-    return { datasets: {}, lastUpload: null }
-  }
-}
-
-// ─── Parse phase (pure — no DB calls) ────────────────────────────────────────
-
-export interface ParsedItems {
-  processed:      number
-  valid:          ItemRow[]
-  rejected:       number
-  reasons:        Map<string, string[]>
-  rejectedPct:    number
-  fechaCajaCount: number
-  sumPrecioTotal: number
-  dateFrom:       string
-  dateTo:         string
-}
-
-export function parseItems(buf: ArrayBuffer, orgId: string, locationId: string): ParsedItems {
-  const rawRows   = parseSheet(buf)
-  const processed = rawRows.length
-  const valid:    ItemRow[] = []
-  let   rejected  = 0
-  const reasons   = new Map<string, string[]>()
-  let   fechaCajaCount = 0
-  let   sumPrecioTotal = 0
-  const maxDate        = maxAllowedDate()
-
-  for (const r of rawRows) {
-    const numero       = toStr(r.numero)
-    const desc         = toStr(r.descripcion)
-    const fecha        = toDate(r.fecha_documento)
-    const fechaCaja    = toDate(r.fecha_caja)
-    const fechaCajaRaw = toStr(r.fecha_caja)
-    const precioTotal  = toMoney(r.precio_total)
-
-    if (!numero) {
-      addRejection(reasons, 'external_id_null', `row-${valid.length + rejected + 1}`)
-      rejected++; continue
-    }
-    if (!desc) {
-      addRejection(reasons, 'descripcion_vacia', numero)
-      rejected++; continue
-    }
-    if (fecha && !isDateValid(fecha)) {
-      console.log(`[upload/items] item fecha_documento rechazada: ${fecha} (rango válido: ${DATE_MIN}–${maxDate})`)
-      addRejection(reasons, 'fecha_invalida', numero)
-      rejected++; continue
-    }
-    if (precioTotal != null && precioTotal < 0) {
-      addRejection(reasons, 'total_negativo', numero)
-      rejected++; continue
-    }
-    if (fechaCajaRaw && !fechaCaja) {
-      addRejection(reasons, 'fecha_caja_invalida', numero)
-      rejected++; continue
-    }
-
-    if (fechaCaja) fechaCajaCount++
-    sumPrecioTotal += precioTotal ?? 0
-    valid.push(mapItem(r, orgId, locationId))
-  }
-
-  const fechas = [...new Set(valid.map(r => r.fecha_caja).filter(Boolean))].sort() as string[]
-  return {
-    processed,
-    valid,
-    rejected,
-    reasons,
-    rejectedPct:   processed > 0 ? rejected / processed : 0,
-    fechaCajaCount,
-    sumPrecioTotal,
-    dateFrom: fechas[0] ?? '',
-    dateTo:   fechas[fechas.length - 1] ?? '',
-  }
-}
-
