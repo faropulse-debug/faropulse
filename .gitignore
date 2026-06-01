@@ -41,3 +41,24 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .aider*
+
+# IDE / AI configs (personal, not project-level)
+.claude/
+.cursor/
+
+# Personal / CV outputs
+cv_outputs/
+outputs/
+
+# Temporary analysis files
+_tmp_*.txt
+*.pdf
+*.docx
+*.pptx
+
+# Local-only scripts (contain environment-specific secrets or snapshot data)
+scripts/insert-items-stg.ts
+scripts/snapshot-*.json
+
+# Supabase CLI temp files
+supabase/.temp/

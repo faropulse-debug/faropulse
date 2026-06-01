@@ -1,0 +1,142 @@
+name: Regression Test + Health Check
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+#
+#  regression-test  →  push a develop  +  cualquier PR a main
+#  post-deploy-health →  push a main (= merge completado)
+#
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [main]
+
+# ── Secrets requeridos en GitHub → Settings → Secrets and variables → Actions ─
+#
+#  NEXT_PUBLIC_SUPABASE_URL_STG    https://egjxyskqhnmuqwkrbshu.supabase.co
+#  SUPABASE_SERVICE_ROLE_KEY_STG   service_role JWT de STG (NO el anon key)
+#  SUPABASE_ACCESS_TOKEN           PAT de Supabase (sbp_...) — shared entre envs
+#
+#  Nota: el regression-test usa service_role para bypasear RLS y el PAT para
+#  correr SQL via Management API. El anon key no alcanza para estas queries.
+
+jobs:
+
+  # ── Job 1: Regression test contra STG ──────────────────────────────────────
+  regression-test:
+    name: Regression Test (STG)
+    if: |
+      github.ref == 'refs/heads/develop' ||
+      github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run regression tests against STG
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL_STG }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY_STG }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: npx tsx scripts/regression-test.ts
+
+  # ── Job 2: Health check post-deploy en PROD ─────────────────────────────────
+  post-deploy-health:
+    name: Post-Deploy Health Check (PROD)
+    if: |
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Wait for Vercel deploy (3 min)
+        run: sleep 180
+
+      - name: Fetch health endpoint
+        id: health
+        run: |
+          HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" \
+            --max-time 15 \
+            https://faropulse.vercel.app/api/health || echo "000")
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            CONN=$(jq -r '.supabaseConnection' /tmp/health.json)
+          else
+            CONN="error"
+            echo "{\"supabaseConnection\":\"error\",\"httpCode\":\"$HTTP_CODE\",\"detail\":\"fetch failed or timeout\"}" \
+              > /tmp/health.json
+          fi
+
+          echo "supabaseConnection=$CONN" >> "$GITHUB_OUTPUT"
+          {
+            echo 'response<<HEALTH_EOF'
+            cat /tmp/health.json
+            echo 'HEALTH_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          echo "HTTP $HTTP_CODE — supabaseConnection=$CONN"
+
+      - name: Abrir issue si el health check falla
+        if: steps.health.outputs.supabaseConnection != 'ok'
+        uses: actions/github-script@v7
+        env:
+          HEALTH_RESPONSE: ${{ steps.health.outputs.response }}
+        with:
+          script: |
+            const response  = process.env.HEALTH_RESPONSE
+            const sha7      = context.sha.slice(0, 7)
+            const runUrl    = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            const timestamp = new Date().toISOString()
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: `🚨 Health check falló post-deploy (${sha7})`,
+              labels: ['incident', 'production'],
+              body: [
+                '## Health check falló después del deploy a main',
+                '',
+                `| Campo | Valor |`,
+                `|-------|-------|`,
+                `| Commit | \`${context.sha}\` |`,
+                `| Rama | \`main\` |`,
+                `| Tiempo | ${timestamp} |`,
+                `| Run | [Ver logs](${runUrl}) |`,
+                '',
+                '### Respuesta de `/api/health`',
+                '```json',
+                response,
+                '```',
+                '',
+                '### Checklist de diagnóstico',
+                '- [ ] Verificar env vars en Vercel → Settings → Environment Variables → Production',
+                '- [ ] Verificar que Supabase PROD (`lahnngwyfbejgesulafr`) está activo',
+                '- [ ] Revisar logs: `vercel logs https://faropulse.vercel.app --since 10m`',
+                '- [ ] Si es transitorio, hacer redeploy manual desde Vercel dashboard',
+                '',
+                '> Generado automáticamente por el workflow `post-deploy-health`.',
+              ].join('\n'),
+            })
+
+      - name: Health check OK
+        if: steps.health.outputs.supabaseConnection == 'ok'
+        run: echo "✅ Producción saludable — supabaseConnection=ok"
