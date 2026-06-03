@@ -138,8 +138,35 @@ let p1EventId = null
 let p1Hash    = null
 
 try {
-  // ── 5. POST #1 — full pipeline ───────────────────────────────────────────────
-  console.log('\n── 5. POST #1 (full pipeline) ───────────────────────────────')
+  // ── 5. POST dry-run (preview without committing) ──────────────────────────────
+  console.log('\n── 5. POST dry-run (?dry_run=true) ──────────────────────────')
+  const bufDr  = fs.readFileSync(tmpPath)
+  const blobDr = new Blob([bufDr], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const formDr = new FormData()
+  formDr.append('sales',       blobDr, `smoke-${run}.xlsx`)
+  formDr.append('org_id',      STG_ORG_ID)
+  formDr.append('location_id', STG_LOCATION_ID)
+
+  const rDr  = await fetch(`${BASE_URL}/api/upload/maxirest-sales?dry_run=true`, { method: 'POST', body: formDr })
+  const bDr  = await rDr.json()
+  console.log(`  HTTP ${rDr.status}`)
+  console.log(`  ${JSON.stringify(bDr)}`)
+
+  check('dry-run HTTP 200',         rDr.status === 200)
+  check('dry-run status=dry_run',   bDr.status === 'dry_run' || bDr.status === 'dry_run_duplicate', `got "${bDr.status}"`)
+  check('dry-run dryRun=true',      bDr.dryRun === true)
+  check('dry-run wouldCommit field present', 'wouldCommit' in bDr)
+
+  // Verify the table count did NOT change after the dry-run
+  const crDr      = await restGet(
+    `sales_documents?location_id=eq.${STG_LOCATION_ID}&select=count`,
+    { Prefer: 'count=exact' },
+  )
+  const countAfterDr = crDr.headers.get('content-range')
+  check('dry-run: count unchanged', countBefore === countAfterDr, `before=${countBefore} afterDr=${countAfterDr}`)
+
+  // ── 6. POST #1 — full pipeline ───────────────────────────────────────────────
+  console.log('\n── 6. POST #1 (full pipeline) ───────────────────────────────')
   const t0   = Date.now()
   const buf  = fs.readFileSync(tmpPath)
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
@@ -170,8 +197,8 @@ try {
   if (ms > 10_000) console.warn(`  ⚠ PERFORMANCE WARNING: ${ms}ms exceeds 10s threshold`)
   else             console.log( `  ⚡ ${ms}ms (under 10s)`)
 
-  // ── 6. Count unchanged ───────────────────────────────────────────────────────
-  console.log('\n── 6. Count unchanged ───────────────────────────────────────')
+  // ── 7. Count unchanged ───────────────────────────────────────────────────────
+  console.log('\n── 7. Count unchanged ───────────────────────────────────────')
   const cr1 = await restGet(
     `sales_documents?location_id=eq.${STG_LOCATION_ID}&select=count`,
     { Prefer: 'count=exact' },
@@ -180,8 +207,8 @@ try {
   console.log(`  after:  ${countAfter}`)
   check('count unchanged', countBefore === countAfter, `before=${countBefore} after=${countAfter}`)
 
-  // ── 7. data_freshness recent ─────────────────────────────────────────────────
-  console.log('\n── 7. data_freshness updated ────────────────────────────────')
+  // ── 8. data_freshness recent ─────────────────────────────────────────────────
+  console.log('\n── 8. data_freshness updated ────────────────────────────────')
   const fr  = await restGet(
     `data_freshness?location_id=eq.${STG_LOCATION_ID}&dataset=eq.sales_documents&select=last_upload,rows_affected`,
   )
@@ -194,8 +221,8 @@ try {
     check('freshness row exists', false, 'no row for sales_documents')
   }
 
-  // ── 8. POST #2 — idempotency ─────────────────────────────────────────────────
-  console.log('\n── 8. POST #2 (duplicate_skipped) ───────────────────────────')
+  // ── 9. POST #2 — idempotency ─────────────────────────────────────────────────
+  console.log('\n── 9. POST #2 (duplicate_skipped) ───────────────────────────')
   const buf2  = fs.readFileSync(tmpPath)
   const blob2 = new Blob([buf2], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
   const form2 = new FormData()
@@ -213,8 +240,8 @@ try {
   check('original_event_id matches',  b2.original_event_id === p1EventId,   `got ${b2.original_event_id}`)
   check('request_hash matches',       b2.request_hash === p1Hash)
 
-  // ── 9. Lifecycle in upload_events ────────────────────────────────────────────
-  console.log('\n── 9. upload_events lifecycle (POST 1) ──────────────────────')
+  // ── 10. Lifecycle in upload_events ───────────────────────────────────────────
+  console.log('\n── 10. upload_events lifecycle (POST 1) ─────────────────────')
   const ev    = await restGet(`upload_events?event_id=eq.${p1EventId}&select=event_type,created_at&order=created_at.asc`)
   const evs   = await ev.json()
   const types = evs.map(e => e.event_type)
@@ -228,8 +255,8 @@ try {
   check('event[4]=committed',      types[4] === 'upload.committed',            `got ${types[4]}`)
 
 } finally {
-  // ── 10. Cleanup (always) ─────────────────────────────────────────────────────
-  console.log('\n── 10. Cleanup ──────────────────────────────────────────────')
+  // ── 11. Cleanup (always) ─────────────────────────────────────────────────────
+  console.log('\n── 11. Cleanup ──────────────────────────────────────────────')
   try {
     if (fs.existsSync(tmpPath)) { fs.unlinkSync(tmpPath); console.log(`  deleted ${tmpPath}`) }
   } catch (e) { console.warn(`  warning: could not delete ${tmpPath}: ${e}`) }

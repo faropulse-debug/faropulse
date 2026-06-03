@@ -7,6 +7,11 @@ import { queryCommittedByRequestHash } from './queryCommittedByRequestHash'
 import { queryExistingHashes } from './queryExistingHashes'
 import { commitUpload } from './commitUpload'
 import { upsertFreshness } from '../helpers'
+import { randomUUID } from 'crypto'
+
+export interface PipelineOptions {
+  dryRun?: boolean
+}
 
 export interface PipelineResult {
   httpStatus: number
@@ -21,8 +26,10 @@ export async function runUploadPipeline(
   locationId: string,
   supaUrl:    string,
   serviceKey: string,
+  options:    PipelineOptions = {},
 ): Promise<PipelineResult> {
   const contractId = contract.id
+  const dryRun     = options.dryRun === true
   const svc        = buildSvcHeaders(serviceKey)
   let eventId: string | undefined
 
@@ -31,28 +38,55 @@ export async function runUploadPipeline(
     const requestHash = computeRequestHash(buffer)
 
     // ── upload.received ───────────────────────────────────────────────────────
-    const received = await recordEvent(
-      {
-        eventType:  'upload.received',
-        contractId,
-        orgId,
-        locationId,
-        payload: { requestHash, fileName: file.name, sourceType: contract.sourceType },
-      },
-      supaUrl,
-      serviceKey,
-    )
-    eventId = received.event_id
+    if (dryRun) {
+      eventId = randomUUID()
+    } else {
+      const received = await recordEvent(
+        {
+          eventType:  'upload.received',
+          contractId,
+          orgId,
+          locationId,
+          payload: { requestHash, fileName: file.name, sourceType: contract.sourceType },
+        },
+        supaUrl,
+        serviceKey,
+      )
+      eventId = received.event_id
+    }
 
     // ── idempotency short-circuit ─────────────────────────────────────────────
     const cached = await queryCommittedByRequestHash(requestHash, contractId, locationId, supaUrl, svc)
     if (cached) {
-      await recordEvent(
-        { eventId, eventType: 'upload.duplicate_skipped', contractId, orgId, locationId,
-          payload: { requestHash, originalEventId: cached.event_id } },
-        supaUrl, serviceKey,
-      )
+      if (!dryRun) {
+        await recordEvent(
+          { eventId, eventType: 'upload.duplicate_skipped', contractId, orgId, locationId,
+            payload: { requestHash, originalEventId: cached.event_id } },
+          supaUrl, serviceKey,
+        )
+      }
       const p = cached.payload
+      if (dryRun) {
+        return {
+          httpStatus: 200,
+          body: {
+            success:      true,
+            dryRun:       true,
+            contract_id:  contractId,
+            request_hash: requestHash,
+            status:       'dry_run_duplicate',
+            wouldCommit:  false,
+            [contract.datasetType]: {
+              processed: ((p.newCount as number) ?? 0) + ((p.updatedCount as number) ?? 0),
+              new:       (p.newCount     as number) ?? 0,
+              updated:   (p.updatedCount as number) ?? 0,
+              rejected:  0,
+              failed:    (p.failed       as number) ?? 0,
+            },
+            errors: [],
+          },
+        }
+      }
       return {
         httpStatus: 200,
         body: {
@@ -74,23 +108,27 @@ export async function runUploadPipeline(
       }
     }
 
-    const pctx   = { orgId, locationId, eventId: eventId }
+    const pctx   = { orgId, locationId, eventId: eventId! }
     const source = { type: contract.sourceType, payload: file }
 
     // ── validate ──────────────────────────────────────────────────────────────
     const v = await contract.validate(source, pctx)
     if (!v.ok) {
-      await recordEvent(
-        { eventId, eventType: 'upload.rejected', contractId, orgId, locationId,
-          payload: { stage: 'validate', errors: v.errors } },
-        supaUrl, serviceKey,
-      )
+      if (!dryRun) {
+        await recordEvent(
+          { eventId, eventType: 'upload.rejected', contractId, orgId, locationId,
+            payload: { stage: 'validate', errors: v.errors } },
+          supaUrl, serviceKey,
+        )
+      }
       return { httpStatus: 422, body: { error: 'VALIDATION_FAILED', errors: v.errors } }
     }
-    await recordEvent(
-      { eventId, eventType: 'upload.validated', contractId, orgId, locationId, payload: {} },
-      supaUrl, serviceKey,
-    )
+    if (!dryRun) {
+      await recordEvent(
+        { eventId, eventType: 'upload.validated', contractId, orgId, locationId, payload: {} },
+        supaUrl, serviceKey,
+      )
+    }
 
     // ── extract + parse ───────────────────────────────────────────────────────
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -101,38 +139,43 @@ export async function runUploadPipeline(
       if (parsed !== null) rows.push(parsed as Record<string, unknown>)
       else                 rejected.push(raw)
     }
-    await recordEvent(
-      { eventId, eventType: 'upload.parsed', contractId, orgId, locationId,
-        payload: { rowCount: rows.length, rejectedCount: rejected.length } },
-      supaUrl, serviceKey,
-    )
+    if (!dryRun) {
+      await recordEvent(
+        { eventId, eventType: 'upload.parsed', contractId, orgId, locationId,
+          payload: { rowCount: rows.length, rejectedCount: rejected.length } },
+        supaUrl, serviceKey,
+      )
+    }
 
     // ── abort check ───────────────────────────────────────────────────────────
     const total = rows.length + rejected.length
     const pct   = total > 0 ? rejected.length / total : 0
     if (pct > 0.05) {
-      await recordEvent(
-        { eventId, eventType: 'upload.rejected', contractId, orgId, locationId,
-          payload: { stage: 'abort_check', rejectedPct: pct } },
-        supaUrl, serviceKey,
-      )
+      if (!dryRun) {
+        await recordEvent(
+          { eventId, eventType: 'upload.rejected', contractId, orgId, locationId,
+            payload: { stage: 'abort_check', rejectedPct: pct } },
+          supaUrl, serviceKey,
+        )
+      }
       return {
         httpStatus: 422,
         body: { error: 'TOO_MANY_REJECTED', rejectedPct: pct, threshold: 0.05 },
       }
     }
-    await recordEvent(
-      { eventId, eventType: 'upload.abort_check', contractId, orgId, locationId,
-        payload: { rejectedPct: pct, passed: true } },
-      supaUrl, serviceKey,
-    )
+    if (!dryRun) {
+      await recordEvent(
+        { eventId, eventType: 'upload.abort_check', contractId, orgId, locationId,
+          payload: { rejectedPct: pct, passed: true } },
+        supaUrl, serviceKey,
+      )
+    }
 
     // ── commit ────────────────────────────────────────────────────────────────
-    const hashes            = rows.map(r => contract.computeHash(r))
-    const existing          = await queryExistingHashes(contract, locationId, hashes, supaUrl, svc)
-    const newCount          = hashes.length - existing.size
-    const updatedCount      = existing.size
-    const { deleted, inserted } = await commitUpload(contract, locationId, hashes, rows, supaUrl, svc)
+    const hashes       = rows.map(r => contract.computeHash(r))
+    const existing     = await queryExistingHashes(contract, locationId, hashes, supaUrl, svc)
+    const newCount     = hashes.length - existing.size
+    const updatedCount = existing.size
 
     // ── dateRange (visible in upload UI) ──────────────────────────────────────
     const dc        = contract.dateColumn
@@ -141,6 +184,32 @@ export async function runUploadPipeline(
       const fechas = [...new Set(rows.map(r => r[dc]).filter(Boolean))].sort() as string[]
       if (fechas.length) dateRange = `${fechas[0]} – ${fechas[fechas.length - 1]}`
     }
+
+    if (dryRun) {
+      return {
+        httpStatus: 200,
+        body: {
+          success:      true,
+          dryRun:       true,
+          contract_id:  contractId,
+          request_hash: requestHash,
+          status:       'dry_run',
+          wouldCommit:  true,
+          [contract.datasetType]: {
+            processed: rows.length,
+            new:       newCount,
+            updated:   updatedCount,
+            rejected:  rejected.length,
+            failed:    0,
+          },
+          dateRange,
+          rejections: rejected,
+          errors: [],
+        },
+      }
+    }
+
+    const { deleted, inserted } = await commitUpload(contract, locationId, hashes, rows, supaUrl, svc)
 
     // ── freshness (non-blocking write to data_freshness table) ────────────────
     // Spread Prefer to satisfy helpers.SvcHeaders type; upsertFreshness overrides it internally.

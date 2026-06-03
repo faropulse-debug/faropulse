@@ -37,6 +37,7 @@ export async function POST(
     return NextResponse.json({ error: 'MISSING_LOCATION_ID' }, { status: 400 })
   }
 
-  const r = await runUploadPipeline(contract, file, orgId, locationId, supaUrl, serviceKey)
+  const dryRun = req.nextUrl.searchParams.get('dry_run') === 'true'
+  const r = await runUploadPipeline(contract, file, orgId, locationId, supaUrl, serviceKey, { dryRun })
   return NextResponse.json(r.body, { status: r.httpStatus })
 }
