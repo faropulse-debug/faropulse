@@ -19,8 +19,9 @@ export async function POST(req: NextRequest) {
   }
 
   const contract = getContract('maxirest-sales')!
+  const dryRun   = req.nextUrl?.searchParams?.get('dry_run') === 'true'
 
-  const r = await runUploadPipeline(contract, file, orgId, locationId, supaUrl, serviceKey)
+  const r = await runUploadPipeline(contract, file, orgId, locationId, supaUrl, serviceKey, { dryRun })
 
   // Compat: frontend reads result.documents; pipeline returns result.sales
   if (r.body.sales) r.body.documents = r.body.sales

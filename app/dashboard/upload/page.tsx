@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type CardStatus = 'idle' | 'ready' | 'syncing' | 'success' | 'error'
+type CardStatus = 'idle' | 'ready' | 'previewing' | 'preview' | 'syncing' | 'success' | 'error'
 
 interface FileSlot {
   file:     File | null
@@ -49,6 +49,11 @@ interface UploadResult {
   // cucinago route
   rawItems?:      number
   message?:       string
+  // dry-run preview fields
+  status?:        string
+  dryRun?:        boolean
+  wouldCommit?:   boolean
+  rejections?:    unknown[]
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -135,11 +140,13 @@ function ArrowLeftIcon({ size = 16, color = 'currentColor' }: { size?: number; c
 
 function StatusPill({ status }: { status: CardStatus }) {
   const map: Record<CardStatus, { label: string; color: string; bg: string }> = {
-    idle:    { label: 'Esperando',  color: 'rgba(255,255,255,0.35)', bg: 'rgba(255,255,255,0.06)' },
-    ready:   { label: 'Listo',      color: '#f59e0b',               bg: 'rgba(245,158,11,0.12)' },
-    syncing: { label: 'Procesando', color: CYAN,                    bg: 'rgba(6,182,212,0.12)'  },
-    success: { label: 'Completado', color: GREEN,                   bg: 'rgba(34,197,94,0.12)'  },
-    error:   { label: 'Error',      color: RED,                     bg: 'rgba(239,68,68,0.12)'  },
+    idle:       { label: 'Esperando',              color: 'rgba(255,255,255,0.35)', bg: 'rgba(255,255,255,0.06)' },
+    ready:      { label: 'Listo',                  color: '#f59e0b',               bg: 'rgba(245,158,11,0.12)'  },
+    previewing: { label: 'Analizando…',            color: AMBER,                   bg: 'rgba(245,130,10,0.12)'  },
+    preview:    { label: 'Revisá antes de aplicar', color: AMBER,                   bg: 'rgba(245,130,10,0.12)'  },
+    syncing:    { label: 'Procesando',             color: CYAN,                    bg: 'rgba(6,182,212,0.12)'   },
+    success:    { label: 'Completado',             color: GREEN,                   bg: 'rgba(34,197,94,0.12)'   },
+    error:      { label: 'Error',                  color: RED,                     bg: 'rgba(239,68,68,0.12)'   },
   }
   const s = map[status]
   return (
@@ -396,6 +403,101 @@ function SecondaryBtn({ label, onClick }: { label: string; onClick: () => void }
   )
 }
 
+// ── Preview components ────────────────────────────────────────────────────────
+
+function PreviewStatCard({ label, value, accent }: { label: string; value: string; accent: string }) {
+  return (
+    <div style={{
+      background: CARD_BG, border: `1px solid ${CARD_BORDER}`,
+      borderRadius: 10, padding: '12px 14px',
+      position: 'relative', overflow: 'hidden',
+    }}>
+      <div style={{
+        position: 'absolute', top: 0, left: '15%', right: '15%', height: '1px',
+        background: `linear-gradient(90deg, transparent, ${accent}55, transparent)`,
+      }} />
+      <div style={{
+        fontFamily: 'var(--font-display)', fontSize: '0.55rem',
+        letterSpacing: '0.16em', textTransform: 'uppercase',
+        color: 'rgba(255,255,255,0.35)', marginBottom: 8,
+      }}>{label}</div>
+      <div style={{
+        fontFamily: 'var(--font-body)', fontWeight: 700,
+        fontSize: '1.35rem', lineHeight: 1,
+        color: accent,
+      }}>{value}</div>
+    </div>
+  )
+}
+
+function PreviewBanner({ result, accent }: { result: UploadResult; accent: string }) {
+  const docs = result.documents ?? result.items
+  if (result.status === 'dry_run_duplicate') {
+    return (
+      <div style={{
+        padding: '12px 16px', borderRadius: 8,
+        background: 'rgba(245,130,10,0.08)', border: '1px solid rgba(245,130,10,0.22)',
+        fontFamily: 'var(--font-body)', fontSize: '0.78rem',
+        color: 'rgba(245,158,11,0.85)',
+        display: 'flex', alignItems: 'center', gap: 10,
+      }}>
+        <span>⚠</span>
+        <span>
+          Este archivo ya fue cargado anteriormente.
+          {docs && (
+            <span style={{ color: 'rgba(255,255,255,0.4)', marginLeft: 8 }}>
+              ({docs.new} nuevos · {docs.updated} actualizados)
+            </span>
+          )}
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+        <PreviewStatCard label="Nuevos"       value={String(docs?.new      ?? 0)} accent={GREEN} />
+        <PreviewStatCard label="A actualizar" value={String(docs?.updated  ?? 0)} accent={AMBER} />
+        <PreviewStatCard label="Rechazados"   value={String(docs?.rejected ?? 0)}
+          accent={(docs?.rejected ?? 0) > 0 ? RED : 'rgba(255,255,255,0.35)'} />
+      </div>
+      {result.dateRange && (
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>
+          {result.dateRange}
+        </div>
+      )}
+      {(result.rejections?.length ?? 0) > 0 && (
+        <details style={{ fontFamily: 'var(--font-body)', fontSize: '0.7rem', color: 'rgba(255,255,255,0.45)' }}>
+          <summary style={{ cursor: 'pointer', color: '#f59e0b', marginBottom: 4 }}>
+            {result.rejections!.length} filas rechazadas
+          </summary>
+          <div style={{
+            maxHeight: 120, overflowY: 'auto',
+            background: 'rgba(255,255,255,0.03)', borderRadius: 6, padding: '8px 10px',
+          }}>
+            {result.rejections!.slice(0, 50).map((r, i) => (
+              <div key={i} style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.65rem', lineHeight: 1.5 }}>
+                {JSON.stringify(r)}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  )
+}
+
+function PreviewActions({ accent, onApply, onCancel }: {
+  accent: string; onApply: () => void; onCancel: () => void
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      <PrimaryBtn label="Aplicar" onClick={onApply} accent={accent} />
+      <SecondaryBtn label="Cancelar" onClick={onCancel} />
+    </div>
+  )
+}
+
 // ── No Auth Warning ───────────────────────────────────────────────────────────
 
 function NoAuthWarning() {
@@ -466,25 +568,49 @@ function CardPnL({ locationId, orgId }: { locationId: string; orgId: string }) {
 // ── Card B: Ventas (independent) ─────────────────────────────────────────────
 
 function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }) {
-  const [slot,   setSlot]   = useState<FileSlot>({ file: null, dragging: false })
-  const [status, setStatus] = useState<CardStatus>('idle')
-  const [result, setResult] = useState<UploadResult | null>(null)
-  const [error,  setError]  = useState('')
+  const [slot,          setSlot]          = useState<FileSlot>({ file: null, dragging: false })
+  const [status,        setStatus]        = useState<CardStatus>('idle')
+  const [result,        setResult]        = useState<UploadResult | null>(null)
+  const [previewResult, setPreviewResult] = useState<UploadResult | null>(null)
+  const [error,         setError]         = useState('')
 
-  const ready      = !!slot.file && status !== 'syncing'
   const cardStatus: CardStatus = status !== 'idle' ? status : slot.file ? 'ready' : 'idle'
+  const isBusy = status === 'previewing' || status === 'syncing'
 
-  function reset() { setSlot({ file: null, dragging: false }); setStatus('idle'); setResult(null); setError('') }
+  function reset() {
+    setSlot({ file: null, dragging: false })
+    setStatus('idle')
+    setResult(null)
+    setPreviewResult(null)
+    setError('')
+  }
 
-  async function process() {
+  function buildForm() {
+    const form = new FormData()
+    form.append('ventas',      slot.file!)
+    form.append('location_id', locationId)
+    form.append('org_id',      orgId)
+    return form
+  }
+
+  async function doPreview() {
+    if (!slot.file || !locationId) return
+    setStatus('previewing'); setError(''); setPreviewResult(null)
+    try {
+      const res  = await fetch('/api/upload/sales?dry_run=true', { method: 'POST', body: buildForm() })
+      const data = await res.json()
+      if (!res.ok || data.error) { setError(data.error ?? `HTTP ${res.status}`); setStatus('error'); return }
+      setPreviewResult(data); setStatus('preview')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e)); setStatus('error')
+    }
+  }
+
+  async function doApply() {
     if (!slot.file || !locationId) return
     setStatus('syncing'); setError(''); setResult(null)
     try {
-      const form = new FormData()
-      form.append('ventas',      slot.file)
-      form.append('location_id', locationId)
-      form.append('org_id',      orgId)
-      const res  = await fetch('/api/upload/sales', { method: 'POST', body: form })
+      const res  = await fetch('/api/upload/sales', { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) { setError(data.error ?? `HTTP ${res.status}`); setStatus('error'); return }
       setResult(data); setStatus('success')
@@ -502,21 +628,31 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
         status={cardStatus} accent="#fb923c"
       />
       <DropZone label="Excel de ventas" file={slot.file} dragging={slot.dragging}
-        disabled={status === 'syncing'}
-        onFile={f => { setSlot(s => ({ ...s, file: f })); setStatus('idle') }}
+        disabled={isBusy}
+        onFile={f => { setSlot(s => ({ ...s, file: f })); setStatus('idle'); setPreviewResult(null) }}
         onDragEnter={() => setSlot(s => ({ ...s, dragging: true }))}
         onDragLeave={() => setSlot(s => ({ ...s, dragging: false }))}
         accent="#fb923c"
       />
+      {status === 'preview' && previewResult && (
+        <PreviewBanner result={previewResult} accent="#fb923c" />
+      )}
+      {status === 'preview' && (
+        <PreviewActions
+          accent="#fb923c"
+          onApply={doApply}
+          onCancel={() => { setPreviewResult(null); setStatus('idle') }}
+        />
+      )}
       <SalesZoneBanner status={status} result={result} error={error} type="ventas" />
-      {(slot.file || status !== 'idle') && (
+      {(slot.file || status !== 'idle') && status !== 'preview' && (
         <div style={{ display: 'flex', gap: 8 }}>
           <PrimaryBtn
-            label={status === 'syncing' ? 'Procesando…' : 'Procesar Ventas'}
-            onClick={process}
-            disabled={!ready || !locationId}
+            label={isBusy ? (status === 'previewing' ? 'Analizando…' : 'Aplicando…') : 'Previsualizar'}
+            onClick={doPreview}
+            disabled={!slot.file || isBusy || !locationId}
             accent="#fb923c"
-            loading={status === 'syncing'}
+            loading={isBusy}
           />
           <SecondaryBtn label="Limpiar" onClick={reset} />
         </div>
@@ -528,25 +664,49 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
 // ── Card C: Ítems (independent) ───────────────────────────────────────────────
 
 function CardItems({ locationId, orgId }: { locationId: string; orgId: string }) {
-  const [slot,   setSlot]   = useState<FileSlot>({ file: null, dragging: false })
-  const [status, setStatus] = useState<CardStatus>('idle')
-  const [result, setResult] = useState<UploadResult | null>(null)
-  const [error,  setError]  = useState('')
+  const [slot,          setSlot]          = useState<FileSlot>({ file: null, dragging: false })
+  const [status,        setStatus]        = useState<CardStatus>('idle')
+  const [result,        setResult]        = useState<UploadResult | null>(null)
+  const [previewResult, setPreviewResult] = useState<UploadResult | null>(null)
+  const [error,         setError]         = useState('')
 
-  const ready      = !!slot.file && status !== 'syncing'
   const cardStatus: CardStatus = status !== 'idle' ? status : slot.file ? 'ready' : 'idle'
+  const isBusy = status === 'previewing' || status === 'syncing'
 
-  function reset() { setSlot({ file: null, dragging: false }); setStatus('idle'); setResult(null); setError('') }
+  function reset() {
+    setSlot({ file: null, dragging: false })
+    setStatus('idle')
+    setResult(null)
+    setPreviewResult(null)
+    setError('')
+  }
 
-  async function process() {
+  function buildForm() {
+    const form = new FormData()
+    form.append('items',       slot.file!)
+    form.append('location_id', locationId)
+    form.append('org_id',      orgId)
+    return form
+  }
+
+  async function doPreview() {
+    if (!slot.file || !locationId) return
+    setStatus('previewing'); setError(''); setPreviewResult(null)
+    try {
+      const res  = await fetch('/api/upload/items?dry_run=true', { method: 'POST', body: buildForm() })
+      const data = await res.json()
+      if (!res.ok || data.error) { setError(data.error ?? `HTTP ${res.status}`); setStatus('error'); return }
+      setPreviewResult(data); setStatus('preview')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e)); setStatus('error')
+    }
+  }
+
+  async function doApply() {
     if (!slot.file || !locationId) return
     setStatus('syncing'); setError(''); setResult(null)
     try {
-      const form = new FormData()
-      form.append('items',       slot.file)
-      form.append('location_id', locationId)
-      form.append('org_id',      orgId)
-      const res  = await fetch('/api/upload/items', { method: 'POST', body: form })
+      const res  = await fetch('/api/upload/items', { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) { setError(data.error ?? `HTTP ${res.status}`); setStatus('error'); return }
       setResult(data); setStatus('success')
@@ -564,21 +724,31 @@ function CardItems({ locationId, orgId }: { locationId: string; orgId: string })
         status={cardStatus} accent={VIOLET}
       />
       <DropZone label="Excel de ítems" file={slot.file} dragging={slot.dragging}
-        disabled={status === 'syncing'}
-        onFile={f => { setSlot(s => ({ ...s, file: f })); setStatus('idle') }}
+        disabled={isBusy}
+        onFile={f => { setSlot(s => ({ ...s, file: f })); setStatus('idle'); setPreviewResult(null) }}
         onDragEnter={() => setSlot(s => ({ ...s, dragging: true }))}
         onDragLeave={() => setSlot(s => ({ ...s, dragging: false }))}
         accent={VIOLET}
       />
+      {status === 'preview' && previewResult && (
+        <PreviewBanner result={previewResult} accent={VIOLET} />
+      )}
+      {status === 'preview' && (
+        <PreviewActions
+          accent={VIOLET}
+          onApply={doApply}
+          onCancel={() => { setPreviewResult(null); setStatus('idle') }}
+        />
+      )}
       <SalesZoneBanner status={status} result={result} error={error} type="items" />
-      {(slot.file || status !== 'idle') && (
+      {(slot.file || status !== 'idle') && status !== 'preview' && (
         <div style={{ display: 'flex', gap: 8 }}>
           <PrimaryBtn
-            label={status === 'syncing' ? 'Procesando…' : 'Procesar Ítems'}
-            onClick={process}
-            disabled={!ready || !locationId}
+            label={isBusy ? (status === 'previewing' ? 'Analizando…' : 'Aplicando…') : 'Previsualizar'}
+            onClick={doPreview}
+            disabled={!slot.file || isBusy || !locationId}
             accent={VIOLET}
-            loading={status === 'syncing'}
+            loading={isBusy}
           />
           <SecondaryBtn label="Limpiar" onClick={reset} />
         </div>

@@ -19,9 +19,9 @@ export async function POST(req: NextRequest) {
   }
 
   const contract = getContract('maxirest-items')!
+  const dryRun   = req.nextUrl?.searchParams?.get('dry_run') === 'true'
 
-  const r = await runUploadPipeline(contract, file, orgId, locationId, supaUrl, serviceKey)
+  const r = await runUploadPipeline(contract, file, orgId, locationId, supaUrl, serviceKey, { dryRun })
 
-  // response key 'items' matches contract.datasetType — no remapping needed
   return NextResponse.json(r.body, { status: r.httpStatus })
 }

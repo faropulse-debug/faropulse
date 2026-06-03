@@ -165,6 +165,31 @@ try {
   const countAfterDr = crDr.headers.get('content-range')
   check('dry-run: count unchanged', countBefore === countAfterDr, `before=${countBefore} afterDr=${countAfterDr}`)
 
+  // ── 5b. POST dry-run legacy (/api/upload/sales?dry_run=true) ─────────────────
+  console.log('\n── 5b. POST dry-run legacy (/api/upload/sales?dry_run=true) ─')
+  const bufLegDr  = fs.readFileSync(tmpPath)
+  const blobLegDr = new Blob([bufLegDr], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const formLegDr = new FormData()
+  formLegDr.append('ventas',      blobLegDr, `smoke-${run}.xlsx`)
+  formLegDr.append('org_id',      STG_ORG_ID)
+  formLegDr.append('location_id', STG_LOCATION_ID)
+
+  const rLegDr  = await fetch(`${BASE_URL}/api/upload/sales?dry_run=true`, { method: 'POST', body: formLegDr })
+  const bLegDr  = await rLegDr.json()
+  console.log(`  HTTP ${rLegDr.status}`)
+  console.log(`  ${JSON.stringify(bLegDr)}`)
+
+  check('legacy dry-run HTTP 200',       rLegDr.status === 200)
+  check('legacy dry-run status=dry_run', bLegDr.status === 'dry_run' || bLegDr.status === 'dry_run_duplicate', `got "${bLegDr.status}"`)
+  check('legacy dry-run dryRun=true',    bLegDr.dryRun === true)
+
+  const crLegDr      = await restGet(
+    `sales_documents?location_id=eq.${STG_LOCATION_ID}&select=count`,
+    { Prefer: 'count=exact' },
+  )
+  const countAfterLegDr = crLegDr.headers.get('content-range')
+  check('legacy dry-run: count unchanged', countBefore === countAfterLegDr, `before=${countBefore} afterLegDr=${countAfterLegDr}`)
+
   // ── 6. POST #1 — full pipeline ───────────────────────────────────────────────
   console.log('\n── 6. POST #1 (full pipeline) ───────────────────────────────')
   const t0   = Date.now()
