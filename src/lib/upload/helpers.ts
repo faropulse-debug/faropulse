@@ -43,8 +43,15 @@ export function toMoney(v: unknown): number | null {
   return isNaN(n) ? null : n
 }
 
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
 export function toDate(v: unknown): string | null {
   if (v === '' || v == null) return null
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    const p = XLSX.SSF.parse_date_code(Math.floor(v))
+    if (p && p.y > 1900 && p.y < 2200) return `${p.y}-${pad2(p.m)}-${pad2(p.d)}`
+    return null
+  }
   const s    = String(v).trim()
   const ddmm = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s)
   if (ddmm) return `${ddmm[3]}-${ddmm[2].padStart(2, '0')}-${ddmm[1].padStart(2, '0')}`
@@ -54,6 +61,13 @@ export function toDate(v: unknown): string | null {
 
 export function toTimestamp(v: unknown): string | null {
   if (v === '' || v == null) return null
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    const p = XLSX.SSF.parse_date_code(v)
+    if (p && p.y > 1900 && p.y < 2200) {
+      return new Date(`${p.y}-${pad2(p.m)}-${pad2(p.d)}T${pad2(p.H)}:${pad2(p.M)}:${pad2(p.S)}`).toISOString()
+    }
+    return null
+  }
   const s    = String(v).trim()
   const ddmm = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?$/.exec(s)
   if (ddmm) {

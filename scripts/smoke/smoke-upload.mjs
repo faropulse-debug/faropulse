@@ -32,6 +32,18 @@ if (!SVC_KEY)  { console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY is not set'); p
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const svcH = { apikey: SVC_KEY, Authorization: `Bearer ${SVC_KEY}`, 'Content-Type': 'application/json' }
 
+// Convert ISO date string (YYYY-MM-DD or YYYY-MM-DDTHH:…) to Excel serial number.
+// Matches the epoch used by SheetJS: Dec 30, 1899 (UTC).
+function toExcelSerial(isoStr) {
+  if (!isoStr) return null
+  const dateStr = String(isoStr).split('T')[0]
+  const [y, m, d] = dateStr.split('-').map(Number)
+  if (!y || !m || !d) return null
+  const epoch  = new Date(Date.UTC(1899, 11, 30)).getTime()
+  const target = new Date(Date.UTC(y, m - 1, d)).getTime()
+  return Math.floor((target - epoch) / 86400000)
+}
+
 let passed = 0
 let failed = 0
 
@@ -98,8 +110,9 @@ const tmpPath = path.join(os.tmpdir(), `smoke-upload-${run}.xlsx`)
 const rows = docs.map(d => ({
   Sucursal:          'STG',                             // header-only col, value unused by contract
   Numero:            d.external_id,
-  Fecha:             d.fecha ?? d.fecha_caja,
-  'Fecha Caja':      d.fecha_caja,
+  // Dates as Excel serial numbers (like Maxirest exports), not strings
+  Fecha:             toExcelSerial(d.fecha ?? d.fecha_caja),
+  'Fecha Caja':      toExcelSerial(d.fecha_caja),
   Hora:              d.hora != null
                        ? (Number.isNaN(+d.hora) ? d.hora : +d.hora)
                        : null,
@@ -120,11 +133,15 @@ const rows = docs.map(d => ({
 }))
 
 const ws  = XLSX.utils.json_to_sheet(rows)
+// Apply date number format to Fecha / Fecha Caja columns (cosmetic, confirms serial intent)
+const headerKeys = Object.keys(rows[0])
+const dateCols   = new Set(['Fecha', 'Fecha Caja'].map(h => headerKeys.indexOf(h)).filter(i => i >= 0))
 const rng = XLSX.utils.decode_range(ws['!ref'])
 for (let R = rng.s.r + 1; R <= rng.e.r; R++) {
   for (let C = rng.s.c; C <= rng.e.c; C++) {
+    if (!dateCols.has(C)) continue
     const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })]
-    if (cell && typeof cell.v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(cell.v)) cell.t = 's'
+    if (cell && typeof cell.v === 'number') cell.z = 'dd/mm/yyyy'
   }
 }
 const wb = XLSX.utils.book_new()
@@ -215,6 +232,23 @@ try {
   check('dateRange not empty',   !!b1.dateRange,                    `got "${b1.dateRange}"`)
   check('event_id present',      !!b1.event_id)
   check('sales key present',     !!b1.sales,                        'pipeline datasetType key missing')
+
+  // Verify dates are not mangled (serial-parsing bug would produce year +46167 → Postgres 22009)
+  const sampleExtId  = docs[0].external_id
+  const dateCheckRes = await restGet(
+    `sales_documents?location_id=eq.${STG_LOCATION_ID}&external_id=eq.${sampleExtId}&select=fecha,fecha_caja`,
+  )
+  const dateCheckRows = await dateCheckRes.json()
+  if (dateCheckRows.length > 0) {
+    const r    = dateCheckRows[0]
+    const year = r.fecha       ? parseInt(r.fecha.split('-')[0])
+               : r.fecha_caja ? parseInt(r.fecha_caja.split('-')[0])
+               : 0
+    check('commit: fecha year sane (2000-2100)', year >= 2000 && year <= 2100,
+      `fecha=${r.fecha}, fecha_caja=${r.fecha_caja}`)
+  } else {
+    check('commit: fecha year sane (2000-2100)', false, 'doc not found after commit')
+  }
 
   p1EventId = b1.event_id
   p1Hash    = b1.request_hash
