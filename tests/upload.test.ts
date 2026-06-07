@@ -554,6 +554,70 @@ describe('ticket_hash — idempotencia por hash sintético', () => {
     }
   })
 
+  // ─── Precisión de campos money ─────────────────────────────────────────────
+
+  it('TEST D: mismo ticket con descuento de distinta precisión → mismo ticket_hash', () => {
+    const base = {
+      external_id:    'B 00002-00000009',
+      fecha_caja:     '2025-06-15',
+      hora:           '20:30',
+      camarero:       '1001',
+      total:          10000 as number | null,
+      comensales:     4     as number | null,
+      cliente:        null  as string | null,
+      tipo_documento: 'TICKET' as string | null,
+      punto_venta:    null  as string | null,
+      zona:           null  as string | null,
+      recargo:        0     as number | null,
+    }
+    const hash1 = generateTicketHash({ ...base, descuento: 30.11439114 })
+    const hash2 = generateTicketHash({ ...base, descuento: 30.114391143911433 })
+    expect(hash1).toBe(hash2)
+  })
+
+  it('TEST E: tickets que solo difieren en hora → hashes distintos', () => {
+    const base = {
+      external_id:    'B 00002-00000099',
+      fecha_caja:     '2025-06-15',
+      camarero:       '1001',
+      total:          5000  as number | null,
+      comensales:     2     as number | null,
+      cliente:        null  as string | null,
+      tipo_documento: 'TICKET' as string | null,
+      punto_venta:    null  as string | null,
+      zona:           null  as string | null,
+      descuento:      0     as number | null,
+      recargo:        0     as number | null,
+    }
+    const hashA = generateTicketHash({ ...base, hora: '19:00' })
+    const hashB = generateTicketHash({ ...base, hora: '21:30' })
+    expect(hashA).not.toBe(hashB)
+  })
+
+  it('TEST F: descuento entero o null sigue generando hash estable', () => {
+    const base = {
+      external_id:    'B 00001-00000001',
+      fecha_caja:     '2025-01-10',
+      hora:           '12:00',
+      camarero:       '2001',
+      total:          2500  as number | null,
+      comensales:     1     as number | null,
+      cliente:        null  as string | null,
+      tipo_documento: 'FACTURA' as string | null,
+      punto_venta:    null  as string | null,
+      zona:           null  as string | null,
+      recargo:        0     as number | null,
+    }
+    const hashNull  = generateTicketHash({ ...base, descuento: null })
+    const hashZero  = generateTicketHash({ ...base, descuento: 0 })
+    const hashInt   = generateTicketHash({ ...base, descuento: 100 })
+
+    expect(hashNull).toBe(generateTicketHash({ ...base, descuento: null }))
+    expect(hashZero).toBe(generateTicketHash({ ...base, descuento: 0 }))
+    expect(hashInt).toBe(generateTicketHash({ ...base, descuento: 100 }))
+    expect(new Set([hashNull, hashZero, hashInt]).size).toBe(3)
+  })
+
   it('TEST C: carga incremental con solapamiento → documents.new=4, documents.updated=6', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
