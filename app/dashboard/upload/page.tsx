@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
+import { translateUploadError } from '@/src/lib/upload/error-messages'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -228,37 +229,70 @@ function ResultBanner({ status, result, error }: { status: CardStatus; result: U
 }
 
 // Used by CardVentas and CardItems — shows new/updated/rejected from structured API response
-function SalesZoneBanner({ status, result, error, type }: {
-  status: CardStatus; result: UploadResult | null; error: string; type: 'ventas' | 'items'
+function SalesZoneBanner({ status, result, error, errorDetails, type }: {
+  status: CardStatus; result: UploadResult | null; error: string; errorDetails?: string[]; type: 'ventas' | 'items'
 }) {
+  const [showTecnico, setShowTecnico] = useState(false)
   if (status !== 'success' && status !== 'error') return null
   const isOk = status === 'success'
   const color = isOk ? GREEN : RED
   const bg    = isOk ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)'
   const summ  = type === 'ventas' ? result?.documents : result?.items
-  return (
-    <div style={{ padding: '8px 12px', background: bg, border: `1px solid ${color}25`, borderRadius: 7 }}>
-      {!isOk ? (
-        <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.72rem', color: '#fca5a5' }}>{error}</span>
-      ) : summ ? (
-        <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.72rem', color: 'rgba(255,255,255,0.65)', lineHeight: 1.6 }}>
-          <span>
-            ✓{' '}
-            <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{summ.new.toLocaleString()}</strong> nuevos
-            {' · '}
-            <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{summ.updated.toLocaleString()}</strong> actualizados
-          </span>
-          {summ.rejected > 0 && (
-            <span style={{ color: '#f59e0b', marginLeft: 8 }}>{summ.rejected.toLocaleString()} rechazados</span>
-          )}
-          {result?.dateRange && (
-            <div style={{ color: 'rgba(255,255,255,0.28)', fontSize: '0.65rem', marginTop: 2 }}>{result.dateRange}</div>
-          )}
-          {result?.errors?.map((e, i) => (
-            <div key={i} style={{ color: '#f59e0b', fontSize: '0.66rem', marginTop: 2 }}>⚠ {e}</div>
-          ))}
+
+  if (!isOk) {
+    const msg = translateUploadError(error, errorDetails)
+    return (
+      <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)', borderRadius: 7, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.78rem', color: '#fca5a5', fontWeight: 600 }}>
+          {msg.titulo}
         </div>
-      ) : null}
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.72rem', color: 'rgba(255,255,255,0.55)', lineHeight: 1.5 }}>
+          {msg.detalle}
+        </div>
+        {msg.tecnico && (
+          <details open={showTecnico} onToggle={e => setShowTecnico((e.currentTarget as HTMLDetailsElement).open)}
+            style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '0.62rem', marginTop: 2 }}>
+            <summary style={{ cursor: 'pointer', color: 'rgba(255,255,255,0.25)', listStyle: 'none', userSelect: 'none' }}>
+              {showTecnico ? '▾' : '▸'} Ver detalle técnico
+            </summary>
+            <div style={{
+              marginTop: 6, padding: '6px 10px',
+              background: 'rgba(0,0,0,0.3)', borderRadius: 5,
+              color: 'rgba(255,255,255,0.35)', wordBreak: 'break-all', lineHeight: 1.6,
+            }}>
+              {msg.tecnico}
+            </div>
+          </details>
+        )}
+      </div>
+    )
+  }
+
+  if (!summ) return null
+
+  return (
+    <div style={{ padding: '10px 14px', background: bg, border: `1px solid ${color}25`, borderRadius: 7 }}>
+      <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.78rem', color: 'rgba(255,255,255,0.65)', lineHeight: 1.6 }}>
+        <div>
+          <span style={{ color: GREEN, fontWeight: 600 }}>✓ Carga exitosa</span>
+          {' · '}
+          <strong style={{ color: 'rgba(255,255,255,0.88)' }}>{summ.new.toLocaleString()}</strong>
+          {' '}nuevos,{' '}
+          <strong style={{ color: 'rgba(255,255,255,0.88)' }}>{summ.updated.toLocaleString()}</strong>
+          {' '}actualizados
+          {result?.dateRange && (
+            <span style={{ color: 'rgba(255,255,255,0.38)' }}> ({result.dateRange})</span>
+          )}
+        </div>
+        {summ.rejected > 0 && (
+          <div style={{ color: '#f59e0b', fontSize: '0.7rem', marginTop: 2 }}>
+            ⚠ {summ.rejected.toLocaleString()} {summ.rejected === 1 ? 'fila rechazada' : 'filas rechazadas'}
+          </div>
+        )}
+        {result?.errors?.map((e, i) => (
+          <div key={i} style={{ color: '#f59e0b', fontSize: '0.66rem', marginTop: 2 }}>⚠ {e}</div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -573,6 +607,7 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
   const [result,        setResult]        = useState<UploadResult | null>(null)
   const [previewResult, setPreviewResult] = useState<UploadResult | null>(null)
   const [error,         setError]         = useState('')
+  const [errorDetails,  setErrorDetails]  = useState<string[]>([])
 
   const cardStatus: CardStatus = status !== 'idle' ? status : slot.file ? 'ready' : 'idle'
   const isBusy = status === 'previewing' || status === 'syncing'
@@ -583,6 +618,7 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
     setResult(null)
     setPreviewResult(null)
     setError('')
+    setErrorDetails([])
   }
 
   function buildForm() {
@@ -595,11 +631,16 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
 
   async function doPreview() {
     if (!slot.file || !locationId) return
-    setStatus('previewing'); setError(''); setPreviewResult(null)
+    setStatus('previewing'); setError(''); setErrorDetails([]); setPreviewResult(null)
     try {
       const res  = await fetch('/api/upload/sales?dry_run=true', { method: 'POST', body: buildForm() })
       const data = await res.json()
-      if (!res.ok || data.error) { setError(data.error ?? `HTTP ${res.status}`); setStatus('error'); return }
+      if (!res.ok || data.error) {
+        setError(data.error ?? `HTTP ${res.status}`)
+        setErrorDetails(data.errors ?? [])
+        setStatus('error')
+        return
+      }
       setPreviewResult(data); setStatus('preview')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e)); setStatus('error')
@@ -608,11 +649,16 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
 
   async function doApply() {
     if (!slot.file || !locationId) return
-    setStatus('syncing'); setError(''); setResult(null)
+    setStatus('syncing'); setError(''); setErrorDetails([]); setResult(null)
     try {
       const res  = await fetch('/api/upload/sales', { method: 'POST', body: buildForm() })
       const data = await res.json()
-      if (!res.ok || data.error) { setError(data.error ?? `HTTP ${res.status}`); setStatus('error'); return }
+      if (!res.ok || data.error) {
+        setError(data.error ?? `HTTP ${res.status}`)
+        setErrorDetails(data.errors ?? [])
+        setStatus('error')
+        return
+      }
       setResult(data); setStatus('success')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e)); setStatus('error')
@@ -644,7 +690,7 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
           onCancel={() => { setPreviewResult(null); setStatus('idle') }}
         />
       )}
-      <SalesZoneBanner status={status} result={result} error={error} type="ventas" />
+      <SalesZoneBanner status={status} result={result} error={error} errorDetails={errorDetails} type="ventas" />
       {(slot.file || status !== 'idle') && status !== 'preview' && (
         <div style={{ display: 'flex', gap: 8 }}>
           <PrimaryBtn
@@ -669,6 +715,7 @@ function CardItems({ locationId, orgId }: { locationId: string; orgId: string })
   const [result,        setResult]        = useState<UploadResult | null>(null)
   const [previewResult, setPreviewResult] = useState<UploadResult | null>(null)
   const [error,         setError]         = useState('')
+  const [errorDetails,  setErrorDetails]  = useState<string[]>([])
 
   const cardStatus: CardStatus = status !== 'idle' ? status : slot.file ? 'ready' : 'idle'
   const isBusy = status === 'previewing' || status === 'syncing'
@@ -679,6 +726,7 @@ function CardItems({ locationId, orgId }: { locationId: string; orgId: string })
     setResult(null)
     setPreviewResult(null)
     setError('')
+    setErrorDetails([])
   }
 
   function buildForm() {
@@ -691,11 +739,16 @@ function CardItems({ locationId, orgId }: { locationId: string; orgId: string })
 
   async function doPreview() {
     if (!slot.file || !locationId) return
-    setStatus('previewing'); setError(''); setPreviewResult(null)
+    setStatus('previewing'); setError(''); setErrorDetails([]); setPreviewResult(null)
     try {
       const res  = await fetch('/api/upload/items?dry_run=true', { method: 'POST', body: buildForm() })
       const data = await res.json()
-      if (!res.ok || data.error) { setError(data.error ?? `HTTP ${res.status}`); setStatus('error'); return }
+      if (!res.ok || data.error) {
+        setError(data.error ?? `HTTP ${res.status}`)
+        setErrorDetails(data.errors ?? [])
+        setStatus('error')
+        return
+      }
       setPreviewResult(data); setStatus('preview')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e)); setStatus('error')
@@ -704,11 +757,16 @@ function CardItems({ locationId, orgId }: { locationId: string; orgId: string })
 
   async function doApply() {
     if (!slot.file || !locationId) return
-    setStatus('syncing'); setError(''); setResult(null)
+    setStatus('syncing'); setError(''); setErrorDetails([]); setResult(null)
     try {
       const res  = await fetch('/api/upload/items', { method: 'POST', body: buildForm() })
       const data = await res.json()
-      if (!res.ok || data.error) { setError(data.error ?? `HTTP ${res.status}`); setStatus('error'); return }
+      if (!res.ok || data.error) {
+        setError(data.error ?? `HTTP ${res.status}`)
+        setErrorDetails(data.errors ?? [])
+        setStatus('error')
+        return
+      }
       setResult(data); setStatus('success')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e)); setStatus('error')
@@ -740,7 +798,7 @@ function CardItems({ locationId, orgId }: { locationId: string; orgId: string })
           onCancel={() => { setPreviewResult(null); setStatus('idle') }}
         />
       )}
-      <SalesZoneBanner status={status} result={result} error={error} type="items" />
+      <SalesZoneBanner status={status} result={result} error={error} errorDetails={errorDetails} type="items" />
       {(slot.file || status !== 'idle') && status !== 'preview' && (
         <div style={{ display: 'flex', gap: 8 }}>
           <PrimaryBtn
