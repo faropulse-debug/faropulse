@@ -544,57 +544,32 @@ function NoAuthWarning() {
   )
 }
 
-// ── Card A: P&L ───────────────────────────────────────────────────────────────
+// ── Card A: P&L Manual (nav) ──────────────────────────────────────────────────
 
-function CardPnL({ locationId, orgId }: { locationId: string; orgId: string }) {
-  const [slot,    setSlot]    = useState<FileSlot>({ file: null, dragging: false })
-  const [status,  setStatus]  = useState<CardStatus>('idle')
-  const [result,  setResult]  = useState<UploadResult | null>(null)
-  const [error,   setError]   = useState('')
-
-  const ready    = !!slot.file && status !== 'syncing'
-  const cardStatus: CardStatus = status !== 'idle' ? status : slot.file ? 'ready' : 'idle'
-
-  function reset() { setSlot({ file: null, dragging: false }); setStatus('idle'); setResult(null); setError('') }
-
-  async function process() {
-    if (!slot.file || !locationId) return
-    setStatus('syncing'); setError(''); setResult(null)
-    try {
-      const form = new FormData()
-      form.append('financial',   slot.file)
-      form.append('location_id', locationId)
-      form.append('org_id',      orgId)
-      const res  = await fetch('/api/upload/financial', { method: 'POST', body: form })
-      const data = await res.json()
-      if (!res.ok || data.error) { setError(data.error ?? `HTTP ${res.status}`); setStatus('error'); return }
-      setResult(data); setStatus('success')
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e)); setStatus('error')
-    }
-  }
-
+function CardPnLNav() {
   return (
     <CardShell accent={AMBER}>
       <CardHeader
         icon={<SpreadsheetIcon size={26} />}
         title="Cargar P&L"
-        description="Estado de Resultados mensual. Formato pivot: meses en columnas, conceptos en filas."
-        status={cardStatus} accent={AMBER}
+        description="Estado de Resultados mensual. Ingresá los datos manualmente, período a período."
+        status="ready" accent={AMBER}
       />
-      <DropZone label="Excel de P&L" file={slot.file} dragging={slot.dragging} disabled={status === 'syncing'}
-        onFile={f => { setSlot(s => ({ ...s, file: f })); setStatus('idle') }}
-        onDragEnter={() => setSlot(s => ({ ...s, dragging: true }))}
-        onDragLeave={() => setSlot(s => ({ ...s, dragging: false }))}
-        accent={AMBER} />
-      <ResultBanner status={status} result={result} error={error} />
-      {(slot.file || status !== 'idle') && (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <PrimaryBtn label={status === 'syncing' ? 'Procesando…' : 'Procesar P&L'} onClick={process}
-            disabled={!ready || !locationId} accent={AMBER} loading={status === 'syncing'} />
-          <SecondaryBtn label="Limpiar" onClick={reset} />
-        </div>
-      )}
+      <Link
+        href="/dashboard/pnl"
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          padding: '11px 20px', textDecoration: 'none',
+          background: `linear-gradient(135deg, ${AMBER}cc, ${AMBER})`,
+          borderRadius: 8,
+          fontFamily: 'var(--font-display)', fontSize: '0.65rem',
+          letterSpacing: '0.18em', textTransform: 'uppercase',
+          color: '#000', fontWeight: 700,
+          boxShadow: `0 4px 20px ${AMBER}40`,
+        }}
+      >
+        Abrir formulario
+      </Link>
     </CardShell>
   )
 }
@@ -959,7 +934,7 @@ export default function UploadPage() {
 
         {/* Cards */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <CardPnL      locationId={locationId} orgId={orgId} />
+          <CardPnLNav />
           <CardVentas   locationId={locationId} orgId={orgId} />
           <CardItems    locationId={locationId} orgId={orgId} />
           <CardCucinaGo locationId={locationId} orgId={orgId} />
