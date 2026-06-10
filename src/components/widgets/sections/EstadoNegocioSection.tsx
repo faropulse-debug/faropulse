@@ -1,440 +1,489 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { SectionLabel }                  from '@/components/dashboard/SectionLabel'
-import { fmtPeso, fmtPct, fmtMillones } from '@/lib/format'
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const ANON_KEY     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const HEADERS = {
-  'Content-Type':  'application/json',
-  'apikey':        ANON_KEY,
-  'Authorization': `Bearer ${ANON_KEY}`,
-} as const
+import { useState, useMemo }    from 'react'
+import { useDashboardData }      from '@/hooks/useDashboardData'
+import {
+  BarChart, Bar, Cell, XAxis, YAxis,
+  Tooltip, ResponsiveContainer,
+} from 'recharts'
+import { fmtMillones, fmtPeso }  from '@/lib/format'
+import { SectionLabel }          from '@/components/dashboard/SectionLabel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface FinancialRow { periodo: string; categoria: string; concepto: string; monto: number }
-interface DailySaleRow { fecha: string; facturacion: number; tickets: number }
-interface ComensalRow  { fecha: string; comensales: number }
+interface MonthData { mes: string; ventas: number; tickets: number; comensales: number }
 
-type Filter = 'semana' | 'mes' | 'semestre' | 'año'
-
-interface KpiData { value: number | null; prev: number | null; subtitle: string }
-
-interface KpiSet {
-  resultadoNeto:  KpiData
-  facturacion:    KpiData
-  ventaComensal:  KpiData
-  comensalesDia:  KpiData
-  cv:             KpiData
-  costoLaboral:   KpiData
-  peDiario:       KpiData
-  diasSobrePE:    KpiData
-  recupero:       KpiData
-  ticketPromedio: KpiData
+interface KpiResult {
+  vsPrev:     number | null
+  vsYearAgo:  number | null
+  higherGood: boolean
 }
 
-// ─── Date helpers ─────────────────────────────────────────────────────────────
-
-function todayStr(): string {
-  return new Date().toISOString().split('T')[0]
+interface WaterfallEntry {
+  name:    string
+  spacer:  number
+  value:   number
+  color:   string
+  isTotal: boolean
+  raw:     number
 }
 
-function daysInMonth(yr: number, mo: number): number {
-  return new Date(yr, mo, 0).getDate()
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const GREEN   = '#22c55e'
+const RED     = '#ef4444'
+const AMBER   = '#f5820a'
+const NEUTRAL = 'rgba(255,255,255,0.22)'
+const MUTED   = 'rgba(255,255,255,0.25)'
+
+// ─── Pure helpers ─────────────────────────────────────────────────────────────
+
+function pct(a: number, b: number): number | null {
+  if (!b) return null
+  return ((a - b) / b) * 100
 }
 
-function monthOffset(offset: number): string {
-  const d = new Date()
-  d.setDate(1)
-  d.setMonth(d.getMonth() + offset)
-  return d.toISOString().slice(0, 7)
+function prevMonthKey(month: string): string {
+  const [y, m] = month.split('-').map(Number)
+  return m === 1
+    ? `${y - 1}-12`
+    : `${y}-${String(m - 1).padStart(2, '0')}`
 }
 
-function addDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr + 'T12:00:00')
-  d.setDate(d.getDate() + n)
-  return d.toISOString().split('T')[0]
+function yearAgoKey(month: string): string {
+  return `${Number(month.slice(0, 4)) - 1}${month.slice(4)}`
 }
 
-function monthEnd(period: string): string {
-  const [yr, mo] = period.split('-').map(Number)
-  return `${period}-${String(daysInMonth(yr, mo)).padStart(2, '0')}`
+function lastCompleteMonth(months: string[]): string | null {
+  if (!months.length) return null
+  const sorted  = [...months].sort()
+  const todayMo = new Date().toISOString().slice(0, 7)
+  const last    = sorted.at(-1)!
+  return last === todayMo ? (sorted.at(-2) ?? null) : last
 }
 
-// ─── Data helpers ─────────────────────────────────────────────────────────────
-
-type FinPivot = Map<string, Record<string, number>>
-
-function buildPivot(rows: FinancialRow[]): FinPivot {
-  const map: FinPivot = new Map()
-  for (const r of rows) {
-    if (!map.has(r.periodo)) map.set(r.periodo, {})
-    map.get(r.periodo)![r.concepto] = r.monto
-  }
-  return map
+function monthLabel(mo: string): string {
+  const [y, m] = mo.split('-').map(Number)
+  const names  = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+  return `${names[m - 1]} ${y}`
 }
 
-function sumKey(pivot: FinPivot, periods: string[], key: string): number {
-  return periods.reduce((s, p) => s + (pivot.get(p)?.[key] ?? 0), 0)
-}
-
-function periodsIn(pivot: FinPivot, from: string, to: string): string[] {
-  return Array.from(pivot.keys()).filter(p => p >= from && p <= to).sort()
-}
-
-function daily(rows: DailySaleRow[], from: string, to: string): DailySaleRow[] {
-  return rows.filter(r => r.fecha >= from && r.fecha <= to)
-}
-
-function comensales(rows: ComensalRow[], from: string, to: string): ComensalRow[] {
-  return rows.filter(r => r.fecha >= from && r.fecha <= to)
-}
-
-function finKpis(pivot: FinPivot, periods: string[]) {
-  const ventas  = sumKey(pivot, periods, 'VENTAS_NOCHE')
-  const costos  = sumKey(pivot, periods, 'TOTAL_COSTOS')
-  const sueldos = sumKey(pivot, periods, 'SUELDOS_CARGAS')
-  const liq     = sumKey(pivot, periods, 'LIQ_FINAL')
-  const rn      = sumKey(pivot, periods, 'RESULTADO_NETO')
-  const tg      = sumKey(pivot, periods, 'TOTAL_GASTOS')
-  let totalDays = 0
-  for (const p of periods) {
-    const [yr, mo] = p.split('-').map(Number)
-    totalDays += daysInMonth(yr, mo)
-  }
-  const mc      = ventas > 0 ? (ventas - costos) / ventas : 0
-  const peDaily = mc > 0 && totalDays > 0 ? tg / mc / totalDays : 0
-  return { ventas, costos, sueldos, liq, rn, tg, mc, peDaily, totalDays }
-}
-
-// ─── KPI computation ──────────────────────────────────────────────────────────
-
-function computeKpis(
-  pivot:    FinPivot,
-  allDaily: DailySaleRow[],
-  allCom:   ComensalRow[],
-  filter:   Filter,
-): KpiSet {
-  const today          = todayStr()
-  const lastMonth      = monthOffset(-1)
-  const twoMonthsAgo   = monthOffset(-2)
-
-  // Period windows
-  let currFin: string[], prevFin: string[]
-  let cdFrom: string, cdTo: string, pdFrom: string, pdTo: string
-
-  if (filter === 'semana') {
-    cdFrom = addDays(today, -6);  cdTo = today
-    pdFrom = addDays(today, -13); pdTo = addDays(today, -7)
-    currFin = [lastMonth]
-    prevFin = [twoMonthsAgo]
-  } else if (filter === 'mes') {
-    cdFrom = `${lastMonth}-01`;  cdTo = monthEnd(lastMonth)
-    pdFrom = `${twoMonthsAgo}-01`; pdTo = monthEnd(twoMonthsAgo)
-    currFin = [lastMonth]
-    prevFin = [twoMonthsAgo]
-  } else if (filter === 'semestre') {
-    const s6 = Array.from({ length: 6 }, (_, i) => monthOffset(-1 - i)).reverse()
-    const p6 = Array.from({ length: 6 }, (_, i) => monthOffset(-7 - i)).reverse()
-    currFin = s6; prevFin = p6
-    cdFrom = `${s6[0]}-01`;  cdTo = monthEnd(s6[5])
-    pdFrom = `${p6[0]}-01`;  pdTo = monthEnd(p6[5])
-  } else {
-    const yr   = today.slice(0, 4)
-    const prevY = String(Number(yr) - 1)
-    currFin = periodsIn(pivot, `${yr}-01`, `${yr}-12`)
-    prevFin = periodsIn(pivot, `${prevY}-01`, `${prevY}-12`)
-    cdFrom = `${yr}-01-01`;    cdTo = today
-    pdFrom = `${prevY}-01-01`; pdTo = `${prevY}-12-31`
-  }
-
-  const cf = finKpis(pivot, currFin)
-  const pf = finKpis(pivot, prevFin)
-
-  const cDaily = daily(allDaily, cdFrom, cdTo)
-  const pDaily = daily(allDaily, pdFrom, pdTo)
-  const cCom   = comensales(allCom, cdFrom, cdTo)
-  const pCom   = comensales(allCom, pdFrom, pdTo)
-
-  const cFact = cDaily.reduce((s, r) => s + r.facturacion, 0)
-  const pFact = pDaily.reduce((s, r) => s + r.facturacion, 0)
-  const cTix  = cDaily.reduce((s, r) => s + r.tickets, 0)
-  const pTix  = pDaily.reduce((s, r) => s + r.tickets, 0)
-  const cComS = cCom.reduce((s, r) => s + r.comensales, 0)
-  const pComS = pCom.reduce((s, r) => s + r.comensales, 0)
-  const cDays = cDaily.length || 1
-  const pDays = pDaily.length || 1
-
-  // KPI 8: Días sobre PE — always last 30 days vs prior 30
-  const last30From  = addDays(today, -29)
-  const prev30From  = addDays(today, -59)
-  const prev30To    = addDays(today, -30)
-  const lm = finKpis(pivot, [lastMonth])
-  const peRef  = lm.peDaily
-  const d30    = daily(allDaily, last30From, today).filter(r => r.facturacion > peRef).length
-  const d30p   = daily(allDaily, prev30From, prev30To).filter(r => r.facturacion > peRef).length
-
-  // KPI 9: Recupero Inversión — full historical sum
-  const allPeriods = Array.from(pivot.keys()).sort()
-  const rnTotal    = sumKey(pivot, allPeriods, 'RESULTADO_NETO')
-  const recupero   = (rnTotal / 210_000_000) * 100
-  const recuperoPrev = ((rnTotal - cf.rn) / 210_000_000) * 100
-
+function makeKpi(
+  curr: number | null,
+  prev: number | null,
+  yo:   number | null,
+  higherGood: boolean,
+): KpiResult {
   return {
-    resultadoNeto:  { value: cf.ventas > 0 ? (cf.rn / cf.ventas) * 100 : null,                 prev: pf.ventas > 0 ? (pf.rn / pf.ventas) * 100 : null,                 subtitle: 'sobre ventas netas' },
-    facturacion:    { value: cFact || null,                                                      prev: pFact || null,                                                      subtitle: 'ventas totales período' },
-    ventaComensal:  { value: cComS > 0 ? cFact / cComS : null,                                  prev: pComS > 0 ? pFact / pComS : null,                                  subtitle: 'facturación / comensal' },
-    comensalesDia:  { value: cComS > 0 ? cComS / cDays : null,                                  prev: pComS > 0 ? pComS / pDays : null,                                  subtitle: 'promedio diario' },
-    cv:             { value: cf.ventas > 0 ? (cf.costos / cf.ventas) * 100 : null,              prev: pf.ventas > 0 ? (pf.costos / pf.ventas) * 100 : null,              subtitle: 'costo de ventas' },
-    costoLaboral:   { value: cf.ventas > 0 ? ((cf.sueldos + cf.liq) / cf.ventas) * 100 : null, prev: pf.ventas > 0 ? ((pf.sueldos + pf.liq) / pf.ventas) * 100 : null, subtitle: 'sueldos + liquidación' },
-    peDiario:       { value: cf.peDaily || null,                                                 prev: pf.peDaily || null,                                                 subtitle: 'punto de equilibrio' },
-    diasSobrePE:    { value: d30,                                                                prev: d30p,                                                               subtitle: 'días / últimos 30' },
-    recupero:       { value: recupero,                                                           prev: recuperoPrev,                                                       subtitle: 'de $210M invertidos' },
-    ticketPromedio: { value: cTix > 0 ? cFact / cTix : null,                                    prev: pTix > 0 ? pFact / pTix : null,                                    subtitle: 'por comprobante' },
+    vsPrev:     curr != null && prev != null ? pct(curr, prev) : null,
+    vsYearAgo:  curr != null && yo   != null ? pct(curr, yo)   : null,
+    higherGood,
   }
 }
 
-// ─── Card ─────────────────────────────────────────────────────────────────────
+function buildDiagnostico(efV: number, efT: number, varTotal: number, prevFact: number): string {
+  const fmtP = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`
+  const pctV = prevFact > 0 ? (efV / prevFact) * 100 : 0
+  const pctT = prevFact > 0 ? (efT / prevFact) * 100 : 0
+  const dominaVol = Math.abs(efV) >= Math.abs(efT)
 
-type Fmt = 'peso' | 'millones' | 'pct' | 'count' | 'decimal'
-
-function fmt(v: number | null, f: Fmt): string {
-  if (v === null) return '—'
-  if (f === 'peso')     return fmtPeso(v)
-  if (f === 'millones') return fmtMillones(v)
-  if (f === 'pct')      return fmtPct(v)
-  if (f === 'count')    return String(Math.round(v))
-  return v.toFixed(1)
+  if (varTotal >= 0) {
+    return (
+      `La facturación sube ${fmtMillones(Math.abs(varTotal))} vs mes anterior. ` +
+      `Driver principal: ${dominaVol ? 'volumen' : 'ticket'} — ` +
+      `volumen aportó ${fmtP(pctV)}, ticket ${fmtP(pctT)}.`
+    )
+  }
+  const dominaLabel  = dominaVol ? 'volumen' : 'ticket'
+  const segundoLabel = dominaVol ? 'ticket'   : 'volumen'
+  return (
+    `La caída es mayormente ${dominaLabel} (${fmtP(dominaVol ? pctV : pctT)}); ` +
+    `${segundoLabel} aportó ${fmtP(dominaVol ? pctT : pctV)}.`
+  )
 }
 
-interface CardProps {
-  label:      string
-  data:       KpiData
-  format:     Fmt
-  higherGood: boolean   // false → lower is better
-  deltaFmt?:  Fmt
+function buildWaterfall(
+  prevFact: number,
+  efV:      number,
+  efT:      number,
+  curFact:  number,
+): WaterfallEntry[] {
+  const running2 = prevFact + efV
+  return [
+    { name: 'Mes ant.', spacer: 0,                                   value: prevFact,      color: NEUTRAL, isTotal: true,  raw: prevFact },
+    { name: 'Volumen',  spacer: efV >= 0 ? prevFact : running2,      value: Math.abs(efV), color: efV >= 0 ? GREEN : RED,  isTotal: false, raw: efV  },
+    { name: 'Ticket',   spacer: efT >= 0 ? running2 : curFact,       value: Math.abs(efT), color: efT >= 0 ? GREEN : RED,  isTotal: false, raw: efT  },
+    { name: 'Mes act.', spacer: 0,                                   value: curFact,       color: NEUTRAL, isTotal: true,  raw: curFact  },
+  ]
 }
 
-function KpiStatCard({ label, data, format, higherGood, deltaFmt }: CardProps) {
-  const { value, prev, subtitle } = data
-  const delta  = value !== null && prev !== null ? value - prev : null
-  const isUp   = delta !== null && delta > 0
-  const isGood = delta !== null ? (higherGood ? isUp : !isUp) : null
-  const arrow  = delta === null ? '' : isUp ? '↑' : '↓'
+// ─── Delta badge ──────────────────────────────────────────────────────────────
 
-  const goodColor = '#22c55e'
-  const badColor  = '#ef4444'
-  const arrowColor = isGood === null ? 'rgba(255,255,255,0.3)' : isGood ? goodColor : badColor
-  const glowColor  = isGood === null ? 'rgba(245,130,10,0.12)' : isGood ? 'rgba(34,197,94,0.10)' : 'rgba(239,68,68,0.08)'
-  const topLine    = isGood === null ? '#f5820a66' : isGood ? '#22c55e55' : '#ef444444'
+function deltaColor(pctChange: number, higherGood: boolean): string {
+  return (higherGood ? pctChange >= 0 : pctChange <= 0) ? GREEN : RED
+}
 
-  const df = deltaFmt ?? format
-  const deltaStr = delta === null ? '' : fmt(Math.abs(delta), df)
+function DeltaBadge({ label, pctChange, higherGood }: { label: string; pctChange: number | null; higherGood: boolean }) {
+  if (pctChange === null) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <span style={{ fontSize: '0.6rem', color: MUTED, letterSpacing: '0.08em' }}>{label}</span>
+        <span style={{ fontSize: '0.65rem', color: MUTED }}>—</span>
+      </div>
+    )
+  }
+  const color = deltaColor(pctChange, higherGood)
+  const arrow = pctChange >= 0 ? '↑' : '↓'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+      <span style={{ fontSize: '0.6rem', color: MUTED, letterSpacing: '0.08em' }}>{label}</span>
+      <span style={{ fontSize: '0.72rem', color, fontWeight: 600 }}>{arrow}{Math.abs(pctChange).toFixed(1)}%</span>
+    </div>
+  )
+}
+
+// ─── KPI card ─────────────────────────────────────────────────────────────────
+
+function EjecutivoKpiCard({ label, value, kpi }: { label: string; value: string | null; kpi: KpiResult }) {
+  const semColor =
+    kpi.vsPrev === null ? `${AMBER}88`
+    : deltaColor(kpi.vsPrev, kpi.higherGood)
+  const glowColor =
+    kpi.vsPrev === null ? 'rgba(245,130,10,0.06)'
+    : kpi.vsPrev >= 0 === kpi.higherGood ? 'rgba(34,197,94,0.10)' : 'rgba(239,68,68,0.08)'
 
   return (
     <div style={{
       position: 'relative',
       background: 'rgba(255,255,255,0.025)',
       border: '1px solid rgba(255,255,255,0.07)',
-      borderRadius: '14px',
+      borderRadius: '16px',
       backdropFilter: 'blur(16px)',
-      padding: '18px 16px 14px',
+      padding: '20px 18px 16px',
       display: 'flex',
       flexDirection: 'column',
-      gap: '8px',
-      boxShadow: `0 0 18px ${glowColor}`,
+      gap: '10px',
+      boxShadow: `0 0 20px ${glowColor}`,
       overflow: 'hidden',
-      minHeight: '120px',
     }}>
-      {/* top accent line */}
       <div style={{
         position: 'absolute', top: 0, left: '12%', right: '12%', height: '1px',
-        background: `linear-gradient(90deg, transparent, ${topLine}, transparent)`,
+        background: `linear-gradient(90deg, transparent, ${semColor}55, transparent)`,
       }} />
 
-      {/* label */}
-      <span style={{
-        fontFamily: 'var(--font-display)',
-        fontWeight: 600,
-        fontSize: '0.58rem',
-        letterSpacing: '0.18em',
-        textTransform: 'uppercase',
-        color: 'rgba(255,255,255,0.38)',
-      }}>{label}</span>
-
-      {/* value */}
-      <div style={{
-        fontFamily: 'var(--font-body)',
-        fontWeight: 700,
-        fontSize: '1.65rem',
-        lineHeight: 1,
-        color: 'rgba(255,255,255,0.92)',
-        letterSpacing: '-0.02em',
-      }}>
-        {fmt(value, format)}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{
+          fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: '0.58rem',
+          letterSpacing: '0.18em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.38)',
+        }}>{label}</span>
+        <div style={{
+          width: '8px', height: '8px', borderRadius: '50%',
+          background: semColor, boxShadow: `0 0 6px ${semColor}`,
+        }} />
       </div>
 
-      {/* delta + subtitle */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' }}>
-        <span style={{
-          fontFamily: 'var(--font-body)',
-          fontSize: '0.7rem',
-          color: arrowColor,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '2px',
-        }}>
-          {arrow && <span style={{ fontSize: '0.82rem' }}>{arrow}</span>}
-          {deltaStr && `${deltaStr}`}
-          {!deltaStr && !arrow && <span style={{ color: 'rgba(255,255,255,0.2)' }}>—</span>}
-        </span>
-        <span style={{
-          fontFamily: 'var(--font-body)',
-          fontSize: '0.6rem',
-          color: 'rgba(255,255,255,0.22)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.1em',
-        }}>{subtitle}</span>
+      <div style={{
+        fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: '1.8rem',
+        lineHeight: 1, color: 'rgba(255,255,255,0.92)', letterSpacing: '-0.02em',
+      }}>
+        {value ?? '—'}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: 'auto' }}>
+        <DeltaBadge label="vs mes ant." pctChange={kpi.vsPrev}    higherGood={kpi.higherGood} />
+        <DeltaBadge label="vs año ant." pctChange={kpi.vsYearAgo} higherGood={kpi.higherGood} />
       </div>
     </div>
   )
 }
 
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
+// ─── Skeleton card ────────────────────────────────────────────────────────────
 
 function SkeletonCard() {
   return (
     <div style={{
-      background: 'rgba(255,255,255,0.02)',
-      border: '1px solid rgba(255,255,255,0.05)',
-      borderRadius: '14px',
-      padding: '18px 16px 14px',
-      minHeight: '120px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '10px',
+      background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)',
+      borderRadius: '16px', padding: '20px 18px', minHeight: '140px',
+      display: 'flex', flexDirection: 'column', gap: '10px',
     }}>
-      <div style={{ width: '55%', height: '8px', borderRadius: '4px', background: 'rgba(245,130,10,0.12)', animation: 'pulse 1.4s ease-in-out infinite' }} />
-      <div style={{ width: '70%', height: '26px', borderRadius: '6px', background: 'rgba(245,130,10,0.08)', animation: 'pulse 1.4s ease-in-out infinite' }} />
-      <div style={{ width: '40%', height: '8px', borderRadius: '4px', background: 'rgba(255,255,255,0.04)', animation: 'pulse 1.4s ease-in-out infinite' }} />
+      {[55, 70, 38, 38].map((w, i) => (
+        <div key={i} style={{
+          width: `${w}%`, height: i === 1 ? '28px' : '8px', borderRadius: i === 1 ? '6px' : '4px',
+          background: i === 1 ? 'rgba(245,130,10,0.07)' : i === 0 ? 'rgba(245,130,10,0.10)' : 'rgba(255,255,255,0.03)',
+          animation: 'pulse 1.4s ease-in-out infinite',
+        }} />
+      ))}
     </div>
   )
 }
 
-// ─── Filter tabs ──────────────────────────────────────────────────────────────
+// ─── Month selector ───────────────────────────────────────────────────────────
 
-const FILTERS: { id: Filter; label: string }[] = [
-  { id: 'semana',   label: 'Semana' },
-  { id: 'mes',      label: 'Mes' },
-  { id: 'semestre', label: 'Semestre' },
-  { id: 'año',      label: 'Año' },
-]
+function MonthSelector({ months, value, onChange }: {
+  months:   string[]
+  value:    string | null
+  onChange: (m: string) => void
+}) {
+  // Show the most recent 6 months
+  const visible = [...months].sort().slice(-6)
+  return (
+    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+      {visible.map(m => (
+        <button
+          key={m}
+          onClick={() => onChange(m)}
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: '0.6rem', fontWeight: 600, letterSpacing: '0.12em',
+            textTransform: 'uppercase', padding: '4px 10px', borderRadius: '6px',
+            border: 'none', cursor: 'pointer', transition: 'all 0.15s',
+            background: value === m ? 'rgba(245,130,10,0.18)' : 'rgba(255,255,255,0.04)',
+            color:      value === m ? AMBER : 'rgba(255,255,255,0.35)',
+            boxShadow:  value === m ? '0 0 8px rgba(245,130,10,0.15)' : 'none',
+          }}
+        >
+          {monthLabel(m)}
+        </button>
+      ))}
+    </div>
+  )
+}
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Waterfall tooltip ────────────────────────────────────────────────────────
+
+interface WFPayload { payload: WaterfallEntry }
+function WFTooltip({ active, payload }: { active?: boolean; payload?: WFPayload[] }) {
+  if (!active || !payload?.length) return null
+  const entry = payload[0].payload
+  const sign  = entry.isTotal ? '' : entry.raw >= 0 ? '+' : '−'
+  return (
+    <div style={{
+      background: 'rgba(10,10,15,0.95)', border: '1px solid rgba(255,255,255,0.1)',
+      borderRadius: '8px', padding: '8px 12px',
+      fontFamily: 'var(--font-body)', fontSize: '0.75rem', color: 'rgba(255,255,255,0.85)',
+    }}>
+      <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.62rem', marginBottom: '2px' }}>{entry.name}</div>
+      <div style={{ color: entry.color, fontWeight: 700 }}>{sign}{fmtMillones(Math.abs(entry.raw))}</div>
+    </div>
+  )
+}
+
+// ─── Section ──────────────────────────────────────────────────────────────────
 
 interface Props { locationId: string }
 
 export function EstadoNegocioSection({ locationId }: Props) {
-  const [filter,    setFilter]    = useState<Filter>('mes')
-  const [financial, setFinancial] = useState<FinancialRow[]>([])
-  const [dailySales, setDailySales] = useState<DailySaleRow[]>([])
-  const [comensalesData, setComensalesData] = useState<ComensalRow[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const { data, isLoading } = useDashboardData(locationId)
 
-  useEffect(() => {
-    if (!locationId) return
-    setIsLoading(true)
-    const body = JSON.stringify({ p_location_id: locationId })
-
-    Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/get_financial_results`, { method: 'POST', headers: HEADERS, body })
-        .then(r => r.json()).then(r => Array.isArray(r) ? r : []).catch(() => []),
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/get_daily_sales_full`, { method: 'POST', headers: HEADERS, body })
-        .then(r => r.json()).then(r => Array.isArray(r) ? r : []).catch(() => []),
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/get_comensales_full`, { method: 'POST', headers: HEADERS, body })
-        .then(r => r.json()).then(r => Array.isArray(r) ? r : []).catch(() => []),
-    ]).then(([fin, dly, com]) => {
-      setFinancial(fin)
-      setDailySales(dly)
-      setComensalesData(com)
-    }).finally(() => setIsLoading(false))
-  }, [locationId])
-
-  const pivot = useMemo(() => buildPivot(financial), [financial])
-
-  const kpis = useMemo(
-    () => computeKpis(pivot, dailySales, comensalesData, filter),
-    [pivot, dailySales, comensalesData, filter],
+  // ── Available months ──
+  const months = useMemo(
+    () => (data?.ventasMensuales ?? []).map(m => m.mes).sort(),
+    [data],
   )
+
+  const defaultMonth = useMemo(() => lastCompleteMonth(months), [months])
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
+  const currentMonth = selectedMonth ?? defaultMonth
+
+  // ── Month lookup ──
+  const byMonth = useMemo((): Map<string, MonthData> => {
+    const map = new Map<string, MonthData>()
+    for (const m of data?.ventasMensuales ?? []) map.set(m.mes, m)
+    return map
+  }, [data])
+
+  const mes     = currentMonth ? byMonth.get(currentMonth)                ?? null : null
+  const prevMes = currentMonth ? byMonth.get(prevMonthKey(currentMonth))  ?? null : null
+  const yearAgo = currentMonth ? byMonth.get(yearAgoKey(currentMonth))    ?? null : null
+
+  // ── KPI values (validated definitions) ──
+  // Facturación = SUM(total) → ventasMensuales.ventas
+  // Pedidos     = COUNT(*)   → ventasMensuales.tickets
+  // Cubiertos   = SUM(comensales) salón → ventasMensuales.comensales (null outside salón already excluded)
+  // Ticket      = Facturación / Pedidos (NOT avg of column)
+  const facturacion = mes?.ventas      ?? null
+  const pedidos     = mes?.tickets     ?? null
+  const cubiertos   = mes?.comensales  ?? null
+  const ticket      = pedidos && pedidos > 0 && facturacion != null ? facturacion / pedidos : null
+
+  const prevFact  = prevMes?.ventas     ?? null
+  const prevPed   = prevMes?.tickets    ?? null
+  const prevCub   = prevMes?.comensales ?? null
+  const prevTick  = prevPed && prevPed > 0 && prevFact != null ? prevFact / prevPed : null
+
+  const yoFact    = yearAgo?.ventas     ?? null
+  const yoPed     = yearAgo?.tickets    ?? null
+  const yoCub     = yearAgo?.comensales ?? null
+  const yoTick    = yoPed && yoPed > 0 && yoFact != null ? yoFact / yoPed : null
+
+  const kpiFact = makeKpi(facturacion, prevFact, yoFact, true)
+  const kpiPed  = makeKpi(pedidos,     prevPed,  yoPed,  true)
+  const kpiCub  = makeKpi(cubiertos,   prevCub,  yoCub,  true)
+  const kpiTick = makeKpi(ticket,      prevTick, yoTick, true)
+
+  // ── Waterfall decomposition ──
+  // efecto_volumen = (pedidos_mes − pedidos_prev) × ticket_prev
+  // efecto_ticket  = (ticket_mes − ticket_prev)   × pedidos_mes
+  // These sum EXACTLY to (facturacion − prevFact)
+  const waterfall = useMemo((): WaterfallEntry[] | null => {
+    if (
+      facturacion == null || prevFact == null ||
+      pedidos == null     || prevPed  == null ||
+      ticket  == null     || prevTick == null
+    ) return null
+    const efV = (pedidos - prevPed) * prevTick
+    const efT = (ticket  - prevTick) * pedidos
+    return buildWaterfall(prevFact, efV, efT, facturacion)
+  }, [facturacion, prevFact, pedidos, prevPed, ticket, prevTick])
+
+  // ── Diagnóstico text ──
+  const diagnostico = useMemo(() => {
+    if (!waterfall || facturacion == null || prevFact == null) return null
+    return buildDiagnostico(waterfall[1].raw, waterfall[2].raw, facturacion - prevFact, prevFact)
+  }, [waterfall, facturacion, prevFact])
+
+  // ── Estado global (semáforo header) ──
+  const estadoColor = useMemo(() => {
+    if (kpiFact.vsPrev === null) return `${AMBER}aa`
+    if (kpiFact.vsPrev >= 0 && (kpiTick.vsPrev ?? 0) >= 0) return GREEN
+    if (kpiFact.vsPrev < -10) return RED
+    return '#f59e0b'
+  }, [kpiFact.vsPrev, kpiTick.vsPrev])
 
   return (
     <div style={{ marginBottom: '52px' }}>
       <style>{`@keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:.9} }`}</style>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-        <SectionLabel>Estado del negocio</SectionLabel>
-
-        {/* Filter tabs */}
-        <div style={{
-          display: 'flex',
-          gap: '4px',
-          background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.07)',
-          borderRadius: '10px',
-          padding: '4px',
-        }}>
-          {FILTERS.map(f => (
-            <button
-              key={f.id}
-              onClick={() => setFilter(f.id)}
-              style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '0.62rem',
-                fontWeight: 600,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                padding: '5px 12px',
-                borderRadius: '7px',
-                border: 'none',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                background: filter === f.id ? 'rgba(245,130,10,0.18)' : 'transparent',
-                color: filter === f.id ? '#f5820a' : 'rgba(255,255,255,0.35)',
-                boxShadow: filter === f.id ? '0 0 10px rgba(245,130,10,0.15)' : 'none',
-              }}
-            >
-              {f.label}
-            </button>
-          ))}
+      {/* ── Header: título + semáforo + selector de mes ── */}
+      <div style={{
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+        marginBottom: '20px', gap: '16px', flexWrap: 'wrap',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <SectionLabel>Resumen Ejecutivo</SectionLabel>
+          {currentMonth && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              fontFamily: 'var(--font-dm-mono)', fontSize: '0.65rem',
+              color: 'rgba(255,255,255,0.5)',
+            }}>
+              <div style={{
+                width: '7px', height: '7px', borderRadius: '50%',
+                background: estadoColor, boxShadow: `0 0 6px ${estadoColor}`,
+              }} />
+              {monthLabel(currentMonth)}
+            </div>
+          )}
         </div>
+        {months.length > 0 && (
+          <MonthSelector months={months} value={currentMonth} onChange={setSelectedMonth} />
+        )}
       </div>
 
-      {/* 5×2 KPI grid */}
+      {/* ── 4 KPI cards ── */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(5, 1fr)',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
         gap: '12px',
+        marginBottom: '16px',
       }}>
         {isLoading ? (
-          Array.from({ length: 10 }).map((_, i) => <SkeletonCard key={i} />)
+          Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
         ) : (
           <>
-            <KpiStatCard label="Resultado Neto"     data={kpis.resultadoNeto}  format="pct"      higherGood={true}  deltaFmt="decimal" />
-            <KpiStatCard label="Facturación"         data={kpis.facturacion}    format="millones"  higherGood={true}  />
-            <KpiStatCard label="Venta / Comensal"    data={kpis.ventaComensal}  format="peso"      higherGood={true}  />
-            <KpiStatCard label="Comensales / Día"    data={kpis.comensalesDia}  format="decimal"   higherGood={true}  />
-            <KpiStatCard label="CV%"                 data={kpis.cv}             format="pct"       higherGood={false} deltaFmt="decimal" />
-            <KpiStatCard label="Costo Laboral"       data={kpis.costoLaboral}   format="pct"       higherGood={false} deltaFmt="decimal" />
-            <KpiStatCard label="PE Diario"           data={kpis.peDiario}       format="millones"  higherGood={false} />
-            <KpiStatCard label="Días sobre PE"       data={kpis.diasSobrePE}    format="count"     higherGood={true}  />
-            <KpiStatCard label="Recupero Inversión"  data={kpis.recupero}       format="pct"       higherGood={true}  deltaFmt="decimal" />
-            <KpiStatCard label="Ticket Promedio"     data={kpis.ticketPromedio} format="peso"      higherGood={true}  />
+            <EjecutivoKpiCard
+              label="Facturación"
+              value={facturacion != null ? fmtMillones(facturacion) : null}
+              kpi={kpiFact}
+            />
+            <EjecutivoKpiCard
+              label="Pedidos (documentos)"
+              value={pedidos != null ? pedidos.toLocaleString('es-AR') : null}
+              kpi={kpiPed}
+            />
+            <EjecutivoKpiCard
+              label="Cubiertos (salón)"
+              value={cubiertos != null ? cubiertos.toLocaleString('es-AR') : null}
+              kpi={kpiCub}
+            />
+            <EjecutivoKpiCard
+              label="Ticket Promedio"
+              value={ticket != null ? fmtPeso(Math.round(ticket)) : null}
+              kpi={kpiTick}
+            />
           </>
         )}
       </div>
+
+      {/* ── Diagnóstico ── */}
+      {diagnostico && (
+        <div style={{
+          background: 'rgba(255,255,255,0.025)',
+          border: '1px solid rgba(255,255,255,0.07)',
+          borderRadius: '10px',
+          padding: '14px 18px',
+          marginBottom: '20px',
+          fontFamily: 'var(--font-body)',
+          fontSize: '0.78rem',
+          lineHeight: 1.55,
+          color: 'rgba(255,255,255,0.65)',
+        }}>
+          <span style={{
+            display: 'inline-block',
+            fontFamily: 'var(--font-display)',
+            fontSize: '0.55rem', letterSpacing: '0.2em', textTransform: 'uppercase',
+            color: 'rgba(255,255,255,0.28)', marginRight: '8px',
+          }}>Diagnóstico</span>
+          {diagnostico}
+        </div>
+      )}
+
+      {/* ── Waterfall: variación de facturación descompuesta ── */}
+      {waterfall && (
+        <div>
+          <div style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: '0.55rem', letterSpacing: '0.2em', textTransform: 'uppercase',
+            color: 'rgba(255,255,255,0.22)', marginBottom: '10px',
+          }}>
+            Variación vs mes anterior
+          </div>
+          <div style={{ height: '200px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={waterfall}
+                barCategoryGap="30%"
+                margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
+              >
+                <XAxis
+                  dataKey="name"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 10,
+                    fill: 'rgba(255,255,255,0.35)',
+                    letterSpacing: '0.08em',
+                  }}
+                />
+                <YAxis hide domain={['auto', 'auto']} />
+                <Tooltip
+                  content={<WFTooltip />}
+                  cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                />
+                {/* invisible spacer positions each bar at the correct baseline */}
+                <Bar dataKey="spacer" stackId="wf" fill="transparent" isAnimationActive={false} />
+                {/* visible value bar, colored by sign */}
+                <Bar dataKey="value" stackId="wf" radius={[4, 4, 0, 0]}>
+                  {waterfall.map((entry, i) => (
+                    <Cell key={i} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -84,8 +84,8 @@ export interface WidgetConfig {
 export const WIDGET_REGISTRY: WidgetConfig[] = [
   {
     id:            'estado-negocio',
-    title:         'Estado del negocio',
-    description:   'Semáforo de KPIs clave: resultado neto, PE diario, ticket promedio, margen delivery y costo laboral',
+    title:         'Resumen Ejecutivo',
+    description:   'Resumen mensual: 4 KPIs validados (Facturación, Pedidos, Cubiertos, Ticket) con comparación vs mes anterior y año anterior, diagnóstico automático y waterfall de variación',
     enabled:       true,
     component:     EstadoNegocioSection,
     gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
@@ -103,12 +103,12 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
   {
     id:            'el-pulso',
     title:         'El Pulso',
-    description:   'Métricas de ventas, tickets y comensales por período',
+    description:   'Métricas de ventas, tickets y comensales por período (semana / mes / 6m)',
     enabled:       true,
     component:     ElPulsoSection,
     gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
     priority:      5,
-    category:      'kpi',
+    category:      'diagnostic',
     refreshPolicy: 'normal',
     filterSupport: {
       required: [],
