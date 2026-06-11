@@ -4,7 +4,7 @@ import { useState, useMemo }    from 'react'
 import { useDashboardData }      from '@/hooks/useDashboardData'
 import {
   BarChart, Bar, Cell, XAxis, YAxis,
-  Tooltip, ResponsiveContainer,
+  Tooltip, ResponsiveContainer, LabelList,
 } from 'recharts'
 import { fmtMillones, fmtPeso }  from '@/lib/format'
 import { SectionLabel }          from '@/components/dashboard/SectionLabel'
@@ -28,13 +28,23 @@ interface WaterfallEntry {
   raw:     number
 }
 
+interface CmpRow {
+  label:        string
+  pedidos:      number | null
+  cubiertos:    number | null
+  facturacion:  number | null
+  porPedido:    number | null
+  porCubierto:  number | null
+  cubPorPedido: number | null
+  isHighlight:  boolean
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const GREEN   = '#22c55e'
-const RED     = '#ef4444'
-const AMBER   = '#f5820a'
-const NEUTRAL = 'rgba(255,255,255,0.22)'
-const MUTED   = 'rgba(255,255,255,0.25)'
+const GREEN = '#22c55e'
+const RED   = '#ef4444'
+const AMBER = '#f5820a'
+const MUTED = 'rgba(255,255,255,0.25)'
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
@@ -81,10 +91,26 @@ function makeKpi(
   }
 }
 
-function buildDiagnostico(efV: number, efT: number, varTotal: number, prevFact: number): string {
-  const fmtP = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`
-  const pctV = prevFact > 0 ? (efV / prevFact) * 100 : 0
-  const pctT = prevFact > 0 ? (efT / prevFact) * 100 : 0
+function safeDiv(a: number | null, b: number | null): number | null {
+  if (a == null || b == null || b === 0) return null
+  return a / b
+}
+
+// ── Task 1: ±2% amber zone ──
+function cardSemColor(vsPrev: number | null, higherGood: boolean): string {
+  if (vsPrev === null)       return AMBER
+  if (Math.abs(vsPrev) < 2) return AMBER
+  return (higherGood ? vsPrev > 0 : vsPrev < 0) ? GREEN : RED
+}
+
+// ── Task 5: palanca hint when fall is volume-driven and ticket holds ──
+function buildDiagnostico(
+  efV: number, efT: number, varTotal: number, prevFact: number,
+  ticketVarPct: number | null,
+): string {
+  const fmtP     = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`
+  const pctV     = prevFact > 0 ? (efV / prevFact) * 100 : 0
+  const pctT     = prevFact > 0 ? (efT / prevFact) * 100 : 0
   const dominaVol = Math.abs(efV) >= Math.abs(efT)
 
   if (varTotal >= 0) {
@@ -94,14 +120,20 @@ function buildDiagnostico(efV: number, efT: number, varTotal: number, prevFact: 
       `volumen aportó ${fmtP(pctV)}, ticket ${fmtP(pctT)}.`
     )
   }
+
   const dominaLabel  = dominaVol ? 'volumen' : 'ticket'
-  const segundoLabel = dominaVol ? 'ticket'   : 'volumen'
-  return (
+  const segundoLabel = dominaVol ? 'ticket'  : 'volumen'
+  const base = (
     `La caída es mayormente ${dominaLabel} (${fmtP(dominaVol ? pctV : pctT)}); ` +
     `${segundoLabel} aportó ${fmtP(dominaVol ? pctT : pctV)}.`
   )
+  if (dominaVol && (ticketVarPct === null || ticketVarPct >= -3)) {
+    return base + ' La palanca es recuperar tráfico, no tocar precios.'
+  }
+  return base
 }
 
+// ── Task 2: total bars use AMBER ──
 function buildWaterfall(
   prevFact: number,
   efV:      number,
@@ -110,11 +142,41 @@ function buildWaterfall(
 ): WaterfallEntry[] {
   const running2 = prevFact + efV
   return [
-    { name: 'Mes ant.', spacer: 0,                                   value: prevFact,      color: NEUTRAL, isTotal: true,  raw: prevFact },
-    { name: 'Volumen',  spacer: efV >= 0 ? prevFact : running2,      value: Math.abs(efV), color: efV >= 0 ? GREEN : RED,  isTotal: false, raw: efV  },
-    { name: 'Ticket',   spacer: efT >= 0 ? running2 : curFact,       value: Math.abs(efT), color: efT >= 0 ? GREEN : RED,  isTotal: false, raw: efT  },
-    { name: 'Mes act.', spacer: 0,                                   value: curFact,       color: NEUTRAL, isTotal: true,  raw: curFact  },
+    { name: 'Mes ant.', spacer: 0,                               value: prevFact,      color: AMBER,               isTotal: true,  raw: prevFact },
+    { name: 'Volumen',  spacer: efV >= 0 ? prevFact : running2,  value: Math.abs(efV), color: efV >= 0 ? GREEN : RED, isTotal: false, raw: efV  },
+    { name: 'Ticket',   spacer: efT >= 0 ? running2 : curFact,   value: Math.abs(efT), color: efT >= 0 ? GREEN : RED, isTotal: false, raw: efT  },
+    { name: 'Mes act.', spacer: 0,                               value: curFact,       color: AMBER,               isTotal: true,  raw: curFact  },
   ]
+}
+
+// ── Task 2: bar label factory — shows value above each bar ──
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeWFLabel(entries: WaterfallEntry[]): (props: any) => React.JSX.Element {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return function WFLabel(props: any): React.JSX.Element {
+    const x     = Number(props.x     ?? 0)
+    const y     = Number(props.y     ?? 0)
+    const width = Number(props.width ?? 0)
+    const index = Number(props.index ?? -1)
+    const entry = entries[index]
+    if (!entry || width < 20) return <g />
+    const text = entry.isTotal
+      ? fmtMillones(entry.raw)
+      : `${entry.raw >= 0 ? '+' : '−'}${fmtMillones(Math.abs(entry.raw))}`
+    return (
+      <text
+        x={x + width / 2}
+        y={y - 6}
+        textAnchor="middle"
+        fill={entry.color}
+        fontSize={11}
+        fontFamily="var(--font-display)"
+        fontWeight={600}
+      >
+        {text}
+      </text>
+    )
+  }
 }
 
 // ─── Delta badge ──────────────────────────────────────────────────────────────
@@ -123,11 +185,26 @@ function deltaColor(pctChange: number, higherGood: boolean): string {
   return (higherGood ? pctChange >= 0 : pctChange <= 0) ? GREEN : RED
 }
 
-function DeltaBadge({ label, pctChange, higherGood }: { label: string; pctChange: number | null; higherGood: boolean }) {
+// ── Task 4: optional note for "(nominal)" on year-ago monetary deltas ──
+function DeltaBadge({
+  label, pctChange, higherGood, note,
+}: {
+  label: string; pctChange: number | null; higherGood: boolean; note?: string
+}) {
+  const labelNode = (
+    <span style={{ fontSize: '0.6rem', color: MUTED, letterSpacing: '0.08em' }}>
+      {label}
+      {note && (
+        <span style={{ marginLeft: '3px', fontSize: '0.56rem', color: 'rgba(255,255,255,0.18)' }}>
+          {note}
+        </span>
+      )}
+    </span>
+  )
   if (pctChange === null) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-        <span style={{ fontSize: '0.6rem', color: MUTED, letterSpacing: '0.08em' }}>{label}</span>
+        {labelNode}
         <span style={{ fontSize: '0.65rem', color: MUTED }}>—</span>
       </div>
     )
@@ -136,7 +213,7 @@ function DeltaBadge({ label, pctChange, higherGood }: { label: string; pctChange
   const arrow = pctChange >= 0 ? '↑' : '↓'
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-      <span style={{ fontSize: '0.6rem', color: MUTED, letterSpacing: '0.08em' }}>{label}</span>
+      {labelNode}
       <span style={{ fontSize: '0.72rem', color, fontWeight: 600 }}>{arrow}{Math.abs(pctChange).toFixed(1)}%</span>
     </div>
   )
@@ -144,31 +221,35 @@ function DeltaBadge({ label, pctChange, higherGood }: { label: string; pctChange
 
 // ─── KPI card ─────────────────────────────────────────────────────────────────
 
-function EjecutivoKpiCard({ label, value, kpi }: { label: string; value: string | null; kpi: KpiResult }) {
-  const semColor =
-    kpi.vsPrev === null ? `${AMBER}88`
-    : deltaColor(kpi.vsPrev, kpi.higherGood)
-  const glowColor =
-    kpi.vsPrev === null ? 'rgba(245,130,10,0.06)'
-    : kpi.vsPrev >= 0 === kpi.higherGood ? 'rgba(34,197,94,0.10)' : 'rgba(239,68,68,0.08)'
-
+// ── Task 1: semantic border + value color; Task 4: isMonetary for nominal note ──
+function EjecutivoKpiCard({
+  label, value, kpi, isMonetary,
+}: {
+  label: string; value: string | null; kpi: KpiResult; isMonetary?: boolean
+}) {
+  const color = cardSemColor(kpi.vsPrev, kpi.higherGood)
+  const GLOW: Record<string, string> = {
+    [GREEN]: 'rgba(34,197,94,0.10)',
+    [RED]:   'rgba(239,68,68,0.08)',
+    [AMBER]: 'rgba(245,130,10,0.07)',
+  }
   return (
     <div style={{
       position: 'relative',
       background: 'rgba(255,255,255,0.025)',
-      border: '1px solid rgba(255,255,255,0.07)',
+      border: `1px solid ${color}44`,
       borderRadius: '16px',
       backdropFilter: 'blur(16px)',
       padding: '20px 18px 16px',
       display: 'flex',
       flexDirection: 'column',
       gap: '10px',
-      boxShadow: `0 0 20px ${glowColor}`,
+      boxShadow: `0 0 20px ${GLOW[color] ?? GLOW[AMBER]}`,
       overflow: 'hidden',
     }}>
       <div style={{
         position: 'absolute', top: 0, left: '12%', right: '12%', height: '1px',
-        background: `linear-gradient(90deg, transparent, ${semColor}55, transparent)`,
+        background: `linear-gradient(90deg, transparent, ${color}55, transparent)`,
       }} />
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -178,20 +259,21 @@ function EjecutivoKpiCard({ label, value, kpi }: { label: string; value: string 
         }}>{label}</span>
         <div style={{
           width: '8px', height: '8px', borderRadius: '50%',
-          background: semColor, boxShadow: `0 0 6px ${semColor}`,
+          background: color, boxShadow: `0 0 6px ${color}`,
         }} />
       </div>
 
       <div style={{
         fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: '1.8rem',
-        lineHeight: 1, color: 'rgba(255,255,255,0.92)', letterSpacing: '-0.02em',
+        lineHeight: 1, color, letterSpacing: '-0.02em',
       }}>
         {value ?? '—'}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: 'auto' }}>
         <DeltaBadge label="vs mes ant." pctChange={kpi.vsPrev}    higherGood={kpi.higherGood} />
-        <DeltaBadge label="vs año ant." pctChange={kpi.vsYearAgo} higherGood={kpi.higherGood} />
+        <DeltaBadge label="vs año ant." pctChange={kpi.vsYearAgo} higherGood={kpi.higherGood}
+          note={isMonetary ? '(nominal)' : undefined} />
       </div>
     </div>
   )
@@ -224,7 +306,6 @@ function MonthSelector({ months, value, onChange }: {
   value:    string | null
   onChange: (m: string) => void
 }) {
-  // Show the most recent 6 months
   const visible = [...months].sort().slice(-6)
   return (
     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
@@ -268,6 +349,109 @@ function WFTooltip({ active, payload }: { active?: boolean; payload?: WFPayload[
   )
 }
 
+// ─── Comparative table ────────────────────────────────────────────────────────
+
+const CMP_COLS: { key: string; align: 'left' | 'right' }[] = [
+  { key: 'Mes',           align: 'left'  },
+  { key: 'Pedidos',       align: 'right' },
+  { key: 'Cubiertos',     align: 'right' },
+  { key: 'Facturación',   align: 'right' },
+  { key: '$/pedido',      align: 'right' },
+  { key: '$/cubierto',    align: 'right' },
+  { key: 'Cub./pedido',   align: 'right' },
+]
+
+function fmtCmp(row: CmpRow, key: string): string {
+  switch (key) {
+    case 'Mes':          return row.label
+    case 'Pedidos':      return row.pedidos      != null ? row.pedidos.toLocaleString('es-AR')      : '—'
+    case 'Cubiertos':    return row.cubiertos    != null ? row.cubiertos.toLocaleString('es-AR')    : '—'
+    case 'Facturación':  return fmtMillones(row.facturacion)
+    case '$/pedido':     return row.porPedido    != null ? fmtPeso(Math.round(row.porPedido))       : '—'
+    case '$/cubierto':   return row.porCubierto  != null ? fmtPeso(Math.round(row.porCubierto))     : '—'
+    case 'Cub./pedido':  return row.cubPorPedido != null ? row.cubPorPedido.toFixed(1)              : '—'
+    default:             return '—'
+  }
+}
+
+function buildCmpRow(label: string, d: MonthData | null, isHighlight = false): CmpRow {
+  const fact = d?.ventas     ?? null
+  const ped  = d?.tickets    ?? null
+  const cub  = d?.comensales ?? null
+  return {
+    label, isHighlight,
+    pedidos:      ped,
+    cubiertos:    cub,
+    facturacion:  fact,
+    porPedido:    safeDiv(fact, ped),
+    porCubierto:  safeDiv(fact, cub),
+    cubPorPedido: safeDiv(cub, ped),
+  }
+}
+
+function ComparativeTable({ rows }: { rows: CmpRow[] }) {
+  return (
+    <div style={{
+      marginTop: '20px',
+      background: 'rgba(255,255,255,0.025)',
+      border: '1px solid rgba(255,255,255,0.07)',
+      borderRadius: '12px',
+      overflow: 'hidden',
+      overflowX: 'auto',
+    }}>
+      <table style={{
+        width: '100%',
+        borderCollapse: 'collapse',
+        fontFamily: 'var(--font-display)',
+        minWidth: '560px',
+      }}>
+        <thead>
+          <tr>
+            {CMP_COLS.map(col => (
+              <th key={col.key} style={{
+                padding: '10px 14px',
+                textAlign: col.align,
+                fontWeight: 600,
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+                fontSize: '0.54rem',
+                color: 'rgba(255,255,255,0.28)',
+                borderBottom: '1px solid rgba(255,255,255,0.06)',
+                whiteSpace: 'nowrap',
+              }}>
+                {col.key}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri} style={{
+              background: row.isHighlight ? 'rgba(245,130,10,0.05)' : 'transparent',
+            }}>
+              {CMP_COLS.map((col, ci) => (
+                <td key={col.key} style={{
+                  padding: '9px 14px',
+                  textAlign: col.align,
+                  fontSize: '0.72rem',
+                  color: ci === 0
+                    ? (row.isHighlight ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.48)')
+                    : (row.isHighlight ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.52)'),
+                  fontWeight: ci === 0 || row.isHighlight ? 600 : 400,
+                  borderBottom: ri < rows.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {fmtCmp(row, col.key)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 // ─── Section ──────────────────────────────────────────────────────────────────
 
 interface Props { locationId: string }
@@ -292,14 +476,14 @@ export function EstadoNegocioSection({ locationId }: Props) {
     return map
   }, [data])
 
-  const mes     = currentMonth ? byMonth.get(currentMonth)                ?? null : null
-  const prevMes = currentMonth ? byMonth.get(prevMonthKey(currentMonth))  ?? null : null
-  const yearAgo = currentMonth ? byMonth.get(yearAgoKey(currentMonth))    ?? null : null
+  const mes     = currentMonth ? byMonth.get(currentMonth)               ?? null : null
+  const prevMes = currentMonth ? byMonth.get(prevMonthKey(currentMonth)) ?? null : null
+  const yearAgo = currentMonth ? byMonth.get(yearAgoKey(currentMonth))   ?? null : null
 
   // ── KPI values (validated definitions) ──
   // Facturación = SUM(total) → ventasMensuales.ventas
   // Pedidos     = COUNT(*)   → ventasMensuales.tickets
-  // Cubiertos   = SUM(comensales) salón → ventasMensuales.comensales (null outside salón already excluded)
+  // Cubiertos   = SUM(comensales) salón → ventasMensuales.comensales
   // Ticket      = Facturación / Pedidos (NOT avg of column)
   const facturacion = mes?.ventas      ?? null
   const pedidos     = mes?.tickets     ?? null
@@ -336,11 +520,20 @@ export function EstadoNegocioSection({ locationId }: Props) {
     return buildWaterfall(prevFact, efV, efT, facturacion)
   }, [facturacion, prevFact, pedidos, prevPed, ticket, prevTick])
 
+  const wfLabel = useMemo(
+    () => waterfall ? makeWFLabel(waterfall) : undefined,
+    [waterfall],
+  )
+
   // ── Diagnóstico text ──
   const diagnostico = useMemo(() => {
     if (!waterfall || facturacion == null || prevFact == null) return null
-    return buildDiagnostico(waterfall[1].raw, waterfall[2].raw, facturacion - prevFact, prevFact)
-  }, [waterfall, facturacion, prevFact])
+    return buildDiagnostico(
+      waterfall[1].raw, waterfall[2].raw,
+      facturacion - prevFact, prevFact,
+      kpiTick.vsPrev,
+    )
+  }, [waterfall, facturacion, prevFact, kpiTick.vsPrev])
 
   // ── Estado global (semáforo header) ──
   const estadoColor = useMemo(() => {
@@ -349,6 +542,17 @@ export function EstadoNegocioSection({ locationId }: Props) {
     if (kpiFact.vsPrev < -10) return RED
     return '#f59e0b'
   }, [kpiFact.vsPrev, kpiTick.vsPrev])
+
+  // ── Comparative table rows ──
+  const cmpRows = useMemo((): CmpRow[] => {
+    if (!currentMonth || !mes) return []
+    const rows: CmpRow[] = [
+      buildCmpRow(monthLabel(currentMonth),                mes,     true),
+      buildCmpRow(monthLabel(prevMonthKey(currentMonth)),  prevMes, false),
+    ]
+    if (yearAgo) rows.push(buildCmpRow(monthLabel(yearAgoKey(currentMonth)), yearAgo, false))
+    return rows
+  }, [currentMonth, mes, prevMes, yearAgo])
 
   return (
     <div style={{ marginBottom: '52px' }}>
@@ -395,6 +599,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
               label="Facturación"
               value={facturacion != null ? fmtMillones(facturacion) : null}
               kpi={kpiFact}
+              isMonetary
             />
             <EjecutivoKpiCard
               label="Pedidos (documentos)"
@@ -410,6 +615,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
               label="Ticket Promedio"
               value={ticket != null ? fmtPeso(Math.round(ticket)) : null}
               kpi={kpiTick}
+              isMonetary
             />
           </>
         )}
@@ -448,12 +654,12 @@ export function EstadoNegocioSection({ locationId }: Props) {
           }}>
             Variación vs mes anterior
           </div>
-          <div style={{ height: '200px' }}>
+          <div style={{ height: '220px' }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={waterfall}
                 barCategoryGap="30%"
-                margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
+                margin={{ top: 30, right: 8, bottom: 0, left: 8 }}
               >
                 <XAxis
                   dataKey="name"
@@ -471,18 +677,24 @@ export function EstadoNegocioSection({ locationId }: Props) {
                   content={<WFTooltip />}
                   cursor={{ fill: 'rgba(255,255,255,0.03)' }}
                 />
-                {/* invisible spacer positions each bar at the correct baseline */}
+                {/* transparent spacer positions each bar at the correct baseline */}
                 <Bar dataKey="spacer" stackId="wf" fill="transparent" isAnimationActive={false} />
-                {/* visible value bar, colored by sign */}
-                <Bar dataKey="value" stackId="wf" radius={[4, 4, 0, 0]}>
+                {/* visible value bar — colored by sign, labeled above */}
+                <Bar dataKey="value" stackId="wf" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                   {waterfall.map((entry, i) => (
                     <Cell key={i} fill={entry.color} />
                   ))}
+                  {wfLabel && <LabelList content={wfLabel} />}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
+      )}
+
+      {/* ── Comparative table ── */}
+      {cmpRows.length > 0 && !isLoading && (
+        <ComparativeTable rows={cmpRows} />
       )}
     </div>
   )
