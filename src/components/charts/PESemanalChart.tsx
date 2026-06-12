@@ -5,6 +5,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts'
+import { ChartWrapper } from './ChartWrapper'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -414,7 +415,8 @@ export default function PESemanalChart({ salesData, financialData, isLoading }: 
           className="rounded-xl p-4 pb-2"
           style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
         >
-          <ResponsiveContainer width="100%" height={320}>
+          <ChartWrapper height={320}>
+          <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
               <XAxis
@@ -496,6 +498,7 @@ export default function PESemanalChart({ salesData, financialData, isLoading }: 
               />
             </LineChart>
           </ResponsiveContainer>
+          </ChartWrapper>
 
           {/* Legend */}
           <div className="flex flex-wrap gap-x-5 gap-y-2 justify-center pb-2 pt-1">

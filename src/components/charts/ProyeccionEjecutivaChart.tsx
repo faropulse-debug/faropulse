@@ -5,6 +5,7 @@ import {
   ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, ReferenceLine, Cell,
 } from 'recharts'
+import { ChartWrapper } from './ChartWrapper'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -316,7 +317,8 @@ export default function ProyeccionEjecutivaChart({ data, comensalesData = [], is
 
         {/* Chart */}
         <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: '20px 12px 8px' }}>
-          <ResponsiveContainer width="100%" height={380}>
+          <ChartWrapper height={380}>
+          <ResponsiveContainer width="100%" height="100%">
             {view === 'facturacion' ? (
               <ComposedChart data={allData} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
@@ -372,6 +374,7 @@ export default function ProyeccionEjecutivaChart({ data, comensalesData = [], is
               </ComposedChart>
             )}
           </ResponsiveContainer>
+          </ChartWrapper>
 
           {/* Legend */}
           <div style={{ display: 'flex', justifyContent: 'center', gap: 20, padding: '8px 0', fontSize: 11, color: 'rgba(255,255,255,0.45)', flexWrap: 'wrap' }}>

@@ -6,6 +6,7 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, ReferenceLine,
 } from 'recharts'
+import { ChartWrapper } from './ChartWrapper'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -423,7 +424,8 @@ export default function TicketPromedioChart({ data, isLoading }: TicketPromedioC
 
           {/* ── MENSUAL: BarChart amber ── */}
           {granularity === 'mensual' && (
-            <ResponsiveContainer width="100%" height={320}>
+            <ChartWrapper height={320}>
+            <ResponsiveContainer width="100%" height="100%">
               <BarChart data={monthlyPts} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                 <XAxis dataKey="name" {...xAxisProps} />
@@ -438,11 +440,13 @@ export default function TicketPromedioChart({ data, isLoading }: TicketPromedioC
                   animationDuration={700} animationEasing="ease-out" />
               </BarChart>
             </ResponsiveContainer>
+            </ChartWrapper>
           )}
 
           {/* ── SEMANAL: LineChart todas las semanas ── */}
           {granularity === 'semanal' && (
-            <ResponsiveContainer width="100%" height={320}>
+            <ChartWrapper height={320}>
+            <ResponsiveContainer width="100%" height="100%">
               <LineChart data={weeklyPts} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                 <XAxis dataKey="name" {...xAxisProps} interval="preserveStartEnd" />
@@ -457,6 +461,7 @@ export default function TicketPromedioChart({ data, isLoading }: TicketPromedioC
                   animationDuration={600} animationEasing="ease-out" />
               </LineChart>
             </ResponsiveContainer>
+            </ChartWrapper>
           )}
 
           {/* ── DIARIO: LineChart días del mes ── */}
@@ -466,7 +471,8 @@ export default function TicketPromedioChart({ data, isLoading }: TicketPromedioC
                 Sin datos para {formatMonthLabel(activePeriod)}
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={320}>
+              <ChartWrapper height={320}>
+              <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={dailyPts} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                   <XAxis dataKey="name" {...xAxisProps} interval={4} />
@@ -481,6 +487,7 @@ export default function TicketPromedioChart({ data, isLoading }: TicketPromedioC
                     animationDuration={600} animationEasing="ease-out" />
                 </LineChart>
               </ResponsiveContainer>
+              </ChartWrapper>
             )
           )}
 

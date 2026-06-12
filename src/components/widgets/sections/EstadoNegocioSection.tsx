@@ -7,6 +7,7 @@ import {
   Tooltip, ResponsiveContainer, LabelList,
 } from 'recharts'
 import { fmtMillones, fmtPeso }  from '@/lib/format'
+import { ChartWrapper }           from '@/src/components/charts/ChartWrapper'
 import { SectionLabel }          from '@/components/dashboard/SectionLabel'
 import {
   type CanalRow,
@@ -772,7 +773,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
           }}>
             Variación vs mes anterior
           </div>
-          <div style={{ height: '220px' }}>
+          <ChartWrapper height={220}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={waterfall}
@@ -806,7 +807,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </ChartWrapper>
         </div>
       )}
 

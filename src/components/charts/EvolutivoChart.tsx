@@ -7,8 +7,9 @@
 import { useMemo, useState } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, CartesianGrid, ReferenceLine
+  ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts';
+import { ChartWrapper } from './ChartWrapper'
 
 // ── Types ──
 interface FinancialRow {
@@ -238,7 +239,8 @@ export default function EvolutivoChart({ data, isLoading }: EvolutivoChartProps)
         {/* Chart */}
         <div className="rounded-xl p-4 pb-2"
           style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <ResponsiveContainer width="100%" height={340}>
+          <ChartWrapper height={340}>
+          <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
               <defs>
                 <filter id="glow-resultado">
@@ -280,6 +282,7 @@ export default function EvolutivoChart({ data, isLoading }: EvolutivoChartProps)
               )}
             </LineChart>
           </ResponsiveContainer>
+          </ChartWrapper>
 
           {/* Legend toggleable */}
           <div className="flex flex-wrap gap-x-4 gap-y-2 justify-center pb-2">

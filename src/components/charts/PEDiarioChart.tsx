@@ -5,6 +5,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid,
 } from 'recharts'
+import { ChartWrapper } from './ChartWrapper'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -416,7 +417,8 @@ export default function PEDiarioChart({ salesData, financialData, isLoading }: P
               Sin datos para {activePeriod ? periodLabel(activePeriod) : 'este mes'}
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={300}>
+            <ChartWrapper height={300}>
+            <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                 <XAxis
@@ -487,6 +489,7 @@ export default function PEDiarioChart({ salesData, financialData, isLoading }: P
                 />
               </LineChart>
             </ResponsiveContainer>
+            </ChartWrapper>
           )}
 
           {/* Legend */}

@@ -6,6 +6,7 @@ import {
   ReferenceLine, ResponsiveContainer,
 } from 'recharts'
 import { fmtMillones } from '@/lib/format'
+import { ChartWrapper } from '@/src/components/charts/ChartWrapper'
 
 export type PELineas = { peMin: number; peOperativo: number; peIdeal: number }
 
@@ -97,7 +98,8 @@ export function PEBarChart({ title, data, lineas }: PEBarChartProps) {
         marginBottom: '16px',
       }}>{title}</div>
 
-      <ResponsiveContainer width="100%" height={160}>
+      <ChartWrapper height={160}>
+      <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 6, right: 44, left: 0, bottom: 0 }} barSize={28}>
           <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.04)" vertical={false} />
           <XAxis
@@ -125,6 +127,7 @@ export function PEBarChart({ title, data, lineas }: PEBarChartProps) {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+      </ChartWrapper>
 
       <div style={{
         display: 'flex', flexWrap: 'wrap', gap: '10px 16px',

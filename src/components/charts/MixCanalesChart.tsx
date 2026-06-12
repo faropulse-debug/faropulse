@@ -6,6 +6,7 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid,
 } from 'recharts'
+import { ChartWrapper } from './ChartWrapper'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -307,7 +308,8 @@ export default function MixCanalesChart({ data, isLoading }: MixCanalesChartProp
         {/* Chart area */}
         <div className="rounded-xl p-4 pb-2"
           style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <ResponsiveContainer width="100%" height={320}>
+          <ChartWrapper height={320}>
+          <ResponsiveContainer width="100%" height="100%">
             <BarChart data={activePts} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
               <XAxis dataKey="name" {...xAxisProps} />
@@ -325,6 +327,7 @@ export default function MixCanalesChart({ data, isLoading }: MixCanalesChartProp
                 animationDuration={700} animationEasing="ease-out" />
             </BarChart>
           </ResponsiveContainer>
+          </ChartWrapper>
 
           {/* Legend */}
           <div className="flex gap-5 justify-center pb-2 pt-2">

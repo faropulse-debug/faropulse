@@ -5,6 +5,7 @@ import {
   ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts'
+import { ChartWrapper } from './ChartWrapper'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -324,7 +325,8 @@ export default function PEEvolutivoChart({ data, isLoading }: PEEvolutivoChartPr
           className="rounded-xl p-4 pb-2"
           style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
         >
-          <ResponsiveContainer width="100%" height={340}>
+          <ChartWrapper height={340}>
+          <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
               <XAxis
@@ -392,6 +394,7 @@ export default function PEEvolutivoChart({ data, isLoading }: PEEvolutivoChartPr
               />
             </ComposedChart>
           </ResponsiveContainer>
+          </ChartWrapper>
 
           {/* Legend */}
           <div className="flex flex-wrap gap-x-5 gap-y-2 justify-center pb-2 pt-1">
