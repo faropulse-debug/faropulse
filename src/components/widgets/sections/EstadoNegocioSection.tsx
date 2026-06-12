@@ -41,8 +41,8 @@ interface CmpRow {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const GREEN = '#22c55e'
-const RED   = '#ef4444'
+const GREEN = '#5a8a3c'
+const RED   = '#b0413a'
 const AMBER = '#f5820a'
 const MUTED = 'rgba(255,255,255,0.25)'
 
@@ -229,8 +229,8 @@ function EjecutivoKpiCard({
 }) {
   const color = cardSemColor(kpi.vsPrev, kpi.higherGood)
   const GLOW: Record<string, string> = {
-    [GREEN]: 'rgba(34,197,94,0.10)',
-    [RED]:   'rgba(239,68,68,0.08)',
+    [GREEN]: 'rgba(90,138,60,0.10)',
+    [RED]:   'rgba(176,65,58,0.10)',
     [AMBER]: 'rgba(245,130,10,0.07)',
   }
   return (
@@ -265,7 +265,7 @@ function EjecutivoKpiCard({
 
       <div style={{
         fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: '1.8rem',
-        lineHeight: 1, color, letterSpacing: '-0.02em',
+        lineHeight: 1, color: 'rgba(255,255,255,0.92)', letterSpacing: '-0.02em',
       }}>
         {value ?? '—'}
       </div>
@@ -500,6 +500,8 @@ export function EstadoNegocioSection({ locationId }: Props) {
   const yoCub     = yearAgo?.comensales ?? null
   const yoTick    = yoPed && yoPed > 0 && yoFact != null ? yoFact / yoPed : null
 
+  // TODO(pe-color): cuando useDashboardData exponga el PE del mes, reemplazar
+  // makeKpi(facturacion, prevFact, ...) con color derivado de facturacion vs PE.
   const kpiFact = makeKpi(facturacion, prevFact, yoFact, true)
   const kpiPed  = makeKpi(pedidos,     prevPed,  yoPed,  true)
   const kpiCub  = makeKpi(cubiertos,   prevCub,  yoCub,  true)
