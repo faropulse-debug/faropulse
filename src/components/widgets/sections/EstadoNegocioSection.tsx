@@ -8,6 +8,11 @@ import {
 } from 'recharts'
 import { fmtMillones, fmtPeso }  from '@/lib/format'
 import { SectionLabel }          from '@/components/dashboard/SectionLabel'
+import {
+  type CanalRow,
+  computeCanalRows,
+  buildCanalInsight,
+} from '@/src/lib/canal-helpers'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +50,12 @@ const GREEN = '#5a8a3c'
 const RED   = '#b0413a'
 const AMBER = '#f5820a'
 const MUTED = 'rgba(255,255,255,0.25)'
+
+const CANAL_LETTER: Record<string, string> = {
+  'Salón':    'S',
+  'Delivery': 'D',
+  'TakeAway': 'T',
+}
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
@@ -452,6 +463,97 @@ function ComparativeTable({ rows }: { rows: CmpRow[] }) {
   )
 }
 
+// ─── Canal analysis ───────────────────────────────────────────────────────────
+
+function CanalesSection({ rows, insight }: { rows: CanalRow[]; insight: string | null }) {
+  return (
+    <div style={{ marginTop: '24px' }}>
+      <div style={{
+        fontFamily: 'var(--font-display)',
+        fontSize: '0.55rem', letterSpacing: '0.2em', textTransform: 'uppercase',
+        color: 'rgba(255,255,255,0.22)', marginBottom: '10px',
+      }}>
+        Análisis por canal
+      </div>
+      <div style={{
+        background: 'rgba(255,255,255,0.025)',
+        border: '1px solid rgba(255,255,255,0.07)',
+        borderRadius: '12px', overflow: 'hidden',
+      }}>
+        {rows.map((row, i) => (
+          <div key={row.canal} style={{
+            padding: '12px 16px',
+            borderBottom: i < rows.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px' }}>
+              <div style={{
+                width: '20px', height: '20px', borderRadius: '5px',
+                background: 'rgba(245,130,10,0.12)',
+                border: '1px solid rgba(245,130,10,0.22)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: 'var(--font-display)', fontSize: '0.58rem', fontWeight: 700,
+                color: AMBER, flexShrink: 0,
+              }}>
+                {CANAL_LETTER[row.canal] ?? '?'}
+              </div>
+              <span style={{
+                fontFamily: 'var(--font-display)', fontSize: '0.72rem', fontWeight: 600,
+                color: 'rgba(255,255,255,0.72)', minWidth: '72px', flexShrink: 0,
+              }}>
+                {row.canal}
+              </span>
+              <div style={{
+                marginLeft: 'auto', display: 'flex', alignItems: 'center',
+                gap: '14px', flexShrink: 0,
+                fontFamily: 'var(--font-display)', fontSize: '0.68rem',
+              }}>
+                <span style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600, minWidth: '50px', textAlign: 'right' }}>
+                  {fmtMillones(row.ventas)}
+                </span>
+                <span style={{ color: AMBER, fontWeight: 700, minWidth: '30px', textAlign: 'right' }}>
+                  {row.pct.toFixed(0)}%
+                </span>
+                <span style={{ color: 'rgba(255,255,255,0.4)', minWidth: '52px', textAlign: 'right' }}>
+                  {row.pedidos} ped.
+                </span>
+                <span style={{
+                  color: row.varPct === null ? 'rgba(255,255,255,0.25)' : deltaColor(row.varPct, true),
+                  fontWeight: 600, minWidth: '46px', textAlign: 'right',
+                }}>
+                  {row.varPct === null
+                    ? '—'
+                    : `${row.varPct >= 0 ? '↑' : '↓'}${Math.abs(row.varPct).toFixed(1)}%`}
+                </span>
+              </div>
+            </div>
+            <div style={{
+              height: '3px', background: 'rgba(255,255,255,0.05)',
+              borderRadius: '2px', overflow: 'hidden',
+            }}>
+              <div style={{
+                width: `${row.pct}%`, height: '100%', background: AMBER,
+                borderRadius: '2px', transition: 'width 0.5s ease',
+              }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      {insight && (
+        <div style={{
+          marginTop: '10px', padding: '10px 14px',
+          background: 'rgba(255,255,255,0.02)',
+          border: '1px solid rgba(255,255,255,0.05)',
+          borderRadius: '8px',
+          fontFamily: 'var(--font-body)', fontSize: '0.72rem',
+          lineHeight: 1.5, color: 'rgba(255,255,255,0.48)',
+        }}>
+          {insight}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Section ──────────────────────────────────────────────────────────────────
 
 interface Props { locationId: string }
@@ -544,6 +646,20 @@ export function EstadoNegocioSection({ locationId }: Props) {
     if (kpiFact.vsPrev < -10) return RED
     return '#f59e0b'
   }, [kpiFact.vsPrev, kpiTick.vsPrev])
+
+  // ── Canal analysis ──
+  const canalRows = useMemo(
+    () => currentMonth
+      ? computeCanalRows(
+          data?.ventasPorCanal ?? [],
+          currentMonth,
+          prevMonthKey(currentMonth),
+        )
+      : [],
+    [data?.ventasPorCanal, currentMonth],
+  )
+
+  const canalInsight = useMemo(() => buildCanalInsight(canalRows), [canalRows])
 
   // ── Comparative table rows ──
   const cmpRows = useMemo((): CmpRow[] => {
@@ -697,6 +813,11 @@ export function EstadoNegocioSection({ locationId }: Props) {
       {/* ── Comparative table ── */}
       {cmpRows.length > 0 && !isLoading && (
         <ComparativeTable rows={cmpRows} />
+      )}
+
+      {/* ── Canal analysis ── */}
+      {canalRows.length > 0 && !isLoading && (
+        <CanalesSection rows={canalRows} insight={canalInsight} />
       )}
     </div>
   )

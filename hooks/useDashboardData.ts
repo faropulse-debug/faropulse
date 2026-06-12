@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getSupabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
+import { type VentaCanal } from '@/src/lib/canal-helpers'
+
+export type { VentaCanal }
 
 export interface VentaDiaria {
   fecha:      string
@@ -37,6 +40,7 @@ export interface DashboardData {
   ventasSemanales:  VentaSemanal[]
   ventasMensuales:  VentaMensual[]
   financialResults: FinancialResult[]
+  ventasPorCanal:   VentaCanal[]
 }
 
 interface UseDashboardDataReturn {
@@ -64,23 +68,26 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
     setError(null)
 
     try {
-      const [diarias, semanales, mensuales, financiales] = await Promise.all([
+      const [diarias, semanales, mensuales, financiales, canal] = await Promise.all([
         getSupabase().rpc('get_ventas_semana',     { p_location_id: locationId }),
         getSupabase().rpc('get_ventas_semanales',  { p_location_id: locationId }),
         getSupabase().rpc('get_ventas_mensuales',  { p_location_id: locationId }),
         getSupabase().rpc('get_financial_results', { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_por_canal',  { p_location_id: locationId }),
       ])
 
       if (diarias.error)     throw new Error(`get_ventas_semana: ${diarias.error.message}`)
       if (semanales.error)   throw new Error(`get_ventas_semanales: ${semanales.error.message}`)
       if (mensuales.error)   throw new Error(`get_ventas_mensuales: ${mensuales.error.message}`)
       if (financiales.error) throw new Error(`get_financial_results: ${financiales.error.message}`)
+      if (canal.error)       throw new Error(`get_ventas_por_canal: ${canal.error.message}`)
 
       setData({
         ventasDiarias:    diarias.data    ?? [],
         ventasSemanales:  semanales.data  ?? [],
         ventasMensuales:  mensuales.data  ?? [],
         financialResults: financiales.data ?? [],
+        ventasPorCanal:   canal.data      ?? [],
       })
       setLastUpdated(new Date())
     } catch (err: unknown) {
