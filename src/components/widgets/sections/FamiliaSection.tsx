@@ -3,6 +3,7 @@
 import { useState, useMemo }   from 'react'
 import { useDashboardData }     from '@/hooks/useDashboardData'
 import { SectionLabel }         from '@/components/dashboard/SectionLabel'
+import { MonthSelector, currentYM } from '@/src/components/ui/MonthSelector'
 import { fmtMillones }          from '@/lib/format'
 import {
   computeFamiliaRows,
@@ -12,7 +13,7 @@ import {
   type FamiliaRow,
 } from '@/src/lib/familia-helpers'
 
-// ─── Design tokens (consistent with page.tsx + EstadoNegocioSection) ──────────
+// ─── Design tokens ────────────────────────────────────────────────────────────
 
 const AMBER     = '#f5820a'
 const GREEN     = '#5a8a3c'
@@ -33,6 +34,18 @@ function varColor(v: number | null): string {
 function varLabel(v: number | null): string {
   if (v === null) return '—'
   return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
+}
+
+/**
+ * From a descending list of YYYY-MM strings, returns the most recent month
+ * that is strictly before the current calendar month (i.e. a "closed" month).
+ * Falls back to months[0] when no closed month is found.
+ */
+function defaultClosedMonth(months: string[]): string | null {
+  if (!months.length) return null
+  const today = currentYM()
+  const closed = months.find(m => m < today)
+  return closed ?? months[0]
 }
 
 // ─── Row component ────────────────────────────────────────────────────────────
@@ -111,6 +124,7 @@ export function FamiliaSection({ locationId }: Props) {
   const { data: liveData, isLoading } = useDashboardData(locationId)
   const [mesOverride, setMesOverride]  = useState<string | null>(null)
 
+  // All available months, sorted descending (most recent first)
   const meses = useMemo(() => {
     if (!liveData?.ventasPorFamilia?.length) return []
     return [...new Set(liveData.ventasPorFamilia.map(r => r.mes))]
@@ -118,7 +132,14 @@ export function FamiliaSection({ locationId }: Props) {
       .reverse()
   }, [liveData])
 
-  const mesActual = (mesOverride && meses.includes(mesOverride)) ? mesOverride : (meses[0] ?? null)
+  // Semestre móvil: last 6 months as chips
+  const semestre = useMemo(() => meses.slice(0, 6), [meses])
+
+  // Default = last closed month (not the partial current month)
+  const defaultMes = useMemo(() => defaultClosedMonth(semestre), [semestre])
+
+  // Active selection: use override only if it's in the visible semestre
+  const mesActual = (mesOverride && semestre.includes(mesOverride)) ? mesOverride : defaultMes
   const mesPrev   = mesActual ? prevMonthOf(mesActual) : null
 
   const display = useMemo(() => {
@@ -141,29 +162,13 @@ export function FamiliaSection({ locationId }: Props) {
 
   return (
     <div style={{ marginBottom: '52px' }}>
-      <SectionLabel action={
-        meses.length > 0 ? (
-          <select
-            value={mesActual ?? ''}
-            onChange={e => setMesOverride(e.target.value)}
-            style={{
-              background:    'rgba(255,255,255,0.05)',
-              border:        '1px solid rgba(255,255,255,0.10)',
-              borderRadius:  '4px',
-              color:         'rgba(255,255,255,0.65)',
-              fontFamily:    FONT_MONO,
-              fontSize:      '0.63rem',
-              letterSpacing: '0.08em',
-              padding:       '2px 6px',
-              cursor:        'pointer',
-            }}
-          >
-            {meses.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-        ) : undefined
-      }>
-        Por Producto
-      </SectionLabel>
+      <SectionLabel>Por Producto</SectionLabel>
+
+      <MonthSelector
+        months={semestre}
+        selected={mesActual}
+        onChange={setMesOverride}
+      />
 
       {isLoading || !display ? (
         <div style={{
