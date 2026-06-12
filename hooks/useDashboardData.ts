@@ -3,9 +3,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getSupabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
-import { type VentaCanal } from '@/src/lib/canal-helpers'
+import { type VentaCanal }   from '@/src/lib/canal-helpers'
+import { type VentaFamilia } from '@/src/lib/familia-helpers'
 
-export type { VentaCanal }
+export type { VentaCanal, VentaFamilia }
 
 export interface VentaDiaria {
   fecha:      string
@@ -41,6 +42,7 @@ export interface DashboardData {
   ventasMensuales:  VentaMensual[]
   financialResults: FinancialResult[]
   ventasPorCanal:   VentaCanal[]
+  ventasPorFamilia: VentaFamilia[]
 }
 
 interface UseDashboardDataReturn {
@@ -68,12 +70,13 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
     setError(null)
 
     try {
-      const [diarias, semanales, mensuales, financiales, canal] = await Promise.all([
-        getSupabase().rpc('get_ventas_semana',     { p_location_id: locationId }),
-        getSupabase().rpc('get_ventas_semanales',  { p_location_id: locationId }),
-        getSupabase().rpc('get_ventas_mensuales',  { p_location_id: locationId }),
-        getSupabase().rpc('get_financial_results', { p_location_id: locationId }),
-        getSupabase().rpc('get_ventas_por_canal',  { p_location_id: locationId }),
+      const [diarias, semanales, mensuales, financiales, canal, familia] = await Promise.all([
+        getSupabase().rpc('get_ventas_semana',         { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_semanales',      { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_mensuales',      { p_location_id: locationId }),
+        getSupabase().rpc('get_financial_results',     { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_por_canal',      { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_por_familia',    { p_location_id: locationId }),
       ])
 
       if (diarias.error)     throw new Error(`get_ventas_semana: ${diarias.error.message}`)
@@ -81,13 +84,15 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
       if (mensuales.error)   throw new Error(`get_ventas_mensuales: ${mensuales.error.message}`)
       if (financiales.error) throw new Error(`get_financial_results: ${financiales.error.message}`)
       if (canal.error)       throw new Error(`get_ventas_por_canal: ${canal.error.message}`)
+      if (familia.error)     throw new Error(`get_ventas_por_familia: ${familia.error.message}`)
 
       setData({
-        ventasDiarias:    diarias.data    ?? [],
-        ventasSemanales:  semanales.data  ?? [],
-        ventasMensuales:  mensuales.data  ?? [],
+        ventasDiarias:    diarias.data     ?? [],
+        ventasSemanales:  semanales.data   ?? [],
+        ventasMensuales:  mensuales.data   ?? [],
         financialResults: financiales.data ?? [],
-        ventasPorCanal:   canal.data      ?? [],
+        ventasPorCanal:   canal.data       ?? [],
+        ventasPorFamilia: familia.data     ?? [],
       })
       setLastUpdated(new Date())
     } catch (err: unknown) {

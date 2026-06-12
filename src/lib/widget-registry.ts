@@ -9,6 +9,7 @@ import { ComensalesSection }          from '@/src/components/widgets/sections/Co
 import { TicketPromedioSection }      from '@/src/components/widgets/sections/TicketPromedioSection'
 import { ProyeccionSection }          from '@/src/components/widgets/sections/ProyeccionSection'
 import { MixCanalesSection }          from '@/src/components/widgets/sections/MixCanalesSection'
+import { FamiliaSection }             from '@/src/components/widgets/sections/FamiliaSection'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -135,6 +136,24 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     kind:    'composite',
     section: 'punto-equilibrio',
+  },
+  {
+    id:            'por-familia',
+    title:         'Por Producto',
+    description:   'Top 7 familias por facturación del mes con barra relativa, % mix, cantidad y variación vs mes anterior. Insight automático sobre líder y mayor variación.',
+    enabled:       true,
+    component:     FamiliaSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      8,
+    category:      'diagnostic',
+    refreshPolicy: 'slow',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'por-familia',
   },
   {
     id:            'mix-canales',
