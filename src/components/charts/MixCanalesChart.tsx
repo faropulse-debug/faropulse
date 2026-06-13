@@ -6,62 +6,24 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid,
 } from 'recharts'
-import { ChartWrapper } from './ChartWrapper'
+import { ChartWrapper }             from './ChartWrapper'
+import { MonthSelector, currentYM } from '@/src/components/ui/MonthSelector'
+import {
+  CHANNELS, CHANNEL_COLORS,
+  buildMonthly, buildWeekly, buildDaily,
+  buildChannelStats, availableMonths,
+  formatMonthLabel,
+  type RawSaleRow, type ChannelStats,
+} from '@/src/lib/canal-chart-helpers'
+
+// Re-export so MixCanalesSection keeps its existing import working
+export type { RawSaleRow }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface RawSaleRow {
-  fecha:     string   // "2025-03-10"
-  total:     number
-  tipo_zona: string   // "SALON" | "APLICACIONES" | "MOSTRADOR" | ...
-}
+type Granularity = 'mensual' | 'semanal' | 'diario'
 
-type Granularity = 'mensual' | 'semanal'
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const CHANNELS = ['SALON', 'APLICACIONES', 'MOSTRADOR'] as const
-type Channel = typeof CHANNELS[number]
-
-const CHANNEL_COLORS: Record<Channel, string> = {
-  SALON:        '#f5820a',
-  APLICACIONES: '#a855f7',
-  MOSTRADOR:    '#06b6d4',
-}
-
-const MONTH_LABELS: Record<string, string> = {
-  '01': 'Ene', '02': 'Feb', '03': 'Mar', '04': 'Abr',
-  '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Ago',
-  '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dic',
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function normalizeChannel(raw: string): Channel | null {
-  const up = (raw ?? '').toUpperCase().trim()
-  if (up === 'SALON' || up === 'SALÓN') return 'SALON'
-  if (up === 'APLICACIONES' || up === 'APP' || up === 'DELIVERY') return 'APLICACIONES'
-  if (up === 'MOSTRADOR') return 'MOSTRADOR'
-  return null
-}
-
-function formatMonthLabel(periodo: string): string {
-  const [y, m] = periodo.split('-')
-  return `${MONTH_LABELS[m] || m} ${y.slice(2)}`
-}
-
-function getMondayOfWeek(dateStr: string): string {
-  const d    = new Date(dateStr + 'T12:00:00')
-  const day  = d.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  d.setDate(d.getDate() + diff)
-  return d.toISOString().split('T')[0]
-}
-
-function formatWeekLabel(iso: string): string {
-  const d = new Date(iso + 'T12:00:00')
-  return `${d.getDate()} ${MONTH_LABELS[String(d.getMonth() + 1).padStart(2, '0')]}`
-}
+// ── Presentation helpers ──────────────────────────────────────────────────────
 
 function fmtM(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
@@ -69,83 +31,30 @@ function fmtM(value: number): string {
   return `$${value.toFixed(0)}`
 }
 
-// ── Aggregation ───────────────────────────────────────────────────────────────
-
-interface PeriodPoint {
-  name:         string
-  SALON:        number
-  APLICACIONES: number
-  MOSTRADOR:    number
-  total:        number
+function yTick(value: number): string {
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000)     return `$${(value / 1_000).toFixed(0)}K`
+  return `$${value}`
 }
 
-interface ChannelStats {
-  channel:    Channel
-  total:      number
-  count:      number
-  pctOfTotal: number
-  ticketAvg:  number
+const xAxisProps = {
+  tick:     { fill: 'rgba(255,255,255,0.4)', fontSize: 11 },
+  axisLine: { stroke: 'rgba(255,255,255,0.08)' },
+  tickLine: false as const,
+  dy:       8,
 }
 
-type Accum = { SALON: number; APLICACIONES: number; MOSTRADOR: number }
-
-function buildMonthly(rows: RawSaleRow[]): PeriodPoint[] {
-  const map = new Map<string, Accum>()
-  for (const r of rows) {
-    const ch = normalizeChannel(r.tipo_zona)
-    if (!ch) continue
-    const k = r.fecha.substring(0, 7)
-    if (!map.has(k)) map.set(k, { SALON: 0, APLICACIONES: 0, MOSTRADOR: 0 })
-    map.get(k)![ch] += Number(r.total)
-  }
-  return Array.from(map.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([periodo, v]) => ({
-      name: formatMonthLabel(periodo),
-      SALON:        v.SALON,
-      APLICACIONES: v.APLICACIONES,
-      MOSTRADOR:    v.MOSTRADOR,
-      total:        v.SALON + v.APLICACIONES + v.MOSTRADOR,
-    }))
+const xAxisPropsDaily = {
+  ...xAxisProps,
+  tick: { fill: 'rgba(255,255,255,0.4)', fontSize: 9 },
 }
 
-function buildWeekly(rows: RawSaleRow[]): PeriodPoint[] {
-  const map = new Map<string, Accum>()
-  for (const r of rows) {
-    const ch = normalizeChannel(r.tipo_zona)
-    if (!ch) continue
-    const k = getMondayOfWeek(r.fecha)
-    if (!map.has(k)) map.set(k, { SALON: 0, APLICACIONES: 0, MOSTRADOR: 0 })
-    map.get(k)![ch] += Number(r.total)
-  }
-  return Array.from(map.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([semana, v]) => ({
-      name: formatWeekLabel(semana),
-      SALON:        v.SALON,
-      APLICACIONES: v.APLICACIONES,
-      MOSTRADOR:    v.MOSTRADOR,
-      total:        v.SALON + v.APLICACIONES + v.MOSTRADOR,
-    }))
-}
-
-function buildChannelStats(rows: RawSaleRow[]): ChannelStats[] {
-  const totals: Record<Channel, number> = { SALON: 0, APLICACIONES: 0, MOSTRADOR: 0 }
-  const counts: Record<Channel, number> = { SALON: 0, APLICACIONES: 0, MOSTRADOR: 0 }
-  for (const r of rows) {
-    const ch = normalizeChannel(r.tipo_zona)
-    if (!ch) continue
-    totals[ch] += Number(r.total)
-    counts[ch] += 1
-  }
-  const grandTotal = CHANNELS.reduce((s, ch) => s + totals[ch], 0)
-  return CHANNELS.map(ch => ({
-    channel:    ch,
-    total:      totals[ch],
-    count:      counts[ch],
-    pctOfTotal: grandTotal > 0 ? (totals[ch] / grandTotal) * 100 : 0,
-    ticketAvg:  counts[ch] > 0 ? totals[ch] / counts[ch] : 0,
-  }))
+const yAxisProps = {
+  tick:          { fill: 'rgba(255,255,255,0.3)', fontSize: 10 },
+  axisLine:      false as const,
+  tickLine:      false as const,
+  dx:            -5,
+  tickFormatter: yTick,
 }
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
@@ -160,7 +69,9 @@ function MixTooltip({ active, payload, label }: any) {
     >
       <div className="text-amber-500 text-xs font-bold mb-1 tracking-widest uppercase"
         style={{ fontFamily: 'Syne, sans-serif' }}>{label}</div>
-      <div className="text-white/30 text-[10px] mb-2.5">Total: <span className="text-white/55 font-mono">{fmtM(total)}</span></div>
+      <div className="text-white/30 text-[10px] mb-2.5">
+        Total: <span className="text-white/55 font-mono">{fmtM(total)}</span>
+      </div>
       {[...payload].reverse().map((p: any) => {
         const pct = total > 0 ? ((p.value / total) * 100).toFixed(1) : '0.0'
         return (
@@ -179,31 +90,6 @@ function MixTooltip({ active, payload, label }: any) {
       })}
     </div>
   )
-}
-
-// ── Y Axis formatter ──────────────────────────────────────────────────────────
-
-function yTick(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000)     return `$${(value / 1_000).toFixed(0)}K`
-  return `$${value}`
-}
-
-// ── Shared axis props ─────────────────────────────────────────────────────────
-
-const xAxisProps = {
-  tick:     { fill: 'rgba(255,255,255,0.4)', fontSize: 11 },
-  axisLine: { stroke: 'rgba(255,255,255,0.08)' },
-  tickLine: false as const,
-  dy:       8,
-}
-
-const yAxisProps = {
-  tick:          { fill: 'rgba(255,255,255,0.3)', fontSize: 10 },
-  axisLine:      false as const,
-  tickLine:      false as const,
-  dx:            -5,
-  tickFormatter: yTick,
 }
 
 // ── Channel Cards ─────────────────────────────────────────────────────────────
@@ -241,19 +127,39 @@ interface MixCanalesChartProps {
   isLoading?: boolean
 }
 
+const TABS: { key: Granularity; label: string }[] = [
+  { key: 'mensual', label: 'Mensual' },
+  { key: 'semanal', label: 'Semanal' },
+  { key: 'diario',  label: 'Diario'  },
+]
+
 export default function MixCanalesChart({ data, isLoading }: MixCanalesChartProps) {
-  const [granularity, setGranularity] = useState<Granularity>('mensual')
+  const [granularity,   setGranularity]   = useState<Granularity>('mensual')
+  const [selectedMonth, setSelectedMonth] = useState<string>('')
 
-  const monthlyPts   = useMemo(() => buildMonthly(data),      [data])
-  const weeklyPts    = useMemo(() => buildWeekly(data),       [data])
-  const channelStats = useMemo(() => buildChannelStats(data), [data])
+  // Semestre móvil: last 6 months in the data (descending)
+  const semestre = useMemo(() => availableMonths(data).slice(0, 6), [data])
 
-  const activePts = granularity === 'mensual' ? monthlyPts : weeklyPts
+  // Default daily month = last complete month (not the partial current month)
+  const activeDailyMonth = useMemo(() => {
+    const todayYM = currentYM()
+    const closed  = semestre.find(m => m < todayYM)
+    const def     = closed ?? semestre[0] ?? ''
+    return (selectedMonth && semestre.includes(selectedMonth)) ? selectedMonth : def
+  }, [semestre, selectedMonth])
 
-  const TABS: { key: Granularity; label: string }[] = [
-    { key: 'mensual', label: 'Mensual' },
-    { key: 'semanal', label: 'Semanal' },
-  ]
+  const monthlyPts   = useMemo(() => buildMonthly(data),                       [data])
+  const weeklyPts    = useMemo(() => buildWeekly(data),                        [data])
+  const dailyPts     = useMemo(() => buildDaily(data, activeDailyMonth),       [data, activeDailyMonth])
+  const channelStats = useMemo(() => buildChannelStats(data),                  [data])
+
+  const activePts = granularity === 'mensual' ? monthlyPts
+                  : granularity === 'semanal' ? weeklyPts
+                  : dailyPts
+
+  const chartTitle = granularity === 'mensual' ? 'Facturación por Canal — Mensual'
+                   : granularity === 'semanal' ? 'Facturación por Canal — Semanal'
+                   : `Facturación por Canal — ${activeDailyMonth ? formatMonthLabel(activeDailyMonth) : 'Diario'}`
 
   if (isLoading) return <div className="animate-pulse rounded-2xl bg-white/5 h-[520px]" />
 
@@ -286,10 +192,10 @@ export default function MixCanalesChart({ data, isLoading }: MixCanalesChartProp
         {/* Title */}
         <h2 className="font-extrabold text-lg text-white tracking-tight mb-4 m-0"
           style={{ fontFamily: 'Syne, sans-serif' }}>
-          {granularity === 'mensual' ? 'Facturación por Canal — Mensual' : 'Facturación por Canal — Semanal'}
+          {chartTitle}
         </h2>
 
-        {/* Tabs */}
+        {/* Granularity tabs */}
         <div className="flex gap-2 mb-4">
           {TABS.map(t => (
             <button key={t.key} onClick={() => setGranularity(t.key)}
@@ -305,39 +211,63 @@ export default function MixCanalesChart({ data, isLoading }: MixCanalesChartProp
           ))}
         </div>
 
+        {/* Month chips — solo en Diario */}
+        {granularity === 'diario' && (
+          <MonthSelector
+            months={semestre}
+            selected={activeDailyMonth}
+            onChange={setSelectedMonth}
+          />
+        )}
+
         {/* Chart area */}
         <div className="rounded-xl p-4 pb-2"
           style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <ChartWrapper height={320}>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={activePts} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-              <XAxis dataKey="name" {...xAxisProps} />
-              <YAxis {...yAxisProps} />
-              <Tooltip
-                content={<MixTooltip />}
-                cursor={{ fill: 'rgba(245,130,10,0.06)' }}
-              />
-              <Bar dataKey="SALON"        stackId="a" fill="#f5820a" fillOpacity={0.85}
-                animationDuration={700} animationEasing="ease-out" />
-              <Bar dataKey="APLICACIONES" stackId="a" fill="#a855f7" fillOpacity={0.85}
-                animationDuration={700} animationEasing="ease-out" />
-              <Bar dataKey="MOSTRADOR"    stackId="a" fill="#06b6d4" fillOpacity={0.85}
-                radius={[4, 4, 0, 0]}
-                animationDuration={700} animationEasing="ease-out" />
-            </BarChart>
-          </ResponsiveContainer>
-          </ChartWrapper>
 
-          {/* Legend */}
-          <div className="flex gap-5 justify-center pb-2 pt-2">
-            {CHANNELS.map(ch => (
-              <div key={ch} className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-sm" style={{ background: CHANNEL_COLORS[ch], opacity: 0.85 }} />
-                <span className="text-[11px] text-white/40">{ch}</span>
+          {granularity === 'diario' && dailyPts.length === 0 ? (
+            <div className="h-[320px] flex items-center justify-center text-white/30 text-sm">
+              Sin datos para {activeDailyMonth ? formatMonthLabel(activeDailyMonth) : 'este mes'}
+            </div>
+          ) : (
+            <>
+              <ChartWrapper height={320}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={activePts}
+                  margin={{ top: 10, right: 20, left: 10, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                  <XAxis
+                    dataKey="name"
+                    {...(granularity === 'diario' ? xAxisPropsDaily : xAxisProps)}
+                  />
+                  <YAxis {...yAxisProps} />
+                  <Tooltip
+                    content={<MixTooltip />}
+                    cursor={{ fill: 'rgba(245,130,10,0.06)' }}
+                  />
+                  <Bar dataKey="SALON"        stackId="a" fill="#f5820a" fillOpacity={0.85}
+                    animationDuration={700} animationEasing="ease-out" />
+                  <Bar dataKey="APLICACIONES" stackId="a" fill="#a855f7" fillOpacity={0.85}
+                    animationDuration={700} animationEasing="ease-out" />
+                  <Bar dataKey="MOSTRADOR"    stackId="a" fill="#06b6d4" fillOpacity={0.85}
+                    radius={[4, 4, 0, 0]}
+                    animationDuration={700} animationEasing="ease-out" />
+                </BarChart>
+              </ResponsiveContainer>
+              </ChartWrapper>
+
+              {/* Legend */}
+              <div className="flex gap-5 justify-center pb-2 pt-2">
+                {CHANNELS.map(ch => (
+                  <div key={ch} className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-sm" style={{ background: CHANNEL_COLORS[ch], opacity: 0.85 }} />
+                    <span className="text-[11px] text-white/40">{ch}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
         </div>
 
         {/* Channel summary cards */}
