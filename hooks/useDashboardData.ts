@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getSupabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
-import { type VentaCanal }   from '@/src/lib/canal-helpers'
-import { type VentaFamilia } from '@/src/lib/familia-helpers'
+import { type VentaCanal }      from '@/src/lib/canal-helpers'
+import { type VentaFamilia }    from '@/src/lib/familia-helpers'
+import { type VentaDiaSemana }  from '@/src/lib/dia-semana-helpers'
 
-export type { VentaCanal, VentaFamilia }
+export type { VentaCanal, VentaFamilia, VentaDiaSemana }
 
 export interface VentaDiaria {
   fecha:      string
@@ -37,12 +38,13 @@ export interface FinancialResult {
 }
 
 export interface DashboardData {
-  ventasDiarias:    VentaDiaria[]
-  ventasSemanales:  VentaSemanal[]
-  ventasMensuales:  VentaMensual[]
-  financialResults: FinancialResult[]
-  ventasPorCanal:   VentaCanal[]
-  ventasPorFamilia: VentaFamilia[]
+  ventasDiarias:      VentaDiaria[]
+  ventasSemanales:    VentaSemanal[]
+  ventasMensuales:    VentaMensual[]
+  financialResults:   FinancialResult[]
+  ventasPorCanal:     VentaCanal[]
+  ventasPorFamilia:   VentaFamilia[]
+  ventasPorDiaSemana: VentaDiaSemana[]
 }
 
 interface UseDashboardDataReturn {
@@ -87,21 +89,23 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
     try {
       // allSettled: each RPC resolves independently — one failure never kills the rest.
       const results = await Promise.allSettled([
-        getSupabase().rpc('get_ventas_semana',      { p_location_id: locationId }),
-        getSupabase().rpc('get_ventas_semanales',   { p_location_id: locationId }),
-        getSupabase().rpc('get_ventas_mensuales',   { p_location_id: locationId }),
-        getSupabase().rpc('get_financial_results',  { p_location_id: locationId }),
-        getSupabase().rpc('get_ventas_por_canal',   { p_location_id: locationId }),
-        getSupabase().rpc('get_ventas_por_familia', { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_semana',          { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_semanales',       { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_mensuales',       { p_location_id: locationId }),
+        getSupabase().rpc('get_financial_results',      { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_por_canal',       { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_por_familia',     { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_por_dia_semana',  { p_location_id: locationId }),
       ])
 
       setData({
-        ventasDiarias:    safeArr<VentaDiaria>    (results[0], 'get_ventas_semana'),
-        ventasSemanales:  safeArr<VentaSemanal>   (results[1], 'get_ventas_semanales'),
-        ventasMensuales:  safeArr<VentaMensual>   (results[2], 'get_ventas_mensuales'),
-        financialResults: safeArr<FinancialResult>(results[3], 'get_financial_results'),
-        ventasPorCanal:   safeArr<VentaCanal>     (results[4], 'get_ventas_por_canal'),
-        ventasPorFamilia: safeArr<VentaFamilia>   (results[5], 'get_ventas_por_familia'),
+        ventasDiarias:      safeArr<VentaDiaria>     (results[0], 'get_ventas_semana'),
+        ventasSemanales:    safeArr<VentaSemanal>    (results[1], 'get_ventas_semanales'),
+        ventasMensuales:    safeArr<VentaMensual>    (results[2], 'get_ventas_mensuales'),
+        financialResults:   safeArr<FinancialResult> (results[3], 'get_financial_results'),
+        ventasPorCanal:     safeArr<VentaCanal>      (results[4], 'get_ventas_por_canal'),
+        ventasPorFamilia:   safeArr<VentaFamilia>    (results[5], 'get_ventas_por_familia'),
+        ventasPorDiaSemana: safeArr<VentaDiaSemana>  (results[6], 'get_ventas_por_dia_semana'),
       })
       setLastUpdated(new Date())
     } catch (err: unknown) {

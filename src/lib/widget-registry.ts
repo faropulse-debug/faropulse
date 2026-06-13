@@ -10,6 +10,7 @@ import { TicketPromedioSection }      from '@/src/components/widgets/sections/Ti
 import { ProyeccionSection }          from '@/src/components/widgets/sections/ProyeccionSection'
 import { MixCanalesSection }          from '@/src/components/widgets/sections/MixCanalesSection'
 import { FamiliaSection }             from '@/src/components/widgets/sections/FamiliaSection'
+import { DiaSemanaSection }           from '@/src/components/widgets/sections/DiaSemanaSection'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -154,6 +155,24 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     kind:    'composite',
     section: 'por-familia',
+  },
+  {
+    id:            'dia-semana',
+    title:         'Por día de semana',
+    description:   'Distribución de ventas y pedidos por día de la semana (Lun→Dom) con promedio por día, identificación del día más fuerte y más flojo, e insight automático.',
+    enabled:       true,
+    component:     DiaSemanaSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      9,
+    category:      'diagnostic',
+    refreshPolicy: 'slow',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'dia-semana',
   },
   {
     id:            'mix-canales',
