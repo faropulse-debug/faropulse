@@ -6,8 +6,9 @@ import { logger } from '@/lib/logger'
 import { type VentaCanal }      from '@/src/lib/canal-helpers'
 import { type VentaFamilia }    from '@/src/lib/familia-helpers'
 import { type VentaDiaSemana }  from '@/src/lib/dia-semana-helpers'
+import { type VentaFranja }    from '@/src/lib/franja-helpers'
 
-export type { VentaCanal, VentaFamilia, VentaDiaSemana }
+export type { VentaCanal, VentaFamilia, VentaDiaSemana, VentaFranja }
 
 export interface VentaDiaria {
   fecha:      string
@@ -45,6 +46,7 @@ export interface DashboardData {
   ventasPorCanal:     VentaCanal[]
   ventasPorFamilia:   VentaFamilia[]
   ventasPorDiaSemana: VentaDiaSemana[]
+  ventasPorFranja:    VentaFranja[]
 }
 
 interface UseDashboardDataReturn {
@@ -96,6 +98,7 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
         getSupabase().rpc('get_ventas_por_canal',       { p_location_id: locationId }),
         getSupabase().rpc('get_ventas_por_familia',     { p_location_id: locationId }),
         getSupabase().rpc('get_ventas_por_dia_semana',  { p_location_id: locationId }),
+        getSupabase().rpc('get_ventas_por_franja',      { p_location_id: locationId }),
       ])
 
       setData({
@@ -106,6 +109,7 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
         ventasPorCanal:     safeArr<VentaCanal>      (results[4], 'get_ventas_por_canal'),
         ventasPorFamilia:   safeArr<VentaFamilia>    (results[5], 'get_ventas_por_familia'),
         ventasPorDiaSemana: safeArr<VentaDiaSemana>  (results[6], 'get_ventas_por_dia_semana'),
+        ventasPorFranja:    safeArr<VentaFranja>     (results[7], 'get_ventas_por_franja'),
       })
       setLastUpdated(new Date())
     } catch (err: unknown) {

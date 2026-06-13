@@ -11,6 +11,7 @@ import { ProyeccionSection }          from '@/src/components/widgets/sections/Pr
 import { MixCanalesSection }          from '@/src/components/widgets/sections/MixCanalesSection'
 import { FamiliaSection }             from '@/src/components/widgets/sections/FamiliaSection'
 import { DiaSemanaSection }           from '@/src/components/widgets/sections/DiaSemanaSection'
+import { FranjaSection }              from '@/src/components/widgets/sections/FranjaSection'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -173,6 +174,24 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     kind:    'composite',
     section: 'dia-semana',
+  },
+  {
+    id:            'franja-horaria',
+    title:         'Por franja horaria',
+    description:   'Distribución de ventas por franja horaria (Mediodía/Tarde/Noche/Madrugada) con % mix, pedidos, variación vs mes anterior e insight automático sobre la franja más fuerte.',
+    enabled:       true,
+    component:     FranjaSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      10,
+    category:      'diagnostic',
+    refreshPolicy: 'slow',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'franja-horaria',
   },
   {
     id:            'mix-canales',
