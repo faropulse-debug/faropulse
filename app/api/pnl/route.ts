@@ -79,10 +79,9 @@ export async function POST(req: NextRequest) {
   }
 
   const SVC = {
-    'Content-Type':  'application/json',
-    'apikey':        SUPA_KEY,
-    'Authorization': `Bearer ${SUPA_KEY}`,
-    'Prefer':        'return=minimal',
+    'Content-Type': 'application/json',
+    'apikey':       SUPA_KEY,
+    'Prefer':       'return=minimal',
   }
 
   try {

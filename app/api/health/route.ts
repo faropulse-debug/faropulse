@@ -13,8 +13,7 @@ export async function GET() {
     try {
       const res = await fetch(`${supabaseUrl}/rest/v1/`, {
         headers: {
-          'apikey':        serviceRoleKey,
-          'Authorization': `Bearer ${serviceRoleKey}`,
+          'apikey': serviceRoleKey,
         },
         signal: AbortSignal.timeout(5_000),
       })

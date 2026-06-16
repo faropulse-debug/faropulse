@@ -14,9 +14,8 @@ async function fetchMaxirestDocs(
   svcKey:     string,
 ): Promise<Map<string, { total: number }>> {
   const headers = {
-    apikey:        svcKey,
-    Authorization: `Bearer ${svcKey}`,
-    Accept:        'application/json',
+    apikey: svcKey,
+    Accept: 'application/json',
   }
   const map = new Map<string, { total: number }>()
   let offset = 0

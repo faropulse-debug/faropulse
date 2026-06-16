@@ -8,10 +8,9 @@ export const ITEMS_REQUIRED_COLUMNS  = ['Sucursal', 'Numero', 'Descripcion', 'Ca
 // ─── Supabase service-role header bag ─────────────────────────────────────────
 
 export type SvcHeaders = {
-  'Content-Type':  string
-  'apikey':        string
-  'Authorization': string
-  'Prefer':        string
+  'Content-Type': string
+  'apikey':       string
+  'Prefer':       string
 }
 
 // ─── Pure utilities ───────────────────────────────────────────────────────────

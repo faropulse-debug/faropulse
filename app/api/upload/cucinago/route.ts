@@ -186,10 +186,9 @@ export async function POST(req: NextRequest) {
   console.log(`[upload/cucinago] env: url=${mask(SUPA_URL!)} key=${mask(SUPA_KEY!)}`)
 
   const SVC = {
-    'Content-Type':  'application/json',
-    'apikey':        SUPA_KEY!,
-    'Authorization': `Bearer ${SUPA_KEY}`,
-    'Prefer':        'return=minimal',
+    'Content-Type': 'application/json',
+    'apikey':       SUPA_KEY!,
+    'Prefer':       'return=minimal',
   }
 
   try {

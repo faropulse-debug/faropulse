@@ -32,9 +32,8 @@ if (!SUPA_URL || !SUPA_KEY) {
 }
 
 const HEADERS = {
-  'Content-Type':  'application/json',
-  'apikey':        SUPA_KEY,
-  'Authorization': `Bearer ${SUPA_KEY}`,
+  'Content-Type': 'application/json',
+  'apikey':       SUPA_KEY,
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
