@@ -1,11 +1,9 @@
 'use client'
 
-import { useState, useEffect }             from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { SectionLabel }                    from '@/components/dashboard/SectionLabel'
 import ComensalesChart, { RawComensalRow } from '../../charts/ComensalesChart'
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const ANON_KEY     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+import { getSupabase }                     from '@/lib/supabase'
 
 interface Props {
   locationId: string
@@ -15,34 +13,17 @@ export function ComensalesSection({ locationId }: Props) {
   const [data,      setData]      = useState<RawComensalRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!locationId) return
     setIsLoading(true)
-
-    // Fetch directo al REST endpoint — sin RPC, agregación client-side.
-    // Range: 0-99999 bypasea el default de PostgREST (1000 filas) para
-    // traer todo el historial de 12 meses en una sola request.
-    fetch(`${SUPABASE_URL}/rest/v1/rpc/get_comensales_full`, {
-      method:  'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'apikey':        ANON_KEY,
-        'Authorization': `Bearer ${ANON_KEY}`,
-      },
-      body: JSON.stringify({ p_location_id: locationId }),
-    })
-      .then(r => r.json())
-      .then(rows => {
-        const valid = Array.isArray(rows) ? rows : []
-        console.log('[ComensalesSection] rows recibidos:', valid.length)
-        setData(valid)
-      })
-      .catch(err => {
-        console.error('[ComensalesSection] fetch error:', err)
-        setData([])
-      })
-      .finally(() => setIsLoading(false))
+    const { data: rows, error } = await getSupabase()
+      .rpc('get_comensales_full', { p_location_id: locationId })
+    if (error) console.error('[ComensalesSection]', error.message)
+    setData(rows ?? [])
+    setIsLoading(false)
   }, [locationId])
+
+  useEffect(() => { load() }, [load])
 
   return (
     <div style={{ marginBottom: '52px' }}>

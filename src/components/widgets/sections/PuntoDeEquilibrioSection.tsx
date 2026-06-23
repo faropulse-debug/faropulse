@@ -1,19 +1,11 @@
 'use client'
 
-import { useState, useEffect }           from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { SectionLabel }                  from '@/components/dashboard/SectionLabel'
 import PEEvolutivoChart                  from '../../charts/PEEvolutivoChart'
 import PESemanalChart, { WeeklySaleRow } from '../../charts/PESemanalChart'
 import PEDiarioChart,  { DailySaleRow }  from '../../charts/PEDiarioChart'
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const ANON_KEY     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const HEADERS = {
-  'Content-Type':  'application/json',
-  'apikey':        ANON_KEY,
-  'Authorization': `Bearer ${ANON_KEY}`,
-} as const
+import { getSupabase }                   from '@/lib/supabase'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,37 +28,24 @@ export function PuntoDeEquilibrioSection({ locationId }: Props) {
   const [dailyData,     setDailyData]     = useState<DailySaleRow[]>([])
   const [isLoading,     setIsLoading]     = useState(true)
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!locationId) return
     setIsLoading(true)
-
-    const body = JSON.stringify({ p_location_id: locationId })
-
-    Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/get_financial_results`, {
-        method: 'POST', headers: HEADERS, body,
-      }).then(r => r.json()),
-
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/get_weekly_sales_full`, {
-        method: 'POST', headers: HEADERS, body,
-      }).then(r => r.json()),
-
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/get_daily_sales_full`, {
-        method: 'POST', headers: HEADERS, body,
-      }).then(r => r.json()),
+    const [fin, wkly, dly] = await Promise.all([
+      getSupabase().rpc('get_financial_results', { p_location_id: locationId }),
+      getSupabase().rpc('get_weekly_sales_full',  { p_location_id: locationId }),
+      getSupabase().rpc('get_daily_sales_full',   { p_location_id: locationId }),
     ])
-      .then(([fin, wkly, dly]) => {
-        setFinancialData(Array.isArray(fin)  ? fin  : [])
-        setWeeklyData(   Array.isArray(wkly) ? wkly : [])
-        setDailyData(    Array.isArray(dly)  ? dly  : [])
-      })
-      .catch(() => {
-        setFinancialData([])
-        setWeeklyData([])
-        setDailyData([])
-      })
-      .finally(() => setIsLoading(false))
+    if (fin.error)  console.error('[PuntoDeEquilibrioSection] financial:', fin.error.message)
+    if (wkly.error) console.error('[PuntoDeEquilibrioSection] weekly:',   wkly.error.message)
+    if (dly.error)  console.error('[PuntoDeEquilibrioSection] daily:',    dly.error.message)
+    setFinancialData(fin.data  ?? [])
+    setWeeklyData(   wkly.data ?? [])
+    setDailyData(    dly.data  ?? [])
+    setIsLoading(false)
   }, [locationId])
+
+  useEffect(() => { load() }, [load])
 
   return (
     <div style={{ marginBottom: '52px' }}>

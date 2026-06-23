@@ -1,12 +1,10 @@
 'use client'
 
-import { useState, useEffect }          from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { SectionLabel }                  from '@/components/dashboard/SectionLabel'
 import ProyeccionEjecutivaChart          from '../../charts/ProyeccionEjecutivaChart'
 import type { RawComensalRow }           from '../../charts/ComensalesChart'
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const ANON_KEY     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+import { getSupabase }                   from '@/lib/supabase'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,27 +26,21 @@ export function ProyeccionSection({ locationId }: Props) {
   const [comensalesData, setComensalesData] = useState<RawComensalRow[]>([])
   const [isLoading,      setIsLoading]      = useState(true)
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!locationId) return
     setIsLoading(true)
-
-    const headers = {
-      'Content-Type':  'application/json',
-      'apikey':        ANON_KEY,
-      'Authorization': `Bearer ${ANON_KEY}`,
-    }
-    const body = JSON.stringify({ p_location_id: locationId })
-
-    Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/get_financial_results`, { method: 'POST', headers, body })
-        .then(r => r.json()).then(rows => Array.isArray(rows) ? rows : []).catch(() => []),
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/get_comensales_full`, { method: 'POST', headers, body })
-        .then(r => r.json()).then(rows => Array.isArray(rows) ? rows : []).catch(() => []),
-    ]).then(([financial, comensales]) => {
-      setData(financial)
-      setComensalesData(comensales)
-    }).finally(() => setIsLoading(false))
+    const [fin, com] = await Promise.all([
+      getSupabase().rpc('get_financial_results', { p_location_id: locationId }),
+      getSupabase().rpc('get_comensales_full',   { p_location_id: locationId }),
+    ])
+    if (fin.error) console.error('[ProyeccionSection] financial:',  fin.error.message)
+    if (com.error) console.error('[ProyeccionSection] comensales:', com.error.message)
+    setData(fin.data ?? [])
+    setComensalesData(com.data ?? [])
+    setIsLoading(false)
   }, [locationId])
+
+  useEffect(() => { load() }, [load])
 
   return (
     <div style={{ marginBottom: '52px' }}>

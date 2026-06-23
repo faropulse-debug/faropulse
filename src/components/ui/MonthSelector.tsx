@@ -7,6 +7,7 @@ const MONTH_LABELS: Record<string, string> = {
 }
 
 export function fmtMesChip(ym: string): string {
+  if (!ym) return '—'
   const [y, m] = ym.split('-')
   return `${MONTH_LABELS[m] || m} ${y.slice(2)}`
 }

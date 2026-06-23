@@ -128,6 +128,7 @@ export function FamiliaSection({ locationId }: Props) {
   const meses = useMemo(() => {
     if (!liveData?.ventasPorFamilia?.length) return []
     return [...new Set(liveData.ventasPorFamilia.map(r => r.mes))]
+      .filter(Boolean)
       .sort()
       .reverse()
   }, [liveData])
