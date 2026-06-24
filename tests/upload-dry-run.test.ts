@@ -48,7 +48,7 @@ function makeFetchSpy({ existingHashes = [], duplicateEvent = null }: MockOpts =
       if (duplicateEvent) return { ok: true, status: 200, json: async () => [duplicateEvent], text: async () => '' }
       return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
     }
-    // queryExistingHashes: GET test_table
+    // queryExistingHashes + verify: GET test_table
     if (method === 'GET' && urlStr.includes('test_table')) {
       return {
         ok:     true,
@@ -56,6 +56,10 @@ function makeFetchSpy({ existingHashes = [], duplicateEvent = null }: MockOpts =
         json:   async () => existingHashes.map(h => ({ row_hash: h })),
         text:   async () => '',
       }
+    }
+    // recordEvent: POST upload_events
+    if (method === 'POST' && urlStr.includes('upload_events')) {
+      return { ok: true, status: 201, json: async () => [{ id: 'x', event_id: 'event-id', event_type: 'test', created_at: '2026-01-01T00:00:00Z' }], text: async () => '' }
     }
     // Fallback for any other call
     return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
@@ -260,5 +264,87 @@ describe('dry-run — filas rechazadas incluidas en rejections', () => {
     const counts = result.body['sales'] as { rejected: number; processed: number }
     expect(counts.rejected).toBe(1)
     expect(counts.processed).toBe(20)
+  })
+})
+
+describe('idempotencia (no dry-run) — datos aún presentes → duplicate_skipped', () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
+
+  it('devuelve status=duplicate_skipped con counts del evento previo', async () => {
+    const cachedEvent = {
+      event_id: 'prev-event-uuid',
+      payload:  { newCount: 3, updatedCount: 7, failed: 0, requestHash: 'some-hash' },
+    }
+    // existingHashes tiene un elemento → verify GET devuelve 1 fila → dataExists=true → short-circuit
+    const fetchSpy = makeFetchSpy({ duplicateEvent: cachedEvent, existingHashes: ['any-hash'] })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await runUploadPipeline(
+      makeContract([{ row_hash: 'h1' }]),
+      makeFile(),
+      ORG_ID, LOC_ID, SUPA_URL, SVC_KEY,
+    )
+
+    expect(result.httpStatus).toBe(200)
+    expect(result.body.status).toBe('duplicate_skipped')
+    expect(result.body.success).toBe(true)
+    const counts = result.body['sales'] as { new: number; updated: number }
+    expect(counts.new).toBe(3)
+    expect(counts.updated).toBe(7)
+  })
+
+  it('NO llama a rpc/commit_upload cuando los datos están confirmados', async () => {
+    const cachedEvent = {
+      event_id: 'prev-event-uuid',
+      payload:  { newCount: 1, updatedCount: 0, failed: 0, requestHash: 'some-hash' },
+    }
+    const fetchSpy = makeFetchSpy({ duplicateEvent: cachedEvent, existingHashes: ['any-hash'] })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await runUploadPipeline(
+      makeContract([{ row_hash: 'h1' }]),
+      makeFile(),
+      ORG_ID, LOC_ID, SUPA_URL, SVC_KEY,
+    )
+
+    const commitCalls = fetchSpy.mock.calls.filter(([url]) => String(url).includes('rpc/commit_upload'))
+    expect(commitCalls).toHaveLength(0)
+  })
+})
+
+describe('idempotencia (no dry-run) — tabla borrada → reinserta', () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
+
+  it('llama a rpc/commit_upload y devuelve status=committed cuando verify encuentra tabla vacía', async () => {
+    const cachedEvent = {
+      event_id: 'prev-event-uuid',
+      payload:  { newCount: 2, updatedCount: 0, failed: 0, requestHash: 'some-hash' },
+    }
+    const fetchSpy = vi.fn().mockImplementation(async (url: unknown, opts?: unknown) => {
+      const urlStr = String(url)
+      const method = (opts as RequestInit | undefined)?.method ?? 'GET'
+      if (method === 'POST' && urlStr.includes('upload_events'))
+        return { ok: true, status: 201, json: async () => [{ id: 'x', event_id: 'new-event-id', event_type: 'test', created_at: '2026-01-01T00:00:00Z' }], text: async () => '' }
+      if (method === 'GET' && urlStr.includes('upload_events'))
+        return { ok: true, status: 200, json: async () => [cachedEvent], text: async () => '' }
+      if (method === 'GET' && urlStr.includes('test_table'))
+        return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+      if (method === 'POST' && urlStr.includes('rpc/commit_upload'))
+        return { ok: true, status: 200, json: async () => ({ deleted: 0, inserted: 2 }), text: async () => '' }
+      return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const rows = [{ row_hash: 'h1' }, { row_hash: 'h2' }]
+    const result = await runUploadPipeline(
+      makeContract(rows),
+      makeFile(),
+      ORG_ID, LOC_ID, SUPA_URL, SVC_KEY,
+    )
+
+    const commitCalls = fetchSpy.mock.calls.filter(([url]) => String(url).includes('rpc/commit_upload'))
+    expect(commitCalls).toHaveLength(1)
+    expect(result.httpStatus).toBe(200)
+    expect(result.body.status).toBe('committed')
   })
 })

@@ -58,14 +58,8 @@ export async function runUploadPipeline(
     // ── idempotency short-circuit ─────────────────────────────────────────────
     const cached = await queryCommittedByRequestHash(requestHash, contractId, locationId, supaUrl, svc)
     if (cached) {
-      if (!dryRun) {
-        await recordEvent(
-          { eventId, eventType: 'upload.duplicate_skipped', contractId, orgId, locationId,
-            payload: { requestHash, originalEventId: cached.event_id } },
-          supaUrl, serviceKey,
-        )
-      }
       const p = cached.payload
+
       if (dryRun) {
         return {
           httpStatus: 200,
@@ -87,25 +81,41 @@ export async function runUploadPipeline(
           },
         }
       }
-      return {
-        httpStatus: 200,
-        body: {
-          success:           true,
-          event_id:          eventId,
-          contract_id:       contractId,
-          request_hash:      requestHash,
-          status:            'duplicate_skipped',
-          original_event_id: cached.event_id,
-          [contract.datasetType]: {
-            processed: ((p.newCount as number) ?? 0) + ((p.updatedCount as number) ?? 0),
-            new:       (p.newCount     as number) ?? 0,
-            updated:   (p.updatedCount as number) ?? 0,
-            rejected:  0,
-            failed:    (p.failed       as number) ?? 0,
+
+      // Guard: verify the previously committed data still exists before short-circuiting.
+      // If the table was cleared after the original commit, fall through and reinsert.
+      const col        = String(Array.isArray(contract.hashColumn) ? contract.hashColumn[0] : contract.hashColumn)
+      const verifyUrl  = `${supaUrl}/rest/v1/${contract.table}?location_id=eq.${encodeURIComponent(locationId)}&select=${col}&limit=1`
+      const verifyRes  = await fetch(verifyUrl, { headers: svc })
+      const dataExists = verifyRes.ok && ((await verifyRes.json() as unknown[]).length > 0)
+
+      if (dataExists) {
+        await recordEvent(
+          { eventId, eventType: 'upload.duplicate_skipped', contractId, orgId, locationId,
+            payload: { requestHash, originalEventId: cached.event_id } },
+          supaUrl, serviceKey,
+        )
+        return {
+          httpStatus: 200,
+          body: {
+            success:           true,
+            event_id:          eventId,
+            contract_id:       contractId,
+            request_hash:      requestHash,
+            status:            'duplicate_skipped',
+            original_event_id: cached.event_id,
+            [contract.datasetType]: {
+              processed: ((p.newCount as number) ?? 0) + ((p.updatedCount as number) ?? 0),
+              new:       (p.newCount     as number) ?? 0,
+              updated:   (p.updatedCount as number) ?? 0,
+              rejected:  0,
+              failed:    (p.failed       as number) ?? 0,
+            },
+            errors: [],
           },
-          errors: [],
-        },
+        }
       }
+      // dataExists = false → table was cleared; fall through to full pipeline
     }
 
     const pctx   = { orgId, locationId, eventId: eventId! }
