@@ -22,8 +22,9 @@ function makeReq(fields: Record<string, string | File | null>): NextRequest {
 
 // Mock fetch for items endpoint: handles all pipeline calls (recordEvent, idempotency,
 // queryExistingHashes, commitUpload RPC, freshness).
-function makeItemsFetchMock(existingIds: string[]) {
-  const existingSet = new Set(existingIds)
+// reflectAll=true  → returns every queried item_hash as existing (simulates re-upload).
+// reflectAll=false → returns nothing (simulates first upload).
+function makeItemsFetchMock(reflectAll: boolean) {
   return vi.fn().mockImplementation(async (url: unknown, opts?: unknown) => {
     const urlStr = String(url)
     const method = (opts as RequestInit | undefined)?.method ?? 'GET'
@@ -36,17 +37,17 @@ function makeItemsFetchMock(existingIds: string[]) {
     if (method === 'GET' && urlStr.includes('upload_events')) {
       return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
     }
-    // queryExistingHashes: GET sales_items?...&select=external_id
-    if (method === 'GET' && urlStr.includes('sales_items') && urlStr.includes('select=external_id')) {
-      const match    = urlStr.match(/external_id=([^&]+)/)
+    // queryExistingHashes: GET sales_items?...&select=item_hash
+    if (method === 'GET' && urlStr.includes('sales_items') && urlStr.includes('select=item_hash')) {
+      if (!reflectAll) return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+      const match    = urlStr.match(/item_hash=([^&]+)/)
       const inClause = match ? decodeURIComponent(match[1]) : ''
-      const ids      = inClause.match(/"([^"]+)"/g)?.map(s => s.replace(/"/g, '')) ?? []
-      const found    = ids.filter(id => existingSet.has(id))
-      return { ok: true, status: 200, json: async () => found.map(id => ({ external_id: id })), text: async () => '' }
+      const hashes   = inClause.match(/"([^"]+)"/g)?.map(s => s.replace(/"/g, '')) ?? []
+      return { ok: true, status: 200, json: async () => hashes.map(h => ({ item_hash: h })), text: async () => '' }
     }
     // commitUpload RPC
     if (method === 'POST' && urlStr.includes('rpc/commit_upload')) {
-      return { ok: true, status: 200, json: async () => ({ deleted: existingIds.length, inserted: 5 }), text: async () => '' }
+      return { ok: true, status: 200, json: async () => ({ deleted: 0, inserted: 0 }), text: async () => '' }
     }
     // Default (upsertFreshness, data_freshness GET/POST, etc.)
     return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
@@ -98,7 +99,7 @@ describe('POST /api/upload/items — carga de ítems', () => {
   it('carga exitosa con 5 ítems válidos → new=5, updated=0', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
-    vi.stubGlobal('fetch', makeItemsFetchMock([]))   // no existing records
+    vi.stubGlobal('fetch', makeItemsFetchMock(false))  // no existing records
 
     try {
       const rows = Array.from({ length: 5 }, (_, i) => ({ ...BASE_ITEM, Numero: `I-${i + 1}` }))
@@ -126,11 +127,10 @@ describe('POST /api/upload/items — carga de ítems', () => {
   it('re-carga del mismo archivo → new=0, updated=5 (mock queryExistingIds)', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
-    const ids = Array.from({ length: 5 }, (_, i) => `I-${i + 1}`)
-    vi.stubGlobal('fetch', makeItemsFetchMock(ids))  // all 5 already exist
+    vi.stubGlobal('fetch', makeItemsFetchMock(true))  // reflect all item_hashes as existing
 
     try {
-      const rows = ids.map(id => ({ ...BASE_ITEM, Numero: id }))
+      const rows = Array.from({ length: 5 }, (_, i) => ({ ...BASE_ITEM, Numero: `I-${i + 1}` }))
       const file = makeXlsx(rows)
       const { POST } = await import('@/app/api/upload/items/route')
       const req  = makeReq({ items: file, location_id: 'loc-1', org_id: 'org-1' })
@@ -155,7 +155,7 @@ describe('POST /api/upload/items — campo ventas ignorado', () => {
   it('si llega también ventas en formData, lo ignora silenciosamente y solo procesa items', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
-    vi.stubGlobal('fetch', makeItemsFetchMock([]))
+    vi.stubGlobal('fetch', makeItemsFetchMock(false))
 
     try {
       const itemsFile  = makeXlsx([{ ...BASE_ITEM, Numero: 'I-1' }])
@@ -178,6 +178,42 @@ describe('POST /api/upload/items — campo ventas ignorado', () => {
       expect(body.success).toBe(true)
       expect(body.items.processed).toBe(1)          // only items were processed
       expect(body.documents).toBeUndefined()         // no documents field in items endpoint
+    } finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+})
+
+describe('POST /api/upload/items — item_hash discrimina duplicados', () => {
+  it('ticket con 2× el mismo ítem → processed=2, new=2 (occurrence 0 y 1 generan hashes distintos)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+    vi.stubGlobal('fetch', makeItemsFetchMock(false))  // no existing records
+
+    try {
+      // Two rows with identical content in the same ticket.
+      // enrichRows assigns occurrence=0 to the first and occurrence=1 to the second,
+      // producing two distinct item_hashes — neither is discarded.
+      const rows = [
+        { ...BASE_ITEM, Numero: 'T-001' },
+        { ...BASE_ITEM, Numero: 'T-001' },
+      ]
+      const file = makeXlsx(rows)
+      const { POST } = await import('@/app/api/upload/items/route')
+      const req  = makeReq({ items: file, location_id: 'loc-1', org_id: 'org-1' })
+      const res  = await POST(req)
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as {
+        success: boolean
+        items:   { processed: number; new: number; updated: number; rejected: number }
+      }
+      expect(body.success).toBe(true)
+      expect(body.items.processed).toBe(2)
+      expect(body.items.new).toBe(2)
+      expect(body.items.updated).toBe(0)
+      expect(body.items.rejected).toBe(0)
     } finally {
       vi.unstubAllGlobals()
       vi.unstubAllEnvs()

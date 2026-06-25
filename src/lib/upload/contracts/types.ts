@@ -81,6 +81,13 @@ export interface DataSourceContract<TRow> {
   /** Derives the idempotency hash from a parsed row. */
   computeHash(row: TRow): string;
 
+  /**
+   * Optional cross-row enrichment called once with ALL parsed rows before hash
+   * computation. Use for fields that require seeing the full batch (e.g. occurrence
+   * counters for duplicate items within the same ticket). Must mutate rows in-place.
+   */
+  enrichRows?(rows: TRow[]): void;
+
   /** Columna de fecha para el dateRange visible. Si se omite, no se calcula rango. */
   dateColumn?: string;
 

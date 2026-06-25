@@ -1,3 +1,4 @@
+import { generateItemHash } from '../generate-item-hash'
 import { extractFromExcel } from '../sources/excel-source'
 import {
   toStr, toDate, toTimestamp, toMoney, toInt,
@@ -27,6 +28,7 @@ export interface MaxirestItemsRow {
   turno:           string | null
   zona:            string | null
   numero_ticket:   string | null
+  item_hash:       string | null  // set by enrichRows before commit; null after parseRow
 }
 
 /** DataSourceContract for Maxirest Excel items reports → sales_items table. */
@@ -80,16 +82,39 @@ export const maxirestItemsContract: DataSourceContract<MaxirestItemsRow> = {
       turno:           toStr(r['turno']),
       zona:            toStr(r['zona']),
       numero_ticket:   toStr(r['numero']),
+      item_hash:       null,  // populated by enrichRows before hashes are computed
     }
   },
 
-  // Items use external_id as the idempotency key for now (no ticket_hash yet).
-  // A dedicated hash will be added in a future sprint.
-  hashColumn: 'external_id',
-  dateColumn: 'fecha_caja',
+  /**
+   * Assigns item_hash to every row using only portable business fields.
+   * `occurrence` is a 0-indexed counter per content group
+   * (numero_ticket, fecha_caja, descripcion, cantidad, precio_total)
+   * within this file. The resulting hash SET is invariant to row
+   * reordering: two files with the same items in different order
+   * produce identical sets of hashes.
+   */
+  enrichRows(rows: MaxirestItemsRow[]): void {
+    const counter = new Map<string, number>()
+    for (const row of rows) {
+      const key = [
+        row.numero_ticket,
+        row.fecha_caja,
+        row.descripcion,
+        row.cantidad,
+        row.precio_total,
+      ].join('|')
+      const occ = counter.get(key) ?? 0
+      counter.set(key, occ + 1)
+      row.item_hash = generateItemHash({ ...row, occurrence: occ })
+    }
+  },
+
+  hashColumn:  'item_hash',
+  dateColumn:  'fecha_caja',
 
   computeHash(row: MaxirestItemsRow): string {
-    return String(row.external_id)
+    return row.item_hash!  // enrichRows is always called before computeHash
   },
 
   uiConfig: {

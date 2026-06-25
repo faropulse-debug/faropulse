@@ -181,6 +181,9 @@ export async function runUploadPipeline(
       )
     }
 
+    // ── enrich rows (cross-row derived fields, e.g. occurrence-based hashes) ──
+    if (contract.enrichRows) contract.enrichRows(rows)
+
     // ── commit ────────────────────────────────────────────────────────────────
     const hashes       = rows.map(r => contract.computeHash(r))
     const existing     = await queryExistingHashes(contract, locationId, hashes, supaUrl, svc)
