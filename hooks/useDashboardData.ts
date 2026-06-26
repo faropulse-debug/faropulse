@@ -120,14 +120,15 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
       let results = await runAllRPCs(locationId)
 
       // Auto-recovery: if any RPC returned an auth error (JWT expired / 401),
-      // call getSession() to trigger the built-in token refresh in @supabase/ssr,
+      // call refreshSession() to force a new JWT from @supabase/ssr,
       // then retry once. If the retry also fails, safeArr logs warnings and returns [].
       if (results.some(isAuthError)) {
         logger.warn('[useDashboardData] auth error detectado — refresh de sesión + reintento')
-        await getSupabase().auth.getSession()
+        await getSupabase().auth.refreshSession()
         results = await runAllRPCs(locationId)
         if (results.some(isAuthError)) {
           logger.warn('[useDashboardData] reintento también falló — dejando estado vacío')
+          setError('Se cortó la sesión. Recargá la página para volver a entrar.')
         }
       }
 
@@ -166,6 +167,17 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
       }
     })
     return () => subscription.unsubscribe()
+  }, [load, locationId])
+
+  // Re-fetch when the user returns to the tab — catches sessions that expired
+  // while the tab was in the background and weren't caught by TOKEN_REFRESHED.
+  useEffect(() => {
+    if (!locationId) return
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') load()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [load, locationId])
 
   return { data, isLoading, error, lastUpdated, refetch: load }
