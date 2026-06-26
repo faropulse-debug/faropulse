@@ -13,6 +13,9 @@ export function useAuth() {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
+    // 1. Fallback: if onAuthStateChange never fires, unblock after 10s
+    const failsafe = setTimeout(() => setIsLoading(false), 10_000)
+
     const { data: { subscription } } = getSupabase().auth.onAuthStateChange(
       async (_event: AuthChangeEvent, session: Session | null) => {
         if (!session) {
@@ -78,10 +81,31 @@ export function useAuth() {
           activeMembership,
         })
         setIsLoading(false)
+        clearTimeout(failsafe)
       }
     )
 
-    return () => subscription.unsubscribe()
+    // 3. Explicit initial check: don't wait for a passive event if there's no session
+    getSupabase().auth.getSession().then((res: { data: { session: Session | null } }) => {
+      if (!res.data.session) {
+        setUser(null)
+        setIsLoading(false)
+      }
+    })
+
+    // 2. visibilitychange: force session revalidation when tab comes back to foreground
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        getSupabase().auth.refreshSession()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      subscription.unsubscribe()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      clearTimeout(failsafe)
+    }
   }, [])
 
   // ── Derived values ──────────────────────────────────────────────────────────
