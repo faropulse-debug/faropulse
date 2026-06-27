@@ -83,7 +83,7 @@ function TabContent({ categories, locationId }: { categories: WidgetCategory[]; 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OwnerDashboardV2() {
-  const { user, isLoading } = useAuth()
+  const { user, isLoading, error: authError } = useAuth()
   const [activeTab, setActiveTab] = useState<TabKey>('resumen')
 
   const DEV_FALLBACK_LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001'
@@ -110,7 +110,7 @@ export default function OwnerDashboardV2() {
         height: '100vh', color: MUTED,
         fontFamily: FONT_MONO, fontSize: '0.75rem', letterSpacing: '0.15em',
       }}>
-        sin ubicación activa
+        {authError ?? 'sin ubicación activa'}
       </div>
     )
   }
