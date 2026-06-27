@@ -135,7 +135,7 @@ function DataTable({
 
 export default function ReconcilePage() {
   const router         = useRouter()
-  const { user, isLoading } = useAuth()
+  const { user, isLoading, error: authError } = useAuth()
 
   const DEV_FALLBACK_LOCATION = 'bbbbbbbb-0000-0000-0000-000000000001'
   const DEV_FALLBACK_ORG      = 'aaaaaaaa-0000-0000-0000-000000000001'
@@ -161,7 +161,7 @@ export default function ReconcilePage() {
   if (!locationId || !orgId) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: MUTED, fontFamily: FONT_MONO, fontSize: '0.75rem', letterSpacing: '0.15em' }}>
-        sin ubicación activa
+        {authError ?? 'sin ubicación activa'}
       </div>
     )
   }

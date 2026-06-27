@@ -1,109 +1,189 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { getSupabase } from '@/lib/supabase'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import type { AuthUser, Membership, Role } from '@/types/auth'
 
-const STORAGE_KEY = 'faro_active_membership'
+const STORAGE_KEY    = 'faro_active_membership'
+const LOCATION_ERROR = 'No pudimos cargar tu local. Recargá la página.'
+
+// Pure async builder — cancellable via the `cancelled` ref in the effect.
+// Returns { user, error }:
+//   user  = null only when profile fetch fails (irrecoverable at this level)
+//   error = non-null only when memberships exist but no location_id resolved
+async function buildUser(session: Session): Promise<{ user: AuthUser | null; error: string | null }> {
+  const supabase = getSupabase()
+
+  const [profileResult, membershipsResult] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('id, full_name')
+      .eq('id', session.user.id)
+      .single(),
+    supabase
+      .from('memberships')
+      .select('*, organization:organizations(id, name, slug, plan)')
+      .eq('user_id', session.user.id)
+      .eq('is_active', true),
+  ])
+
+  if (profileResult.error || !profileResult.data) {
+    logger.error('[useAuth] profile query failed:', profileResult.error?.message)
+    return { user: null, error: null }
+  }
+
+  const rawMemberships = (membershipsResult.data ?? []) as Omit<Membership, 'location_id'>[]
+  const orgIds = [...new Set(rawMemberships.map(m => m.org_id))]
+
+  let locationByOrg: Record<string, string> = {}
+  if (orgIds.length > 0) {
+    const fetchLocs = () =>
+      supabase.from('locations').select('id, org_id').in('org_id', orgIds)
+
+    let { data: locs, error: locsError } = await fetchLocs()
+    if (locsError) {
+      logger.warn('[useAuth] locations query failed, retrying:', locsError.message)
+      ;({ data: locs, error: locsError } = await fetchLocs())
+      if (locsError) {
+        logger.error('[useAuth] locations query failed after retry:', locsError.message)
+      }
+    }
+    locationByOrg = Object.fromEntries(
+      (locs ?? []).map((l: { id: unknown; org_id: unknown }) => [l.org_id as string, l.id as string])
+    )
+  }
+
+  const memberships: Membership[] = rawMemberships.map(m => ({
+    ...m,
+    location_id: locationByOrg[m.org_id],
+  }))
+
+  const storedId = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
+  const activeMembership =
+    (storedId ? memberships.find(m => m.id === storedId && m.location_id) : null)
+    ?? memberships.find(m => m.location_id)
+    ?? null
+
+  // Memberships exist but none resolved a location_id → data/network error, surface it
+  if (rawMemberships.length > 0 && !activeMembership) {
+    logger.error('[useAuth] memberships exist but none resolved a location_id')
+    return {
+      user: {
+        profile: { ...profileResult.data, email: session.user.email ?? '' },
+        memberships,
+        activeMembership: null,
+      },
+      error: LOCATION_ERROR,
+    }
+  }
+
+  return {
+    user: {
+      profile: { ...profileResult.data, email: session.user.email ?? '' },
+      memberships,
+      activeMembership,
+    },
+    error: null,
+  }
+}
+
+// ── Hook contract ────────────────────────────────────────────────────────────
+//
+//   user         AuthUser | null   null = not logged in OR profile load failed
+//   isLoading    boolean           true until INITIAL_SESSION processed or failsafe fires
+//   error        string | null     non-null only when memberships exist but no location resolved
+//   role         Role | null       derived from user.activeMembership.role
+//   isOwner      boolean
+//   isManager    boolean
+//   setActiveMembership  (membershipId: string) => void
+//   signOut              () => Promise<void>
+//
+// Guarantees:
+//   • isLoading drops to false exactly once (INITIAL_SESSION, SIGNED_OUT, or 8s failsafe)
+//   • A null session on any event other than SIGNED_OUT / INITIAL_SESSION is treated as
+//     transient and never clears a valid user already in state
+//   • buildUser failure post-init preserves the existing user rather than flashing null
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function useAuth() {
   const [user,      setUser]      = useState<AuthUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [error,     setError]     = useState<string | null>(null)
+  const initializedRef = useRef(false)
 
   useEffect(() => {
-    // 1. Fallback: if onAuthStateChange never fires, unblock after 10s
-    const failsafe = setTimeout(() => setIsLoading(false), 10_000)
+    let cancelled = false
+
+    // Failsafe: only fires if INITIAL_SESSION never arrived (hook genuinely stuck)
+    const failsafe = setTimeout(() => {
+      if (!initializedRef.current) {
+        logger.warn('[useAuth] failsafe — INITIAL_SESSION never received in 8s')
+        setIsLoading(false)
+      }
+    }, 8_000)
 
     const { data: { subscription } } = getSupabase().auth.onAuthStateChange(
-      async (_event: AuthChangeEvent, session: Session | null) => {
+      async (event: AuthChangeEvent, session: Session | null) => {
+        if (cancelled) return
+        logger.debug('[useAuth]', event, session ? 'session OK' : 'session null')
+
+        // Explicit sign-out: clear everything
+        if (event === 'SIGNED_OUT') {
+          setUser(null)
+          setError(null)
+          setIsLoading(false)
+          initializedRef.current = true
+          clearTimeout(failsafe)
+          return
+        }
+
+        // INITIAL_SESSION with no session: user is definitively not logged in
+        if (event === 'INITIAL_SESSION' && !session) {
+          setUser(null)
+          setError(null)
+          setIsLoading(false)
+          initializedRef.current = true
+          clearTimeout(failsafe)
+          return
+        }
+
+        // Any other event with null session (e.g. transient race during TOKEN_REFRESHED):
+        // do NOT clear a valid user already in state
         if (!session) {
-          setUser(null)
-          setIsLoading(false)
-          return
-        }
-
-        const supabase = getSupabase()
-        const [profileResult, membershipsResult] = await Promise.all([
-          supabase
-            .from('profiles')
-            .select('id, full_name')
-            .eq('id', session.user.id)
-            .single(),
-          supabase
-            .from('memberships')
-            .select('*, organization:organizations(id, name, slug, plan)')
-            .eq('user_id', session.user.id)
-            .eq('is_active', true),
-        ])
-
-        if (profileResult.error || !profileResult.data) {
-          setUser(null)
-          setIsLoading(false)
-          return
-        }
-
-        // memberships table has no location_id — resolve it from locations table
-        const rawMemberships = (membershipsResult.data ?? []) as Omit<Membership, 'location_id'>[]
-        const orgIds = [...new Set(rawMemberships.map(m => m.org_id))]
-        let locationByOrg: Record<string, string> = {}
-        if (orgIds.length > 0) {
-          const { data: locs, error: locsError } = await supabase
-            .from('locations')
-            .select('id, org_id')
-            .in('org_id', orgIds)
-          if (locsError) {
-            logger.error('[useAuth] locations query failed:', locsError.message, locsError.details)
+          logger.warn('[useAuth] null session on', event, '— ignoring, preserving user')
+          if (!initializedRef.current) {
+            setIsLoading(false)
+            initializedRef.current = true
+            clearTimeout(failsafe)
           }
-          locationByOrg = Object.fromEntries((locs ?? []).map((l: { id: unknown; org_id: unknown }) => [l.org_id as string, l.id as string]))
+          return
         }
-        const memberships: Membership[] = rawMemberships.map(m => ({
-          ...m,
-          location_id: locationByOrg[m.org_id],
-        }))
 
-        // Restore the previously chosen membership from localStorage
-        const storedId = typeof window !== 'undefined'
-          ? localStorage.getItem(STORAGE_KEY)
-          : null
-        const activeMembership =
-          (storedId ? memberships.find(m => m.id === storedId) : null)
-          ?? memberships[0]
-          ?? null
+        // Valid session: build user from DB
+        const { user: built, error: buildError } = await buildUser(session)
+        if (cancelled) return
 
-        setUser({
-          profile: {
-            ...profileResult.data,
-            email: session.user.email ?? '',
-          },
-          memberships,
-          activeMembership,
-        })
+        if (built !== null) {
+          setUser(built)
+          setError(buildError)
+        } else if (!initializedRef.current) {
+          // First load and profile fetch failed: surface null so page can show fallback
+          setUser(null)
+          setError(null)
+        }
+        // Post-init buildUser failure: keep existing user + error state as-is
+
         setIsLoading(false)
+        initializedRef.current = true
         clearTimeout(failsafe)
       }
     )
 
-    // 3. Explicit initial check: don't wait for a passive event if there's no session
-    getSupabase().auth.getSession().then((res: { data: { session: Session | null } }) => {
-      if (!res.data.session) {
-        setUser(null)
-        setIsLoading(false)
-      }
-    })
-
-    // 2. visibilitychange: force session revalidation when tab comes back to foreground
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        getSupabase().auth.refreshSession()
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
     return () => {
+      cancelled = true
       subscription.unsubscribe()
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
       clearTimeout(failsafe)
     }
   }, [])
@@ -120,7 +200,6 @@ export function useAuth() {
     if (!user) return
     const membership = user.memberships.find(m => m.id === membershipId)
     if (!membership) return
-
     localStorage.setItem(STORAGE_KEY, membershipId)
     document.cookie = `faro_role=${membership.role}; path=/; max-age=86400; SameSite=Lax`
     setUser({ ...user, activeMembership: membership })
@@ -133,7 +212,8 @@ export function useAuth() {
     document.cookie = 'faro_role=; path=/; max-age=0; SameSite=Lax'
     await getSupabase().auth.signOut()
     setUser(null)
+    setError(null)
   }
 
-  return { user, isLoading, role, isOwner, isManager, setActiveMembership, signOut }
+  return { user, isLoading, error, role, isOwner, isManager, setActiveMembership, signOut }
 }
