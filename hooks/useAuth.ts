@@ -13,8 +13,10 @@ const LOCATION_ERROR = 'No pudimos cargar tu local. Recargá la página.'
 // Returns { user, error }:
 //   user  = null only when profile fetch fails (irrecoverable at this level)
 //   error = non-null only when memberships exist but no location_id resolved
-async function buildUser(session: Session): Promise<{ user: AuthUser | null; error: string | null }> {
+async function buildUser(session: Session, _callId: number): Promise<{ user: AuthUser | null; error: string | null }> {
   const supabase = getSupabase()
+  // eslint-disable-next-line no-console
+  console.log(`[DIAG:useAuth] buildUser #${_callId} start — uid:${session.user.id.slice(0,8)}`)
 
   const [profileResult, membershipsResult] = await Promise.all([
     supabase
@@ -53,6 +55,8 @@ async function buildUser(session: Session): Promise<{ user: AuthUser | null; err
     locationByOrg = Object.fromEntries(
       (locs ?? []).map((l: { id: unknown; org_id: unknown }) => [l.org_id as string, l.id as string])
     )
+    // eslint-disable-next-line no-console
+    console.log(`[DIAG:useAuth] buildUser #${_callId} locationByOrg:`, JSON.stringify(locationByOrg))
   }
 
   const memberships: Membership[] = rawMemberships.map(m => ({
@@ -65,6 +69,9 @@ async function buildUser(session: Session): Promise<{ user: AuthUser | null; err
     (storedId ? memberships.find(m => m.id === storedId && m.location_id) : null)
     ?? memberships.find(m => m.location_id)
     ?? null
+
+  // eslint-disable-next-line no-console
+  console.log(`[DIAG:useAuth] buildUser #${_callId} result — rawMemberships:${rawMemberships.length} storedId:${storedId?.slice(0,8) ?? 'null'} activeMembership:`, activeMembership ? `${activeMembership.id.slice(0,8)} → loc:${activeMembership.location_id?.slice(0,8) ?? 'undef'}` : 'null')
 
   // Memberships exist but none resolved a location_id → data/network error, surface it
   if (rawMemberships.length > 0 && !activeMembership) {
@@ -115,6 +122,7 @@ export function useAuth() {
 
   useEffect(() => {
     let cancelled = false
+    let _buildCallCount = 0
 
     // Failsafe: only fires if INITIAL_SESSION never arrived (hook genuinely stuck)
     const failsafe = setTimeout(() => {
@@ -127,6 +135,8 @@ export function useAuth() {
     const { data: { subscription } } = getSupabase().auth.onAuthStateChange(
       async (event: AuthChangeEvent, session: Session | null) => {
         if (cancelled) return
+        // eslint-disable-next-line no-console
+        console.log(`[DIAG:useAuth] event:${event} session:${session ? 'OK' : 'null'} init:${initializedRef.current}`)
         logger.debug('[useAuth]', event, session ? 'session OK' : 'session null')
 
         // Explicit sign-out: clear everything
@@ -162,7 +172,10 @@ export function useAuth() {
         }
 
         // Valid session: build user from DB
-        const { user: built, error: buildError } = await buildUser(session)
+        const callId = ++_buildCallCount
+        const { user: built, error: buildError } = await buildUser(session, callId)
+        // eslint-disable-next-line no-console
+        console.log(`[DIAG:useAuth] buildUser #${callId} done — built:${built ? 'user' : 'null'} activeMembership:${built?.activeMembership?.id?.slice(0,8) ?? 'null'} loc:${built?.activeMembership?.location_id?.slice(0,8) ?? 'null'} cancelled:${cancelled}`)
         if (cancelled) return
 
         if (built !== null) {
