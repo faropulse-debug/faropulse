@@ -5,7 +5,7 @@ import type { NextRequest } from 'next/server'
 const PUBLIC_ROUTES = ['/login', '/forgot-password', '/reset-password']
 const PUBLIC_API_PREFIXES = ['/api/health', '/api/upload/', '/api/reconcile/']
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Allow public routes and unauthenticated API routes through immediately
