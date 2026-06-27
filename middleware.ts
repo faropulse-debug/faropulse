@@ -8,6 +8,9 @@ const PUBLIC_API_PREFIXES = ['/api/health', '/api/upload/', '/api/reconcile/']
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // eslint-disable-next-line no-console
+  console.log('[DIAG:middleware] running for', pathname)
+
   // Allow public routes and unauthenticated API routes through immediately
   if (
     PUBLIC_ROUTES.some(r => pathname === r) ||
