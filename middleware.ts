@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
+import { createClient }       from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
@@ -57,18 +58,41 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  const role = request.cookies.get('faro_role')?.value
+  const requiredRole = pathname.startsWith('/dashboard/owner')   ? 'owner'
+                     : pathname.startsWith('/dashboard/manager') ? 'manager'
+                     : null
 
-  if (pathname.startsWith('/dashboard/owner') && role !== 'owner') {
-    const url = request.nextUrl.clone()
-    url.pathname = '/role-select'
-    return NextResponse.redirect(url)
-  }
+  if (requiredRole) {
+    const cookieRole = request.cookies.get('faro_role')?.value
 
-  if (pathname.startsWith('/dashboard/manager') && role !== 'manager') {
-    const url = request.nextUrl.clone()
-    url.pathname = '/role-select'
-    return NextResponse.redirect(url)
+    // Fast path: wrong or missing cookie — no DB call needed
+    if (cookieRole !== requiredRole) {
+      return NextResponse.redirect(new URL('/role-select', request.url))
+    }
+
+    // Cookie value matches the path. Verify it reflects a real active membership
+    // using service role so this check stays correct after RLS is enabled on
+    // memberships (a session-key query would return empty → false forgery).
+    // user.id is always from supabase.auth.getUser() above — never from the cookie.
+    const { data: mem, error: memErr } = await createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+      .from('memberships')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('role', requiredRole)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (!memErr && !mem) {
+      // Confirmed: no matching membership in DB — clear forged cookie + redirect
+      const res = NextResponse.redirect(new URL('/role-select', request.url))
+      res.cookies.set('faro_role', '', { maxAge: 0, path: '/' })
+      return res
+    }
+    // memErr → fail-open: requireMembership() in API handlers is the real gate;
+    // a transient PostgREST issue shouldn't lock out a legitimate user from navigation.
   }
 
   return supabaseResponse
