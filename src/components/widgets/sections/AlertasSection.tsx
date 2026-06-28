@@ -3,15 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { SectionLabel }                  from '@/components/dashboard/SectionLabel'
 import { fmtPeso, fmtPct, fmtMillones } from '@/lib/format'
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const ANON_KEY     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const HEADERS = {
-  'Content-Type':  'application/json',
-  'apikey':        ANON_KEY,
-  'Authorization': `Bearer ${ANON_KEY}`,
-} as const
+import { getSupabase }                   from '@/lib/supabase'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -364,16 +356,19 @@ export function AlertasSection({ locationId }: Props) {
   useEffect(() => {
     if (!locationId) return
     setIsLoading(true)
-    const body = JSON.stringify({ p_location_id: locationId })
 
-    Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/get_financial_results`, { method: 'POST', headers: HEADERS, body })
-        .then(r => r.json()).then(r => Array.isArray(r) ? r : []).catch(() => []),
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/get_daily_sales_full`, { method: 'POST', headers: HEADERS, body })
-        .then(r => r.json()).then(r => Array.isArray(r) ? r : []).catch(() => []),
+    Promise.allSettled([
+      getSupabase().rpc('get_financial_results', { p_location_id: locationId }),
+      getSupabase().rpc('get_daily_sales_full',  { p_location_id: locationId }),
     ]).then(([fin, dly]) => {
-      setFinancial(fin)
-      setDailySales(dly)
+      setFinancial(
+        fin.status === 'fulfilled' && !fin.value.error && Array.isArray(fin.value.data)
+          ? fin.value.data : []
+      )
+      setDailySales(
+        dly.status === 'fulfilled' && !dly.value.error && Array.isArray(dly.value.data)
+          ? dly.value.data : []
+      )
     }).finally(() => setIsLoading(false))
   }, [locationId])
 
