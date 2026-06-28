@@ -55,14 +55,30 @@ export async function requireMembership(
     userId = user.id
   }
 
-  // ── Step 2: verify membership ownership ─────────────────────────────────────
-  // Service role bypasses RLS for the query, but we explicitly filter by the
-  // verified userId + locationId so there is no horizontal privilege escalation.
-  const { data, error: memberError } = await createClient(url, svcKey)
+  const svc = createClient(url, svcKey)
+
+  // ── Step 2: resolve locationId → org_id ─────────────────────────────────────
+  // memberships has no location_id column — it links to org_id.
+  // locations.id is the UUID the API receives; locations.org_id is the bridge.
+  const { data: loc, error: locError } = await svc
+    .from('locations')
+    .select('org_id')
+    .eq('id', locationId)
+    .maybeSingle()
+
+  if (locError || !loc) {
+    return NextResponse.json(
+      { error: 'Forbidden: location not found' },
+      { status: 403 },
+    )
+  }
+
+  // ── Step 3: verify active membership in that org ─────────────────────────────
+  const { data, error: memberError } = await svc
     .from('memberships')
     .select('id')
     .eq('user_id', userId)
-    .eq('location_id', locationId)
+    .eq('org_id', loc.org_id)
     .eq('is_active', true)
     .maybeSingle()
 

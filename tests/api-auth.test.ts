@@ -2,29 +2,40 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 // ── Supabase mocks ────────────────────────────────────────────────────────────
-// vi.hoisted ensures these are available before vi.mock() factories run.
+// Two separate chainable builders — one per table — so tests can assert the
+// correct columns are queried (the bug was .eq('location_id') on memberships,
+// a column that does not exist; the fix is location → org_id → memberships).
 
-const { mockGetUser, mockMaybySingle, mockCreateClient, mockCreateServerClient } =
+const { mockGetUser, mockLocationsSingle, mockMembershipSingle, mockCreateClient, mockCreateServerClient } =
   vi.hoisted(() => {
-    const mockGetUser     = vi.fn()
-    const mockMaybySingle = vi.fn()
+    const mockGetUser          = vi.fn()
+    const mockLocationsSingle  = vi.fn()
+    const mockMembershipSingle = vi.fn()
 
-    // Build a reusable chainable query builder mock
-    const chain: Record<string, unknown> = {}
-    chain['select']      = vi.fn(() => chain)
-    chain['eq']          = vi.fn(() => chain)
-    chain['maybeSingle'] = mockMaybySingle
+    const locChain: Record<string, unknown> = {}
+    locChain['select']      = vi.fn(() => locChain)
+    locChain['eq']          = vi.fn(() => locChain)
+    locChain['maybeSingle'] = mockLocationsSingle
+
+    const memChain: Record<string, unknown> = {}
+    memChain['select']      = vi.fn(() => memChain)
+    memChain['eq']          = vi.fn(() => memChain)
+    memChain['maybeSingle'] = mockMembershipSingle
 
     const mockCreateClient = vi.fn(() => ({
       auth: { getUser: mockGetUser },
-      from:  vi.fn(() => chain),
+      from: vi.fn((table: string) => {
+        if (table === 'locations')   return locChain
+        if (table === 'memberships') return memChain
+        throw new Error(`Unexpected table in test: ${table}`)
+      }),
     }))
 
     const mockCreateServerClient = vi.fn(() => ({
       auth: { getUser: mockGetUser },
     }))
 
-    return { mockGetUser, mockMaybySingle, mockCreateClient, mockCreateServerClient }
+    return { mockGetUser, mockLocationsSingle, mockMembershipSingle, mockCreateClient, mockCreateServerClient }
   })
 
 vi.mock('@supabase/supabase-js', () => ({ createClient: mockCreateClient }))
@@ -33,10 +44,11 @@ vi.mock('@supabase/ssr',          () => ({ createServerClient: mockCreateServerC
 // ── Env setup ─────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL',  'https://test.supabase.co')
+  vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL',      'https://test.supabase.co')
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'test-anon-key')
-  vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-svc-key')
-  vi.resetAllMocks()
+  vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY',     'test-svc-key')
+  // clearAllMocks: resets call history without removing chain implementations
+  vi.clearAllMocks()
 })
 
 afterEach(() => {
@@ -79,9 +91,23 @@ describe('requireMembership', () => {
     expect(body.error).toBe('Unauthorized')
   })
 
-  it('403 — valid session but no membership in the given location', async () => {
+  it('403 — location not found in DB', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
-    mockMaybySingle.mockResolvedValue({ data: null, error: null })
+    mockLocationsSingle.mockResolvedValue({ data: null, error: null })
+
+    const { requireMembership } = await import('@/lib/api-auth')
+    const result = await requireMembership(makeReq(), 'loc-nonexistent')
+
+    expect(result).toBeInstanceOf(Response)
+    expect((result as Response).status).toBe(403)
+    const body = await (result as Response).json()
+    expect(body.error).toMatch(/location not found/)
+  })
+
+  it('403 — location exists but user has no active membership', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
+    mockLocationsSingle.mockResolvedValue({ data: { org_id: 'org-xyz' }, error: null })
+    mockMembershipSingle.mockResolvedValue({ data: null, error: null })
 
     const { requireMembership } = await import('@/lib/api-auth')
     const result = await requireMembership(makeReq(), 'loc-other')
@@ -92,34 +118,37 @@ describe('requireMembership', () => {
     expect(body.error).toMatch(/Forbidden/)
   })
 
-  it('200 — valid cookie session with active membership returns { userId }', async () => {
+  it('200 — valid cookie session + active membership → { userId }', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
-    mockMaybySingle.mockResolvedValue({ data: { id: 'mem-1' }, error: null })
+    mockLocationsSingle.mockResolvedValue({ data: { org_id: 'org-xyz' }, error: null })
+    mockMembershipSingle.mockResolvedValue({ data: { id: 'mem-1' }, error: null })
 
     const { requireMembership } = await import('@/lib/api-auth')
     const result = await requireMembership(makeReq(), 'loc-123')
 
     expect(result).not.toBeInstanceOf(Response)
     expect((result as { userId: string }).userId).toBe('user-abc')
+    expect(mockCreateServerClient).toHaveBeenCalled()
   })
 
-  it('200 — valid Bearer JWT with active membership returns { userId }', async () => {
+  it('200 — valid Bearer JWT + active membership → { userId }', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-xyz' } }, error: null })
-    mockMaybySingle.mockResolvedValue({ data: { id: 'mem-2' }, error: null })
+    mockLocationsSingle.mockResolvedValue({ data: { org_id: 'org-xyz' }, error: null })
+    mockMembershipSingle.mockResolvedValue({ data: { id: 'mem-2' }, error: null })
 
     const { requireMembership } = await import('@/lib/api-auth')
     const result = await requireMembership(makeReq({ bearer: 'real-user-jwt' }), 'loc-123')
 
     expect(result).not.toBeInstanceOf(Response)
     expect((result as { userId: string }).userId).toBe('user-xyz')
-    // Bearer path uses createClient (not createServerClient)
     expect(mockCreateClient).toHaveBeenCalled()
     expect(mockCreateServerClient).not.toHaveBeenCalled()
   })
 
   it('403 — membership DB error treated as forbidden', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
-    mockMaybySingle.mockResolvedValue({ data: null, error: { message: 'connection reset' } })
+    mockLocationsSingle.mockResolvedValue({ data: { org_id: 'org-xyz' }, error: null })
+    mockMembershipSingle.mockResolvedValue({ data: null, error: { message: 'connection reset' } })
 
     const { requireMembership } = await import('@/lib/api-auth')
     const result = await requireMembership(makeReq(), 'loc-123')
