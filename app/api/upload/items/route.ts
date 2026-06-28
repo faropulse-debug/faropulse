@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireMembership } from '@/lib/api-auth'
 import { getContract } from '@/src/lib/upload/contracts/registry'
 import { runUploadPipeline } from '@/src/lib/upload/pipeline/runPipeline'
 
@@ -17,6 +18,9 @@ export async function POST(req: NextRequest) {
   if (!file) {
     return NextResponse.json({ error: 'Se requiere el archivo items' }, { status: 400 })
   }
+
+  const authResult = await requireMembership(req, locationId)
+  if (authResult instanceof Response) return authResult
 
   const contract = getContract('maxirest-items')!
   const dryRun   = req.nextUrl?.searchParams?.get('dry_run') === 'true'

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
+import { requireMembership } from '@/lib/api-auth'
 
 const BATCH = 500
 
@@ -178,6 +179,9 @@ export async function POST(req: NextRequest) {
     if (!pnlFile || !locationId || !orgId) {
       return NextResponse.json({ error: 'Faltan campos: financial, location_id, org_id' }, { status: 400 })
     }
+
+    const authResult = await requireMembership(req, locationId)
+    if (authResult instanceof Response) return authResult
 
     const buf               = await pnlFile.arrayBuffer()
     const { rows, periodos } = parsePnL(buf, orgId, locationId)
