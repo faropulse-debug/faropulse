@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireMembership } from '@/lib/api-auth'
 import { getContract, listContracts } from '@/src/lib/upload/contracts/registry'
 import { runUploadPipeline } from '@/src/lib/upload/pipeline/runPipeline'
 
@@ -36,6 +37,9 @@ export async function POST(
   if (!locationId) {
     return NextResponse.json({ error: 'MISSING_LOCATION_ID' }, { status: 400 })
   }
+
+  const authResult = await requireMembership(req, locationId)
+  if (authResult instanceof Response) return authResult
 
   const dryRun = req.nextUrl.searchParams.get('dry_run') === 'true'
   const r = await runUploadPipeline(contract, file, orgId, locationId, supaUrl, serviceKey, { dryRun })

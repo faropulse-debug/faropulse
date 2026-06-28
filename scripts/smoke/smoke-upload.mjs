@@ -22,12 +22,17 @@ const STG_LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001'  // STG: Ituzaing
 const STG_ORG_ID      = 'aaaaaaaa-0000-0000-0000-000000000001'  // STG org
 
 // ── Environment ────────────────────────────────────────────────────────────────
-const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
-const SVC_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
-const BASE_URL = process.env.SMOKE_BASE_URL ?? 'http://localhost:3000'
+const SUPA_URL         = process.env.NEXT_PUBLIC_SUPABASE_URL
+const SVC_KEY          = process.env.SUPABASE_SERVICE_ROLE_KEY
+const SMOKE_AUTH_TOKEN = process.env.SMOKE_AUTH_TOKEN  // real user JWT for API auth
+const BASE_URL         = process.env.SMOKE_BASE_URL ?? 'http://localhost:3000'
 
 if (!SUPA_URL) { console.error('FATAL: NEXT_PUBLIC_SUPABASE_URL is not set'); process.exit(1) }
 if (!SVC_KEY)  { console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY is not set'); process.exit(1) }
+if (!SMOKE_AUTH_TOKEN) { console.error('FATAL: SMOKE_AUTH_TOKEN is not set (obtain via login in STG)'); process.exit(1) }
+
+// Authorization header for API route calls (requireMembership validates this JWT)
+const apiAuthHeaders = { Authorization: `Bearer ${SMOKE_AUTH_TOKEN}` }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const svcH = { apikey: SVC_KEY, Authorization: `Bearer ${SVC_KEY}`, 'Content-Type': 'application/json' }
@@ -164,7 +169,7 @@ try {
   formDr.append('org_id',      STG_ORG_ID)
   formDr.append('location_id', STG_LOCATION_ID)
 
-  const rDr  = await fetch(`${BASE_URL}/api/upload/maxirest-sales?dry_run=true`, { method: 'POST', body: formDr })
+  const rDr  = await fetch(`${BASE_URL}/api/upload/maxirest-sales?dry_run=true`, { method: 'POST', body: formDr, headers: apiAuthHeaders })
   const bDr  = await rDr.json()
   console.log(`  HTTP ${rDr.status}`)
   console.log(`  ${JSON.stringify(bDr)}`)
@@ -191,7 +196,7 @@ try {
   formLegDr.append('org_id',      STG_ORG_ID)
   formLegDr.append('location_id', STG_LOCATION_ID)
 
-  const rLegDr  = await fetch(`${BASE_URL}/api/upload/sales?dry_run=true`, { method: 'POST', body: formLegDr })
+  const rLegDr  = await fetch(`${BASE_URL}/api/upload/sales?dry_run=true`, { method: 'POST', body: formLegDr, headers: apiAuthHeaders })
   const bLegDr  = await rLegDr.json()
   console.log(`  HTTP ${rLegDr.status}`)
   console.log(`  ${JSON.stringify(bLegDr)}`)
@@ -217,7 +222,7 @@ try {
   form.append('org_id',      STG_ORG_ID)
   form.append('location_id', STG_LOCATION_ID)
 
-  const r1  = await fetch(`${BASE_URL}/api/upload/maxirest-sales`, { method: 'POST', body: form })
+  const r1  = await fetch(`${BASE_URL}/api/upload/maxirest-sales`, { method: 'POST', body: form, headers: apiAuthHeaders })
   const ms  = Date.now() - t0
   const b1  = await r1.json()
   console.log(`  HTTP ${r1.status}  ${ms}ms`)
@@ -289,7 +294,7 @@ try {
   form2.append('org_id',      STG_ORG_ID)
   form2.append('location_id', STG_LOCATION_ID)
 
-  const r2 = await fetch(`${BASE_URL}/api/upload/maxirest-sales`, { method: 'POST', body: form2 })
+  const r2 = await fetch(`${BASE_URL}/api/upload/maxirest-sales`, { method: 'POST', body: form2, headers: apiAuthHeaders })
   const b2 = await r2.json()
   console.log(`  HTTP ${r2.status}`)
   console.log(`  ${JSON.stringify(b2)}`)

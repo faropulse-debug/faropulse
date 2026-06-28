@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireMembership } from '@/lib/api-auth'
 
 const BATCH          = 500
 const CUCINAGO_BASE  = 'https://gd55d70ed7f53c9-o1anc1ft1sdt1pqp.adb.sa-santiago-1.oraclecloudapps.com/ords/restoweb'
@@ -200,6 +201,9 @@ export async function POST(req: NextRequest) {
     if (!from || !to || !locationId || !orgId) {
       return NextResponse.json({ error: 'Faltan campos: from, to, location_id, org_id' }, { status: 400 })
     }
+
+    const authResult = await requireMembership(req, locationId)
+    if (authResult instanceof Response) return authResult
 
     // Fetch all pages from CucinaGo
     const allItems: CucinaGoItem[] = []
