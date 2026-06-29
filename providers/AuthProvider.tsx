@@ -171,7 +171,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, 8_000)
 
     const { data: { subscription } } = getSupabase().auth.onAuthStateChange(
-      async (event: AuthChangeEvent, session: Session | null) => {
+      // NOT async — must return void synchronously so @supabase/auth-js v2's
+      // _notifyAllSubscribers() gets an immediate return and signInWithPassword()
+      // resolves without waiting for our DB queries (avoids the blocking deadlock).
+      (event: AuthChangeEvent, session: Session | null) => {
         if (cancelled) return
         // eslint-disable-next-line no-console
         console.log(`[DIAG:AuthProvider] event:${event} session:${session ? 'OK' : 'null'} init:${initializedRef.current} userRef:${userRef.current?.activeMembership ? 'has-membership' : 'no-membership'}`)
@@ -222,45 +225,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return
         }
 
+        // Capture callId synchronously before deferring so ordering is preserved
+        // across rapid consecutive events.
         const callId = ++buildCallCount
-        const { user: built, error: buildError } = await buildUser(session, callId)
-        if (cancelled) return
+        queueMicrotask(async () => {
+          if (cancelled) return
 
-        if (built !== null) {
-          setUser(prev => {
-            if (prev?.activeMembership && !built.activeMembership) {
-              Sentry.captureMessage('[AuthProvider] activeMembership dropped to null after auth event — keeping previous', {
-                level: 'warning',
-                extra: { event, userId: built.profile.id },
-              })
+          const { user: built, error: buildError } = await buildUser(session, callId)
+          if (cancelled) return
+
+          if (built !== null) {
+            setUser(prev => {
+              if (prev?.activeMembership && !built.activeMembership) {
+                Sentry.captureMessage('[AuthProvider] activeMembership dropped to null after auth event — keeping previous', {
+                  level: 'warning',
+                  extra: { event, userId: built.profile.id },
+                })
+                // eslint-disable-next-line no-console
+                console.log(`[DIAG:AuthProvider] keeping existing user — new build had no activeMembership (event:${event})`)
+                userRef.current = prev
+                return prev
+              }
               // eslint-disable-next-line no-console
-              console.log(`[DIAG:AuthProvider] keeping existing user — new build had no activeMembership (event:${event})`)
-              userRef.current = prev
-              return prev
-            }
-            // eslint-disable-next-line no-console
-            console.log('[DIAG:AuthProvider] commit', {
-              reason: event,
-              user: built.profile.id,
-              activeMembership: built.activeMembership?.id ?? null,
-              location_id: built.activeMembership?.location_id ?? null,
-              buildError,
+              console.log('[DIAG:AuthProvider] commit', {
+                reason: event,
+                user: built.profile.id,
+                activeMembership: built.activeMembership?.id ?? null,
+                location_id: built.activeMembership?.location_id ?? null,
+                buildError,
+              })
+              userRef.current = built
+              return built
             })
-            userRef.current = built
-            return built
-          })
-          setError(buildError)
-        } else if (!initializedRef.current) {
-          // eslint-disable-next-line no-console
-          console.log(`[DIAG:AuthProvider] commit ${event}:build-null:first-load`)
-          userRef.current = null
-          setUser(null)
-          setError(null)
-        }
+            setError(buildError)
+          } else if (!initializedRef.current) {
+            // eslint-disable-next-line no-console
+            console.log(`[DIAG:AuthProvider] commit ${event}:build-null:first-load`)
+            userRef.current = null
+            setUser(null)
+            setError(null)
+          }
 
-        setIsLoading(false)
-        initializedRef.current = true
-        clearTimeout(failsafe)
+          setIsLoading(false)
+          initializedRef.current = true
+          clearTimeout(failsafe)
+        })
       }
     )
 
