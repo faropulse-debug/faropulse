@@ -155,20 +155,6 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
   // Initial load (and re-load when locationId changes)
   useEffect(() => { load() }, [load])
 
-  // Auto-recovery: when @supabase/ssr refreshes the JWT in the background,
-  // re-fetch so cards repopulate without a page reload.
-  // TOKEN_REFRESHED only — SIGNED_IN is covered by the locationId dep above.
-  useEffect(() => {
-    if (!locationId) return
-    const { data: { subscription } } = getSupabase().auth.onAuthStateChange((event: string) => {
-      if (event === 'TOKEN_REFRESHED') {
-        logger.debug('[useDashboardData] TOKEN_REFRESHED — refetching dashboard')
-        load()
-      }
-    })
-    return () => subscription.unsubscribe()
-  }, [load, locationId])
-
   // Re-fetch when the user returns to the tab — catches sessions that expired
   // while the tab was in the background and weren't caught by TOKEN_REFRESHED.
   useEffect(() => {

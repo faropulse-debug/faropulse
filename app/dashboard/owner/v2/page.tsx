@@ -83,13 +83,26 @@ function TabContent({ categories, locationId }: { categories: WidgetCategory[]; 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OwnerDashboardV2() {
-  const { user, isLoading, error: authError } = useAuth()
+  const { user, isLoading, error: authError, locationId } = useAuth()
   const [activeTab, setActiveTab] = useState<TabKey>('resumen')
 
-  const DEV_FALLBACK_LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001'
-  const isDev      = process.env.NODE_ENV === 'development'
-  const locationId = user?.activeMembership?.location_id ?? (isDev ? DEV_FALLBACK_LOCATION_ID : null)
-  const orgName    = user?.activeMembership?.organization?.name ?? 'Dashboard'
+  const isDev   = process.env.NODE_ENV === 'development'
+  const orgName = user?.activeMembership?.organization?.name ?? 'Dashboard'
+
+  console.log('[DIAG:owner/v2] render', {
+    isLoading,
+    authError,
+    hasUser: Boolean(user),
+    activeMembership: user?.activeMembership?.id ?? null,
+    activeMembershipOrg: user?.activeMembership?.org_id ?? null,
+    locationId,
+    memberships: user?.memberships.map(m => ({
+      id: m.id,
+      org_id: m.org_id,
+      role: m.role,
+      location_id: m.location_id ?? null,
+    })) ?? null,
+  })
 
   if (isLoading && !isDev) {
     return (
