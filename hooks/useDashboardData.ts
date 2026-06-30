@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { getSupabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
 import { type VentaCanal }      from '@/src/lib/canal-helpers'
@@ -50,11 +50,12 @@ export interface DashboardData {
 }
 
 interface UseDashboardDataReturn {
-  data:        DashboardData | null
-  isLoading:   boolean
-  error:       string | null
-  lastUpdated: Date | null
-  refetch:     () => void
+  data:          DashboardData | null
+  isLoading:     boolean
+  isRefreshing:  boolean
+  error:         string | null
+  lastUpdated:   Date | null
+  refetch:       () => void
 }
 
 // Extracts an array from a settled RPC result; logs a warning on any failure
@@ -100,10 +101,14 @@ function runAllRPCs(locationId: string) {
 }
 
 export function useDashboardData(locationId: string): UseDashboardDataReturn {
-  const [data,        setData]        = useState<DashboardData | null>(null)
-  const [isLoading,   setIsLoading]   = useState(true)
-  const [error,       setError]       = useState<string | null>(null)
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [data,          setData]          = useState<DashboardData | null>(null)
+  const [isLoading,     setIsLoading]     = useState(true)
+  const [isRefreshing,  setIsRefreshing]  = useState(false)
+  const [error,         setError]         = useState<string | null>(null)
+  const [lastUpdated,   setLastUpdated]   = useState<Date | null>(null)
+  // Tracks which locationId produced the current `data` so we can distinguish
+  // a first-load (no data yet) from a background refresh (stale data available).
+  const loadedForRef = useRef<string | null>(null)
 
   const load = useCallback(async () => {
     logger.debug('[useDashboardData] locationId:', locationId)
@@ -112,7 +117,11 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
       setIsLoading(false)
       return
     }
-    setIsLoading(true)
+    if (loadedForRef.current === locationId) {
+      setIsRefreshing(true)
+    } else {
+      setIsLoading(true)
+    }
     setError(null)
 
     try {
@@ -142,6 +151,7 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
         ventasPorDiaSemana: safeArr<VentaDiaSemana>  (results[6], 'get_ventas_por_dia_semana'),
         ventasPorFranja:    safeArr<VentaFranja>     (results[7], 'get_ventas_por_franja'),
       })
+      loadedForRef.current = locationId
       setLastUpdated(new Date())
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error desconocido'
@@ -149,6 +159,7 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
       setError(msg)
     } finally {
       setIsLoading(false)
+      setIsRefreshing(false)
     }
   }, [locationId])
 
@@ -166,5 +177,5 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [load, locationId])
 
-  return { data, isLoading, error, lastUpdated, refetch: load }
+  return { data, isLoading, isRefreshing, error, lastUpdated, refetch: load }
 }

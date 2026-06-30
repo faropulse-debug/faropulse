@@ -106,7 +106,7 @@ function DowRow({ row, maxVentas }: { row: DiaSemanaRow; maxVentas: number }) {
 interface Props { locationId: string }
 
 export function DiaSemanaSection({ locationId }: Props) {
-  const { data: liveData, isLoading } = useDashboardData(locationId)
+  const { data: liveData, isLoading, isRefreshing } = useDashboardData(locationId)
   const [mesOverride, setMesOverride] = useState<string | null>(null)
 
   const meses    = useMemo(() => availableMeses(liveData?.ventasPorDiaSemana ?? []), [liveData])
@@ -145,7 +145,7 @@ export function DiaSemanaSection({ locationId }: Props) {
           {isLoading ? 'cargando…' : 'sin datos'}
         </div>
       ) : (
-        <div style={{ opacity: isLoading ? 0.5 : 1, transition: 'opacity 0.3s' }}>
+        <div style={{ opacity: (isLoading || isRefreshing) ? 0.5 : 1, transition: 'opacity 0.3s' }}>
 
           {/* Table header */}
           <div style={{

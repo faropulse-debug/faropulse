@@ -560,7 +560,7 @@ function CanalesSection({ rows, insight }: { rows: CanalRow[]; insight: string |
 interface Props { locationId: string }
 
 export function EstadoNegocioSection({ locationId }: Props) {
-  const { data, isLoading } = useDashboardData(locationId)
+  const { data, isLoading, isRefreshing } = useDashboardData(locationId)
 
   // ── Available months ──
   const months = useMemo(
@@ -709,6 +709,8 @@ export function EstadoNegocioSection({ locationId }: Props) {
         gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
         gap: '12px',
         marginBottom: '16px',
+        opacity: isRefreshing ? 0.6 : 1,
+        transition: 'opacity 0.3s',
       }}>
         {isLoading ? (
           Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)

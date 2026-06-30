@@ -121,7 +121,7 @@ function TableRow({ row, maxVentas, isOtras }: { row: FamiliaRow; maxVentas: num
 interface Props { locationId: string }
 
 export function FamiliaSection({ locationId }: Props) {
-  const { data: liveData, isLoading } = useDashboardData(locationId)
+  const { data: liveData, isLoading, isRefreshing } = useDashboardData(locationId)
   const [mesOverride, setMesOverride]  = useState<string | null>(null)
 
   // All available months, sorted descending (most recent first)
@@ -180,7 +180,7 @@ export function FamiliaSection({ locationId }: Props) {
           {isLoading ? 'cargando…' : 'sin datos'}
         </div>
       ) : (
-        <div style={{ opacity: isLoading ? 0.5 : 1, transition: 'opacity 0.3s' }}>
+        <div style={{ opacity: (isLoading || isRefreshing) ? 0.5 : 1, transition: 'opacity 0.3s' }}>
 
           {/* Table header */}
           <div style={{
