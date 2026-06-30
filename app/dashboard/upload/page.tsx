@@ -464,7 +464,7 @@ function PreviewStatCard({ label, value, accent }: { label: string; value: strin
   )
 }
 
-function PreviewBanner({ result, accent }: { result: UploadResult; accent: string }) {
+function PreviewBanner({ result, accent: _accent }: { result: UploadResult; accent: string }) {
   const docs = result.documents ?? result.items
   if (result.status === 'dry_run_duplicate') {
     return (

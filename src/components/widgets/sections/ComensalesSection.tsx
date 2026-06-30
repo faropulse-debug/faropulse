@@ -8,7 +8,7 @@ interface Props {
   locationId: string
 }
 
-export function ComensalesSection({ locationId: _ }: Props) {
+export function ComensalesSection({ locationId: _locationId }: Props) {
   const { data, isLoading, isRefreshing } = useDashboardDataCtx()
 
   return (

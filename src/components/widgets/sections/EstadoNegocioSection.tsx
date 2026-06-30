@@ -559,7 +559,7 @@ function CanalesSection({ rows, insight }: { rows: CanalRow[]; insight: string |
 
 interface Props { locationId: string }
 
-export function EstadoNegocioSection({ locationId }: Props) {
+export function EstadoNegocioSection({ locationId: _locationId }: Props) {
   const { data, isLoading, isRefreshing } = useDashboardDataCtx()
 
   // ── Available months ──

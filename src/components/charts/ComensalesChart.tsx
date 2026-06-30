@@ -142,7 +142,9 @@ function TooltipShell({ borderColor, title, sub, comensales, avg }: {
   )
 }
 
-function MonthTooltip({ active, payload, avg }: any) {
+type RCTooltip<T> = { active?: boolean; payload?: { payload: T }[]; avg: number }
+
+function MonthTooltip({ active, payload, avg }: RCTooltip<MonthPoint>) {
   if (!active || !payload?.length) return null
   const d = payload[0]?.payload as MonthPoint
   if (!d) return null
@@ -151,7 +153,7 @@ function MonthTooltip({ active, payload, avg }: any) {
     title={d.name} comensales={d.comensales} avg={avg} />
 }
 
-function WeekTooltip({ active, payload, avg }: any) {
+function WeekTooltip({ active, payload, avg }: RCTooltip<WeekPoint>) {
   if (!active || !payload?.length) return null
   const d = payload[0]?.payload as WeekPoint
   if (!d) return null
@@ -160,7 +162,7 @@ function WeekTooltip({ active, payload, avg }: any) {
     title={`Semana del ${d.name}`} comensales={d.comensales} avg={avg} />
 }
 
-function DayTooltip({ active, payload, avg }: any) {
+function DayTooltip({ active, payload, avg }: RCTooltip<DayPoint>) {
   if (!active || !payload?.length) return null
   const d = payload[0]?.payload as DayPoint
   if (!d) return null
@@ -173,7 +175,7 @@ function DayTooltip({ active, payload, avg }: any) {
 // ── Custom Dots (line charts) ─────────────────────────────────────────────────
 
 function makeDot(avg: number, r = 4) {
-  return function Dot(props: any) {
+  return function Dot(props: { cx?: number; cy?: number; payload?: { comensales: number } }) {
     const { cx, cy, payload } = props
     if (!payload || cx == null || cy == null) return null
     return <circle cx={cx} cy={cy} r={r}

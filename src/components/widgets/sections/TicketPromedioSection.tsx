@@ -8,7 +8,7 @@ interface Props {
   locationId: string
 }
 
-export function TicketPromedioSection({ locationId: _ }: Props) {
+export function TicketPromedioSection({ locationId: _locationId }: Props) {
   const { data, isLoading, isRefreshing } = useDashboardDataCtx()
 
   return (

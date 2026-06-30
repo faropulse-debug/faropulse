@@ -164,7 +164,7 @@ function buildProjections(realData: DataPoint[]): DataPoint[] {
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 
-function CustomTooltip({ active, payload }: any) {
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payload: DataPoint }[] }) {
   if (!active || !payload?.length) return null
   const d      = payload[0]?.payload as DataPoint
   if (!d) return null

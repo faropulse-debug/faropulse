@@ -69,7 +69,7 @@ interface Props {
   locationId: string
 }
 
-export function ElPulsoSection({ locationId }: Props) {
+export function ElPulsoSection({ locationId: _locationId }: Props) {
   const [periodo, setPeriodo] = useState<Periodo>('mes')
   const { data: liveData, isLoading, isRefreshing } = useDashboardDataCtx()
 

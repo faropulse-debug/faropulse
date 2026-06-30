@@ -44,6 +44,7 @@ export interface WidgetRenderConfig {
 
 interface CreateWidgetOptions {
   config:         WidgetRenderConfig
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   renderContent:  (data: any) => ReactNode
   /** Number of skeleton rows to show while loading. Defaults to 1. */
   skeletonLines?: number[]

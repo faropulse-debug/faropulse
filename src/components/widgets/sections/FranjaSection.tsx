@@ -131,7 +131,7 @@ function FranjaRowComp({ row, maxVentas }: { row: FranjaRow; maxVentas: number }
 
 interface Props { locationId: string }
 
-export function FranjaSection({ locationId }: Props) {
+export function FranjaSection({ locationId: _locationId }: Props) {
   const { data: liveData, isLoading, isRefreshing } = useDashboardDataCtx()
   const [mesOverride, setMesOverride] = useState<string | null>(null)
 

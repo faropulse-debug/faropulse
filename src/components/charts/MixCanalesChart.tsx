@@ -59,9 +59,11 @@ const yAxisProps = {
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 
-function MixTooltip({ active, payload, label }: any) {
+type MixEntry = { dataKey: string; value: number; fill: string }
+
+function MixTooltip({ active, payload, label }: { active?: boolean; payload?: MixEntry[]; label?: string }) {
   if (!active || !payload?.length) return null
-  const total = payload.reduce((s: number, p: any) => s + (p.value || 0), 0)
+  const total = payload.reduce((s: number, p: MixEntry) => s + (p.value || 0), 0)
   return (
     <div
       className="rounded-xl border p-4 min-w-[240px]"
@@ -72,7 +74,7 @@ function MixTooltip({ active, payload, label }: any) {
       <div className="text-white/30 text-[10px] mb-2.5">
         Total: <span className="text-white/55 font-mono">{fmtM(total)}</span>
       </div>
-      {[...payload].reverse().map((p: any) => {
+      {[...payload].reverse().map((p: MixEntry) => {
         const pct = total > 0 ? ((p.value / total) * 100).toFixed(1) : '0.0'
         return (
           <div key={p.dataKey} className="flex justify-between items-center py-1.5"

@@ -6,7 +6,6 @@ import { logger } from '@/lib/logger'
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const BG_CARD    = '#111114'
-const BORDER     = 'rgba(255,255,255,0.07)'
 const RED        = '#EF4444'
 const FONT_LABEL = "var(--font-dm-mono), monospace"
 const FONT_VALUE = "var(--font-syne), sans-serif"

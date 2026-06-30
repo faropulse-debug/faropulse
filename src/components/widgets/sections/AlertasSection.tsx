@@ -2,7 +2,7 @@
 
 import { useMemo }                        from 'react'
 import { SectionLabel }                  from '@/components/dashboard/SectionLabel'
-import { fmtPeso, fmtPct, fmtMillones } from '@/lib/format'
+import { fmtPct, fmtMillones } from '@/lib/format'
 import { useDashboardDataCtx }           from '@/providers/DashboardDataProvider'
 import { type VentaDiaSemana }           from '@/src/lib/dia-semana-helpers'
 
@@ -354,11 +354,11 @@ function SkeletonCard() {
 
 interface Props { locationId: string }
 
-export function AlertasSection({ locationId }: Props) {
+export function AlertasSection({ locationId: _locationId }: Props) {
   const { data, isLoading, isRefreshing } = useDashboardDataCtx()
 
-  const financial = data?.financialResults  ?? []
-  const diaSemana = data?.ventasPorDiaSemana ?? []
+  const financial = useMemo(() => data?.financialResults  ?? [], [data?.financialResults])
+  const diaSemana = useMemo(() => data?.ventasPorDiaSemana ?? [], [data?.ventasPorDiaSemana])
 
   const pivot    = useMemo(() => buildPivot(financial), [financial])
   const insights = useMemo(() => computeInsights(pivot, diaSemana), [pivot, diaSemana])

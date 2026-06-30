@@ -44,6 +44,7 @@ export function MixCanalesSection({ locationId }: Props) {
     setIsRefreshing(false)
   }, [locationId])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load() }, [load])
 
   return (

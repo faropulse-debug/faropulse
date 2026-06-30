@@ -18,6 +18,7 @@ export function ChartWrapper({ height, children }: Props) {
     const el = ref.current
     if (!el) return
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (el.offsetWidth > 0) { setReady(true); return }
 
     const ro = new ResizeObserver(([entry]) => {

@@ -10,7 +10,7 @@ interface Props {
   locationId: string
 }
 
-export function PuntoDeEquilibrioSection({ locationId: _ }: Props) {
+export function PuntoDeEquilibrioSection({ locationId: _locationId }: Props) {
   const { data, isLoading, isRefreshing } = useDashboardDataCtx()
 
   return (

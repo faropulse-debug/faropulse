@@ -105,7 +105,7 @@ function DowRow({ row, maxVentas }: { row: DiaSemanaRow; maxVentas: number }) {
 
 interface Props { locationId: string }
 
-export function DiaSemanaSection({ locationId }: Props) {
+export function DiaSemanaSection({ locationId: _locationId }: Props) {
   const { data: liveData, isLoading, isRefreshing } = useDashboardDataCtx()
   const [mesOverride, setMesOverride] = useState<string | null>(null)
 

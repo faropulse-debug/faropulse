@@ -120,7 +120,7 @@ function TableRow({ row, maxVentas, isOtras }: { row: FamiliaRow; maxVentas: num
 
 interface Props { locationId: string }
 
-export function FamiliaSection({ locationId }: Props) {
+export function FamiliaSection({ locationId: _locationId }: Props) {
   const { data: liveData, isLoading, isRefreshing } = useDashboardDataCtx()
   const [mesOverride, setMesOverride]  = useState<string | null>(null)
 

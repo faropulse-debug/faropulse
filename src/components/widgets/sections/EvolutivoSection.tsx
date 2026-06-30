@@ -8,7 +8,7 @@ interface Props {
   locationId: string
 }
 
-export function EvolutivoSection({ locationId: _ }: Props) {
+export function EvolutivoSection({ locationId: _locationId }: Props) {
   const { data, isLoading, isRefreshing } = useDashboardDataCtx()
 
   return (

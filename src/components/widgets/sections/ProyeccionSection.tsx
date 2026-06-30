@@ -8,7 +8,7 @@ interface Props {
   locationId: string
 }
 
-export function ProyeccionSection({ locationId: _ }: Props) {
+export function ProyeccionSection({ locationId: _locationId }: Props) {
   const { data, isLoading, isRefreshing } = useDashboardDataCtx()
 
   return (
