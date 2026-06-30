@@ -7,8 +7,10 @@ import { type VentaCanal }      from '@/src/lib/canal-helpers'
 import { type VentaFamilia }    from '@/src/lib/familia-helpers'
 import { type VentaDiaSemana }  from '@/src/lib/dia-semana-helpers'
 import { type VentaFranja }    from '@/src/lib/franja-helpers'
+import { type RawComensalRow }  from '@/src/components/charts/ComensalesChart'
+import { type RawTicketRow }    from '@/src/components/charts/TicketPromedioChart'
 
-export type { VentaCanal, VentaFamilia, VentaDiaSemana, VentaFranja }
+export type { VentaCanal, VentaFamilia, VentaDiaSemana, VentaFranja, RawComensalRow, RawTicketRow }
 
 export interface VentaDiaria {
   fecha:      string
@@ -47,6 +49,8 @@ export interface DashboardData {
   ventasPorFamilia:   VentaFamilia[]
   ventasPorDiaSemana: VentaDiaSemana[]
   ventasPorFranja:    VentaFranja[]
+  comensalesFull:     RawComensalRow[]
+  ticketPromedioFull: RawTicketRow[]
 }
 
 interface UseDashboardDataReturn {
@@ -86,7 +90,7 @@ function isAuthError(result: PromiseSettledResult<any>): boolean {
   )
 }
 
-// Runs all 8 RPCs concurrently — extracted so the load() function can retry on auth error.
+// Runs all 10 RPCs concurrently — extracted so the load() function can retry on auth error.
 function runAllRPCs(locationId: string) {
   return Promise.allSettled([
     getSupabase().rpc('get_ventas_semana',         { p_location_id: locationId }),
@@ -97,6 +101,8 @@ function runAllRPCs(locationId: string) {
     getSupabase().rpc('get_ventas_por_familia',    { p_location_id: locationId }),
     getSupabase().rpc('get_ventas_por_dia_semana', { p_location_id: locationId }),
     getSupabase().rpc('get_ventas_por_franja',     { p_location_id: locationId }),
+    getSupabase().rpc('get_comensales_full',       { p_location_id: locationId }),
+    getSupabase().rpc('get_ticket_promedio_full',  { p_location_id: locationId }),
   ])
 }
 
@@ -150,6 +156,8 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
         ventasPorFamilia:   safeArr<VentaFamilia>    (results[5], 'get_ventas_por_familia'),
         ventasPorDiaSemana: safeArr<VentaDiaSemana>  (results[6], 'get_ventas_por_dia_semana'),
         ventasPorFranja:    safeArr<VentaFranja>     (results[7], 'get_ventas_por_franja'),
+        comensalesFull:     safeArr<RawComensalRow>  (results[8], 'get_comensales_full'),
+        ticketPromedioFull: safeArr<RawTicketRow>    (results[9], 'get_ticket_promedio_full'),
       })
       loadedForRef.current = locationId
       setLastUpdated(new Date())
