@@ -9,8 +9,10 @@ import { type VentaDiaSemana }  from '@/src/lib/dia-semana-helpers'
 import { type VentaFranja }    from '@/src/lib/franja-helpers'
 import { type RawComensalRow }  from '@/src/components/charts/ComensalesChart'
 import { type RawTicketRow }    from '@/src/components/charts/TicketPromedioChart'
+import { type WeeklySaleRow }   from '@/src/components/charts/PESemanalChart'
+import { type DailySaleRow }    from '@/src/components/charts/PEDiarioChart'
 
-export type { VentaCanal, VentaFamilia, VentaDiaSemana, VentaFranja, RawComensalRow, RawTicketRow }
+export type { VentaCanal, VentaFamilia, VentaDiaSemana, VentaFranja, RawComensalRow, RawTicketRow, WeeklySaleRow, DailySaleRow }
 
 export interface VentaDiaria {
   fecha:      string
@@ -51,6 +53,8 @@ export interface DashboardData {
   ventasPorFranja:    VentaFranja[]
   comensalesFull:     RawComensalRow[]
   ticketPromedioFull: RawTicketRow[]
+  weeklyFull:         WeeklySaleRow[]
+  dailyFull:          DailySaleRow[]
 }
 
 interface UseDashboardDataReturn {
@@ -90,7 +94,7 @@ function isAuthError(result: PromiseSettledResult<any>): boolean {
   )
 }
 
-// Runs all 10 RPCs concurrently — extracted so the load() function can retry on auth error.
+// Runs all 12 RPCs concurrently — extracted so the load() function can retry on auth error.
 function runAllRPCs(locationId: string) {
   return Promise.allSettled([
     getSupabase().rpc('get_ventas_semana',         { p_location_id: locationId }),
@@ -103,6 +107,8 @@ function runAllRPCs(locationId: string) {
     getSupabase().rpc('get_ventas_por_franja',     { p_location_id: locationId }),
     getSupabase().rpc('get_comensales_full',       { p_location_id: locationId }),
     getSupabase().rpc('get_ticket_promedio_full',  { p_location_id: locationId }),
+    getSupabase().rpc('get_weekly_sales_full',     { p_location_id: locationId }),
+    getSupabase().rpc('get_daily_sales_full',      { p_location_id: locationId }),
   ])
 }
 
@@ -156,8 +162,10 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
         ventasPorFamilia:   safeArr<VentaFamilia>    (results[5], 'get_ventas_por_familia'),
         ventasPorDiaSemana: safeArr<VentaDiaSemana>  (results[6], 'get_ventas_por_dia_semana'),
         ventasPorFranja:    safeArr<VentaFranja>     (results[7], 'get_ventas_por_franja'),
-        comensalesFull:     safeArr<RawComensalRow>  (results[8], 'get_comensales_full'),
-        ticketPromedioFull: safeArr<RawTicketRow>    (results[9], 'get_ticket_promedio_full'),
+        comensalesFull:     safeArr<RawComensalRow>  (results[8],  'get_comensales_full'),
+        ticketPromedioFull: safeArr<RawTicketRow>    (results[9],  'get_ticket_promedio_full'),
+        weeklyFull:         safeArr<WeeklySaleRow>   (results[10], 'get_weekly_sales_full'),
+        dailyFull:          safeArr<DailySaleRow>    (results[11], 'get_daily_sales_full'),
       })
       loadedForRef.current = locationId
       setLastUpdated(new Date())
