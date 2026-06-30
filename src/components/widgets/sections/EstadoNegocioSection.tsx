@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo }    from 'react'
-import { useDashboardData }      from '@/hooks/useDashboardData'
+import { useDashboardDataCtx }   from '@/providers/DashboardDataProvider'
 import {
   BarChart, Bar, Cell, XAxis, YAxis,
   Tooltip, ResponsiveContainer, LabelList,
@@ -560,7 +560,7 @@ function CanalesSection({ rows, insight }: { rows: CanalRow[]; insight: string |
 interface Props { locationId: string }
 
 export function EstadoNegocioSection({ locationId }: Props) {
-  const { data, isLoading, isRefreshing } = useDashboardData(locationId)
+  const { data, isLoading, isRefreshing } = useDashboardDataCtx()
 
   // ── Available months ──
   const months = useMemo(

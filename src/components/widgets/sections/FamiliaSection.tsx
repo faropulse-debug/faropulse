@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo }   from 'react'
-import { useDashboardData }     from '@/hooks/useDashboardData'
+import { useDashboardDataCtx }  from '@/providers/DashboardDataProvider'
 import { SectionLabel }         from '@/components/dashboard/SectionLabel'
 import { MonthSelector, currentYM } from '@/src/components/ui/MonthSelector'
 import { fmtMillones }          from '@/lib/format'
@@ -121,7 +121,7 @@ function TableRow({ row, maxVentas, isOtras }: { row: FamiliaRow; maxVentas: num
 interface Props { locationId: string }
 
 export function FamiliaSection({ locationId }: Props) {
-  const { data: liveData, isLoading, isRefreshing } = useDashboardData(locationId)
+  const { data: liveData, isLoading, isRefreshing } = useDashboardDataCtx()
   const [mesOverride, setMesOverride]  = useState<string | null>(null)
 
   // All available months, sorted descending (most recent first)

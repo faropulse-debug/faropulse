@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useDashboardData }                from '@/hooks/useDashboardData'
+import { useDashboardDataCtx }             from '@/providers/DashboardDataProvider'
 import { SectionLabel }                    from '@/components/dashboard/SectionLabel'
 import { PulsoCard }                       from '@/components/dashboard/PulsoCard'
 import { PeriodoSelector, PERIODO_LABELS } from '@/components/dashboard/PeriodoSelector'
@@ -71,7 +71,7 @@ interface Props {
 
 export function ElPulsoSection({ locationId }: Props) {
   const [periodo, setPeriodo] = useState<Periodo>('mes')
-  const { data: liveData, isLoading } = useDashboardData(locationId)
+  const { data: liveData, isLoading, isRefreshing } = useDashboardDataCtx()
 
   const datosPorPeriodo = useMemo((): Record<Periodo, PulsoDatos> => {
     // A2: no data yet (loading / error) → honest zeros, not pizzería mock
@@ -167,7 +167,7 @@ export function ElPulsoSection({ locationId }: Props) {
       </SectionLabel>
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(188px, 1fr))', gap: '16px',
-        opacity: isLoading ? 0.5 : 1, transition: 'opacity 0.3s',
+        opacity: (isLoading || isRefreshing) ? 0.5 : 1, transition: 'opacity 0.3s',
       }}>
         <PulsoCard label="Ventas"            value={fmtMillones(datos.ventas)}                                           vsAnterior={datos.vsAnterior.ventas}  subtitle="Facturación del período" />
         <PulsoCard label="Resultado Neto"    value=""                                                                    vsAnterior={0}                        tbd={true} subtitle="Disponible al cargar P&L 2026" />

@@ -4,6 +4,7 @@ import { useState }                     from 'react'
 import Link                              from 'next/link'
 import { useAuth }                       from '@/hooks/useAuth'
 import { DashboardFiltersProvider }      from '@/src/context/dashboard-filters'
+import { DashboardDataProvider }         from '@/providers/DashboardDataProvider'
 import { WidgetError }                   from '@/src/components/widgets'
 import {
   getEnabledWidgets,
@@ -132,6 +133,7 @@ export default function OwnerDashboardV2() {
 
   return (
     <DashboardFiltersProvider>
+    <DashboardDataProvider locationId={locationId}>
       <div style={{ padding: '32px 24px', maxWidth: '1280px', margin: '0 auto' }}>
 
         {/* Header */}
@@ -202,6 +204,7 @@ export default function OwnerDashboardV2() {
         <TabContent categories={currentTab.categories} locationId={locationId} />
 
       </div>
+    </DashboardDataProvider>
     </DashboardFiltersProvider>
   )
 }
