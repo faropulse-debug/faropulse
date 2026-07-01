@@ -12,7 +12,7 @@ export default function NotFound() {
           La página que buscás no existe o fue movida.
         </p>
         <Link
-          href="/dashboard"
+          href="/dashboard/owner/v2"
           className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
         >
           Ir al Dashboard

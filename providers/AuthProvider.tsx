@@ -16,8 +16,6 @@ const DEV_FALLBACK_ORG_ID      = 'aaaaaaaa-0000-0000-0000-000000000001'
 // Pure async builder — cancellable via the `cancelled` ref in the effect.
 async function buildUser(session: Session, callId: number): Promise<{ user: AuthUser | null; error: string | null }> {
   const supabase = getSupabase()
-  // eslint-disable-next-line no-console
-  console.log(`[DIAG:AuthProvider] buildUser #${callId} start — uid:${session.user.id}`)
 
   const [profileResult, membershipsResult] = await Promise.all([
     supabase
@@ -34,21 +32,11 @@ async function buildUser(session: Session, callId: number): Promise<{ user: Auth
 
   if (profileResult.error || !profileResult.data) {
     logger.error('[AuthProvider] profile query failed:', profileResult.error?.message)
-    // eslint-disable-next-line no-console
-    console.log(`[DIAG:AuthProvider] buildUser #${callId} profile failed`, {
-      error: profileResult.error?.message ?? null,
-    })
     return { user: null, error: null }
   }
 
   const rawMemberships = (membershipsResult.data ?? []) as Omit<Membership, 'location_id'>[]
   const orgIds = [...new Set(rawMemberships.map(m => m.org_id))]
-  // eslint-disable-next-line no-console
-  console.log(`[DIAG:AuthProvider] buildUser #${callId} memberships`, {
-    error: membershipsResult.error?.message ?? null,
-    rawMemberships: rawMemberships.map(m => ({ id: m.id, org_id: m.org_id, role: m.role, is_active: m.is_active })),
-    orgIds,
-  })
 
   let locationByOrg: Record<string, string> = {}
   if (orgIds.length > 0) {
@@ -66,12 +54,6 @@ async function buildUser(session: Session, callId: number): Promise<{ user: Auth
     locationByOrg = Object.fromEntries(
       (locs ?? []).map((l: { id: unknown; org_id: unknown }) => [l.org_id as string, l.id as string])
     )
-    // eslint-disable-next-line no-console
-    console.log(`[DIAG:AuthProvider] buildUser #${callId} locations`, {
-      error: locsError?.message ?? null,
-      rows: (locs ?? []).map((l: { id: unknown; org_id: unknown }) => ({ id: l.id, org_id: l.org_id })),
-      locationByOrg,
-    })
   }
 
   const memberships: Membership[] = rawMemberships.map(m => ({
@@ -84,15 +66,6 @@ async function buildUser(session: Session, callId: number): Promise<{ user: Auth
     (storedId ? memberships.find(m => m.id === storedId && m.location_id) : null)
     ?? memberships.find(m => m.location_id)
     ?? null
-
-  // eslint-disable-next-line no-console
-  console.log(`[DIAG:AuthProvider] buildUser #${callId} result`, {
-    storedId,
-    mappedMemberships: memberships.map(m => ({ id: m.id, org_id: m.org_id, role: m.role, location_id: m.location_id ?? null })),
-    activeMembership: activeMembership
-      ? { id: activeMembership.id, org_id: activeMembership.org_id, role: activeMembership.role, location_id: activeMembership.location_id ?? null }
-      : null,
-  })
 
   if (rawMemberships.length > 0 && !activeMembership) {
     logger.error('[AuthProvider] memberships exist but none resolved a location_id')
@@ -160,9 +133,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false
     let buildCallCount = 0
 
-    // eslint-disable-next-line no-console
-    console.log('[DIAG:AuthProvider] mounted')
-
     const failsafe = setTimeout(() => {
       if (!initializedRef.current) {
         logger.warn('[AuthProvider] failsafe — INITIAL_SESSION never received in 8s')
@@ -176,13 +146,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // resolves without waiting for our DB queries (avoids the blocking deadlock).
       (event: AuthChangeEvent, session: Session | null) => {
         if (cancelled) return
-        // eslint-disable-next-line no-console
-        console.log(`[DIAG:AuthProvider] event:${event} session:${session ? 'OK' : 'null'} init:${initializedRef.current} userRef:${userRef.current?.activeMembership ? 'has-membership' : 'no-membership'}`)
         logger.debug('[AuthProvider]', event, session ? 'session OK' : 'session null')
 
         if (event === 'SIGNED_OUT') {
-          // eslint-disable-next-line no-console
-          console.log('[DIAG:AuthProvider] commit SIGNED_OUT')
           userRef.current = null
           setUser(null)
           setError(null)
@@ -193,8 +159,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (event === 'INITIAL_SESSION' && !session) {
-          // eslint-disable-next-line no-console
-          console.log('[DIAG:AuthProvider] commit INITIAL_SESSION:null')
           userRef.current = null
           setUser(null)
           setError(null)
@@ -215,8 +179,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (event === 'TOKEN_REFRESHED' && userRef.current?.activeMembership) {
-          // eslint-disable-next-line no-console
-          console.log('[DIAG:AuthProvider] TOKEN_REFRESHED — user already loaded, skipping buildUser')
           if (!initializedRef.current) {
             setIsLoading(false)
             initializedRef.current = true
@@ -241,26 +203,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   level: 'warning',
                   extra: { event, userId: built.profile.id },
                 })
-                // eslint-disable-next-line no-console
-                console.log(`[DIAG:AuthProvider] keeping existing user — new build had no activeMembership (event:${event})`)
                 userRef.current = prev
                 return prev
               }
-              // eslint-disable-next-line no-console
-              console.log('[DIAG:AuthProvider] commit', {
-                reason: event,
-                user: built.profile.id,
-                activeMembership: built.activeMembership?.id ?? null,
-                location_id: built.activeMembership?.location_id ?? null,
-                buildError,
-              })
               userRef.current = built
               return built
             })
             setError(buildError)
           } else if (!initializedRef.current) {
-            // eslint-disable-next-line no-console
-            console.log(`[DIAG:AuthProvider] commit ${event}:build-null:first-load`)
             userRef.current = null
             setUser(null)
             setError(null)
@@ -275,8 +225,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       cancelled = true
-      // eslint-disable-next-line no-console
-      console.log('[DIAG:AuthProvider] unmounted')
       subscription.unsubscribe()
       clearTimeout(failsafe)
     }

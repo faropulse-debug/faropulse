@@ -9,9 +9,6 @@ const PUBLIC_API_PREFIXES = ['/api/health']
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // eslint-disable-next-line no-console
-  console.log('[DIAG:middleware] running for', pathname)
-
   if (
     PUBLIC_ROUTES.some(r => pathname === r) ||
     PUBLIC_API_PREFIXES.some(p => pathname.startsWith(p))

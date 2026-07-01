@@ -90,21 +90,6 @@ export default function OwnerDashboardV2() {
   const isDev   = process.env.NODE_ENV === 'development'
   const orgName = user?.activeMembership?.organization?.name ?? 'Dashboard'
 
-  console.log('[DIAG:owner/v2] render', {
-    isLoading,
-    authError,
-    hasUser: Boolean(user),
-    activeMembership: user?.activeMembership?.id ?? null,
-    activeMembershipOrg: user?.activeMembership?.org_id ?? null,
-    locationId,
-    memberships: user?.memberships.map(m => ({
-      id: m.id,
-      org_id: m.org_id,
-      role: m.role,
-      location_id: m.location_id ?? null,
-    })) ?? null,
-  })
-
   if (isLoading && !isDev) {
     return (
       <div style={{
