@@ -55,6 +55,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  const DASHBOARD_ROLES = new Set(['owner', 'manager'])
+
   const requiredRole = pathname.startsWith('/dashboard/owner')   ? 'owner'
                      : pathname.startsWith('/dashboard/manager') ? 'manager'
                      : null
@@ -90,6 +92,13 @@ export async function middleware(request: NextRequest) {
     }
     // memErr → fail-open: requireMembership() in API handlers is the real gate;
     // a transient PostgREST issue shouldn't lock out a legitimate user from navigation.
+  } else if (pathname.startsWith('/dashboard/')) {
+    // Fallback: /dashboard/* path not matched by owner or manager above.
+    // Roles without a mapped dashboard (e.g. viewer) must not roam freely.
+    const cookieRole = request.cookies.get('faro_role')?.value
+    if (!cookieRole || !DASHBOARD_ROLES.has(cookieRole)) {
+      return NextResponse.redirect(new URL('/role-select', request.url))
+    }
   }
 
   return supabaseResponse
