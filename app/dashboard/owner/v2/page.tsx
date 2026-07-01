@@ -14,13 +14,14 @@ import {
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 
-type TabKey = 'resumen' | 'pnl' | 'operacion' | 'inversion'
+type TabKey = 'resumen' | 'pnl' | 'operacion' | 'inversion' | 'descuentos'
 
 const TABS: { key: TabKey; label: string; categories: WidgetCategory[] }[] = [
-  { key: 'resumen',   label: 'Resumen',   categories: ['kpi', 'alert'] },
-  { key: 'pnl',       label: 'P&L',       categories: ['financial']    },
-  { key: 'operacion', label: 'Operación', categories: ['diagnostic']   },
-  { key: 'inversion', label: 'Inversión', categories: ['investment']   },
+  { key: 'resumen',    label: 'Resumen',    categories: ['kpi', 'alert'] },
+  { key: 'pnl',        label: 'P&L',        categories: ['financial']    },
+  { key: 'operacion',  label: 'Operación',  categories: ['diagnostic']   },
+  { key: 'inversion',  label: 'Inversión',  categories: ['investment']   },
+  { key: 'descuentos', label: 'Descuentos', categories: ['descuento']    },
 ]
 
 // ─── Design tokens ────────────────────────────────────────────────────────────

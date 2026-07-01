@@ -12,6 +12,7 @@ import { MixCanalesSection }          from '@/src/components/widgets/sections/Mi
 import { FamiliaSection }             from '@/src/components/widgets/sections/FamiliaSection'
 import { DiaSemanaSection }           from '@/src/components/widgets/sections/DiaSemanaSection'
 import { FranjaSection }              from '@/src/components/widgets/sections/FranjaSection'
+import { DescuentosSection }          from '@/src/components/widgets/sections/DescuentosSection'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,7 @@ export type WidgetCategory =
   | 'narrative'
   | 'investment'
   | 'financial'
+  | 'descuento'
 
 export type RefreshPolicy = 'fast' | 'normal' | 'slow' | 'manual'
 
@@ -300,6 +302,24 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
     },
     kind:    'composite',
     section: 'alertas',
+  },
+  {
+    id:            'descuentos',
+    title:         'Análisis de Descuentos',
+    description:   'Plata perdida en descuentos por mes y canal, top 10 tickets con mayor pérdida e insight automático',
+    enabled:       true,
+    component:     DescuentosSection,
+    gridSpan:      { mobile: 12, tablet: 12, desktop: 12 },
+    priority:      20,
+    category:      'descuento',
+    refreshPolicy: 'slow',
+    filterSupport: {
+      required: [],
+      optional: [],
+      ignored:  ['locationId', 'weekReference', 'monthReference', 'compareMode', 'channel'],
+    },
+    kind:    'composite',
+    section: 'descuentos',
   },
 ]
 
