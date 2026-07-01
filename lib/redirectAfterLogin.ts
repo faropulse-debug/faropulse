@@ -6,7 +6,7 @@ import type { Membership } from '@/types/auth'
  */
 export function getRedirectPath(memberships: Membership[]): string {
   if (memberships.length === 0) {
-    return '/onboarding'
+    return '/role-select'
   }
 
   if (memberships.length === 1) {
