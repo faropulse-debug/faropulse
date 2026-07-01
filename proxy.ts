@@ -6,7 +6,7 @@ import type { NextRequest } from 'next/server'
 const PUBLIC_ROUTES      = ['/login', '/forgot-password', '/reset-password']
 const PUBLIC_API_PREFIXES = ['/api/health']
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   if (
