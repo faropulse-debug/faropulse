@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { computePnL, type PnLInputs } from '@/lib/pnl/formulas'
+import { requireMembership } from '@/lib/api-auth'
 
 interface FinRow {
   org_id:      string
@@ -100,6 +101,9 @@ export async function POST(req: NextRequest) {
     if (!/^\d{4}-\d{2}$/.test(periodo)) {
       return NextResponse.json({ error: 'Formato de periodo inválido (esperado YYYY-MM)' }, { status: 400 })
     }
+
+    const authResult = await requireMembership(req, location_id)
+    if (authResult instanceof Response) return authResult
 
     const rows = buildRows(inputs, org_id, location_id, periodo)
 

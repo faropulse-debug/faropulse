@@ -1,6 +1,6 @@
 import { maxirestSalesContract } from './maxirest-sales'
 import { maxirestItemsContract } from './maxirest-items'
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 import type { DataSourceContract, SourceType } from './types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

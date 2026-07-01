@@ -3,6 +3,11 @@ import type { NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
 import { generateTicketHash } from '@/src/lib/upload/generate-ticket-hash'
 
+// ── Mock api-auth so upload tests focus on pipeline logic, not auth ───────────
+vi.mock('@/lib/api-auth', () => ({
+  requireMembership: vi.fn().mockResolvedValue({ userId: 'test-user' }),
+}))
+
 // ── Mock Supabase before importing processor ──────────────────────────────────
 vi.mock('@/lib/supabase', () => ({
   supabase: {

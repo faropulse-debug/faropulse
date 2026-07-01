@@ -13,6 +13,7 @@ export function useDashboardKpis(locationId: string) {
 
   useEffect(() => {
     if (!locationId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false)
       return
     }

@@ -246,20 +246,14 @@ export default function RoleSelectPage() {
   const managerMemberships = user?.memberships.filter(m => m.role === 'manager') ?? []
 
   function handleSelectOwner() {
-    if (ownerMemberships.length > 0) {
-      setActiveMembership(ownerMemberships[0].id)
-    } else {
-      document.cookie = 'faro_role=owner; path=/; max-age=86400; SameSite=Lax'
-    }
+    if (ownerMemberships.length === 0) return
+    setActiveMembership(ownerMemberships[0].id)
     router.push('/dashboard/owner')
   }
 
   function handleSelectManager() {
-    if (managerMemberships.length > 0) {
-      setActiveMembership(managerMemberships[0].id)
-    } else {
-      document.cookie = 'faro_role=manager; path=/; max-age=86400; SameSite=Lax'
-    }
+    if (managerMemberships.length === 0) return
+    setActiveMembership(managerMemberships[0].id)
     router.push('/dashboard/manager')
   }
 
@@ -323,7 +317,7 @@ export default function RoleSelectPage() {
             accentColor="#f5820a"
             accentGlow="rgba(245,130,10,0.15)"
             onClick={handleSelectOwner}
-            disabled={isLoading}
+            disabled={isLoading || ownerMemberships.length === 0}
           />
           <RoleCard
             icon={<PanelIcon size={40} />}
@@ -333,7 +327,7 @@ export default function RoleSelectPage() {
             accentColor="#64a0f0"
             accentGlow="rgba(100,160,240,0.15)"
             onClick={handleSelectManager}
-            disabled={isLoading}
+            disabled={isLoading || managerMemberships.length === 0}
           />
         </div>
 

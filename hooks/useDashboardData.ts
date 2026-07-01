@@ -1,14 +1,18 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { getSupabase } from '@/lib/supabase'
 import { logger } from '@/lib/logger'
 import { type VentaCanal }      from '@/src/lib/canal-helpers'
 import { type VentaFamilia }    from '@/src/lib/familia-helpers'
 import { type VentaDiaSemana }  from '@/src/lib/dia-semana-helpers'
 import { type VentaFranja }    from '@/src/lib/franja-helpers'
+import { type RawComensalRow }  from '@/src/components/charts/ComensalesChart'
+import { type RawTicketRow }    from '@/src/components/charts/TicketPromedioChart'
+import { type WeeklySaleRow }   from '@/src/components/charts/PESemanalChart'
+import { type DailySaleRow }    from '@/src/components/charts/PEDiarioChart'
 
-export type { VentaCanal, VentaFamilia, VentaDiaSemana, VentaFranja }
+export type { VentaCanal, VentaFamilia, VentaDiaSemana, VentaFranja, RawComensalRow, RawTicketRow, WeeklySaleRow, DailySaleRow }
 
 export interface VentaDiaria {
   fecha:      string
@@ -47,14 +51,19 @@ export interface DashboardData {
   ventasPorFamilia:   VentaFamilia[]
   ventasPorDiaSemana: VentaDiaSemana[]
   ventasPorFranja:    VentaFranja[]
+  comensalesFull:     RawComensalRow[]
+  ticketPromedioFull: RawTicketRow[]
+  weeklyFull:         WeeklySaleRow[]
+  dailyFull:          DailySaleRow[]
 }
 
 interface UseDashboardDataReturn {
-  data:        DashboardData | null
-  isLoading:   boolean
-  error:       string | null
-  lastUpdated: Date | null
-  refetch:     () => void
+  data:          DashboardData | null
+  isLoading:     boolean
+  isRefreshing:  boolean
+  error:         string | null
+  lastUpdated:   Date | null
+  refetch:       () => void
 }
 
 // Extracts an array from a settled RPC result; logs a warning on any failure
@@ -85,7 +94,7 @@ function isAuthError(result: PromiseSettledResult<any>): boolean {
   )
 }
 
-// Runs all 8 RPCs concurrently — extracted so the load() function can retry on auth error.
+// Runs all 12 RPCs concurrently — extracted so the load() function can retry on auth error.
 function runAllRPCs(locationId: string) {
   return Promise.allSettled([
     getSupabase().rpc('get_ventas_semana',         { p_location_id: locationId }),
@@ -96,14 +105,22 @@ function runAllRPCs(locationId: string) {
     getSupabase().rpc('get_ventas_por_familia',    { p_location_id: locationId }),
     getSupabase().rpc('get_ventas_por_dia_semana', { p_location_id: locationId }),
     getSupabase().rpc('get_ventas_por_franja',     { p_location_id: locationId }),
+    getSupabase().rpc('get_comensales_full',       { p_location_id: locationId }),
+    getSupabase().rpc('get_ticket_promedio_full',  { p_location_id: locationId }),
+    getSupabase().rpc('get_weekly_sales_full',     { p_location_id: locationId }),
+    getSupabase().rpc('get_daily_sales_full',      { p_location_id: locationId }),
   ])
 }
 
 export function useDashboardData(locationId: string): UseDashboardDataReturn {
-  const [data,        setData]        = useState<DashboardData | null>(null)
-  const [isLoading,   setIsLoading]   = useState(true)
-  const [error,       setError]       = useState<string | null>(null)
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [data,          setData]          = useState<DashboardData | null>(null)
+  const [isLoading,     setIsLoading]     = useState(true)
+  const [isRefreshing,  setIsRefreshing]  = useState(false)
+  const [error,         setError]         = useState<string | null>(null)
+  const [lastUpdated,   setLastUpdated]   = useState<Date | null>(null)
+  // Tracks which locationId produced the current `data` so we can distinguish
+  // a first-load (no data yet) from a background refresh (stale data available).
+  const loadedForRef = useRef<string | null>(null)
 
   const load = useCallback(async () => {
     logger.debug('[useDashboardData] locationId:', locationId)
@@ -112,7 +129,11 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
       setIsLoading(false)
       return
     }
-    setIsLoading(true)
+    if (loadedForRef.current === locationId) {
+      setIsRefreshing(true)
+    } else {
+      setIsLoading(true)
+    }
     setError(null)
 
     try {
@@ -120,14 +141,15 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
       let results = await runAllRPCs(locationId)
 
       // Auto-recovery: if any RPC returned an auth error (JWT expired / 401),
-      // call getSession() to trigger the built-in token refresh in @supabase/ssr,
+      // call refreshSession() to force a new JWT from @supabase/ssr,
       // then retry once. If the retry also fails, safeArr logs warnings and returns [].
       if (results.some(isAuthError)) {
         logger.warn('[useDashboardData] auth error detectado — refresh de sesión + reintento')
-        await getSupabase().auth.getSession()
+        await getSupabase().auth.refreshSession()
         results = await runAllRPCs(locationId)
         if (results.some(isAuthError)) {
           logger.warn('[useDashboardData] reintento también falló — dejando estado vacío')
+          setError('Se cortó la sesión. Recargá la página para volver a entrar.')
         }
       }
 
@@ -140,7 +162,12 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
         ventasPorFamilia:   safeArr<VentaFamilia>    (results[5], 'get_ventas_por_familia'),
         ventasPorDiaSemana: safeArr<VentaDiaSemana>  (results[6], 'get_ventas_por_dia_semana'),
         ventasPorFranja:    safeArr<VentaFranja>     (results[7], 'get_ventas_por_franja'),
+        comensalesFull:     safeArr<RawComensalRow>  (results[8],  'get_comensales_full'),
+        ticketPromedioFull: safeArr<RawTicketRow>    (results[9],  'get_ticket_promedio_full'),
+        weeklyFull:         safeArr<WeeklySaleRow>   (results[10], 'get_weekly_sales_full'),
+        dailyFull:          safeArr<DailySaleRow>    (results[11], 'get_daily_sales_full'),
       })
+      loadedForRef.current = locationId
       setLastUpdated(new Date())
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error desconocido'
@@ -148,25 +175,23 @@ export function useDashboardData(locationId: string): UseDashboardDataReturn {
       setError(msg)
     } finally {
       setIsLoading(false)
+      setIsRefreshing(false)
     }
   }, [locationId])
 
   // Initial load (and re-load when locationId changes)
   useEffect(() => { load() }, [load])
 
-  // Auto-recovery: when @supabase/ssr refreshes the JWT in the background,
-  // re-fetch so cards repopulate without a page reload.
-  // TOKEN_REFRESHED only — SIGNED_IN is covered by the locationId dep above.
+  // Re-fetch when the user returns to the tab — catches sessions that expired
+  // while the tab was in the background and weren't caught by TOKEN_REFRESHED.
   useEffect(() => {
     if (!locationId) return
-    const { data: { subscription } } = getSupabase().auth.onAuthStateChange((event: string) => {
-      if (event === 'TOKEN_REFRESHED') {
-        logger.debug('[useDashboardData] TOKEN_REFRESHED — refetching dashboard')
-        load()
-      }
-    })
-    return () => subscription.unsubscribe()
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') load()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [load, locationId])
 
-  return { data, isLoading, error, lastUpdated, refetch: load }
+  return { data, isLoading, isRefreshing, error, lastUpdated, refetch: load }
 }

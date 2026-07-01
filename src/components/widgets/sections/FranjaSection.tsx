@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo }              from 'react'
-import { useDashboardData }               from '@/hooks/useDashboardData'
+import { useDashboardDataCtx }            from '@/providers/DashboardDataProvider'
 import { SectionLabel }                   from '@/components/dashboard/SectionLabel'
 import { MonthSelector, currentYM }       from '@/src/components/ui/MonthSelector'
 import { fmtMillones }                    from '@/lib/format'
@@ -131,8 +131,8 @@ function FranjaRowComp({ row, maxVentas }: { row: FranjaRow; maxVentas: number }
 
 interface Props { locationId: string }
 
-export function FranjaSection({ locationId }: Props) {
-  const { data: liveData, isLoading } = useDashboardData(locationId)
+export function FranjaSection({ locationId: _locationId }: Props) {
+  const { data: liveData, isLoading, isRefreshing } = useDashboardDataCtx()
   const [mesOverride, setMesOverride] = useState<string | null>(null)
 
   const meses    = useMemo(() => availableMeses(liveData?.ventasPorFranja ?? []), [liveData])
@@ -172,7 +172,7 @@ export function FranjaSection({ locationId }: Props) {
           {isLoading ? 'cargando…' : 'sin datos'}
         </div>
       ) : (
-        <div style={{ opacity: isLoading ? 0.5 : 1, transition: 'opacity 0.3s' }}>
+        <div style={{ opacity: (isLoading || isRefreshing) ? 0.5 : 1, transition: 'opacity 0.3s' }}>
 
           {/* Table header */}
           <div style={{

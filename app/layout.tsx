@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { Rajdhani, DM_Sans, Syne, DM_Mono } from "next/font/google"
 import "./globals.css"
+import { Providers } from "./providers"
 
 const rajdhani = Rajdhani({
   subsets: ["latin"],
@@ -41,7 +42,7 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={`${rajdhani.variable} ${dmSans.variable} ${syne.variable} ${dmMono.variable}`}>
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   )

@@ -1,4 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 import type { DataSourceContract } from '../contracts/types'
 import { buildSvcHeaders } from './types'
 import { computeRequestHash } from './computeRequestHash'
@@ -141,7 +141,7 @@ export async function runUploadPipeline(
     }
 
     // ── extract + parse ───────────────────────────────────────────────────────
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const rows:     Record<string, unknown>[] = []
     const rejected: unknown[]                 = []
     for await (const raw of contract.extract(source, pctx)) {

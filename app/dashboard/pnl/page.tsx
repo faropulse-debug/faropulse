@@ -223,9 +223,7 @@ function PreviewRow({ label, amount, pctVal, accent, bold, subdued }: PreviewRow
 type Status = 'idle' | 'syncing' | 'success' | 'error'
 
 export default function PnlPage() {
-  const { user } = useAuth()
-  const locationId = user?.activeMembership?.location_id ?? ''
-  const orgId      = user?.activeMembership?.org_id ?? ''
+  const { locationId, orgId } = useAuth()
 
   const [periodo,  setPeriodo]  = useState('')
   const [form,     setForm]     = useState<FormState>(emptyForm)
@@ -239,7 +237,7 @@ export default function PnlPage() {
   const parsed  = useMemo(() => parseForm(form), [form])
   const computed = useMemo(() => computePnL(parsed), [parsed])
 
-  const canSave = periodo !== '' && locationId !== '' && parsed.ventas_salon > 0 && status !== 'syncing'
+  const canSave = periodo !== '' && !!locationId && parsed.ventas_salon > 0 && status !== 'syncing'
 
   async function handleSave() {
     if (!canSave) return

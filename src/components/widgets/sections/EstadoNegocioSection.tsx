@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo }    from 'react'
-import { useDashboardData }      from '@/hooks/useDashboardData'
+import { useDashboardDataCtx }   from '@/providers/DashboardDataProvider'
 import {
   BarChart, Bar, Cell, XAxis, YAxis,
   Tooltip, ResponsiveContainer, LabelList,
@@ -559,8 +559,8 @@ function CanalesSection({ rows, insight }: { rows: CanalRow[]; insight: string |
 
 interface Props { locationId: string }
 
-export function EstadoNegocioSection({ locationId }: Props) {
-  const { data, isLoading } = useDashboardData(locationId)
+export function EstadoNegocioSection({ locationId: _locationId }: Props) {
+  const { data, isLoading, isRefreshing } = useDashboardDataCtx()
 
   // ── Available months ──
   const months = useMemo(
@@ -709,6 +709,8 @@ export function EstadoNegocioSection({ locationId }: Props) {
         gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
         gap: '12px',
         marginBottom: '16px',
+        opacity: isRefreshing ? 0.6 : 1,
+        transition: 'opacity 0.3s',
       }}>
         {isLoading ? (
           Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)

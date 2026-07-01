@@ -101,7 +101,7 @@ export function transformFinancialData(rows: FinancialRow[]): ChartPoint[] {
 }
 
 // ── Tooltip ──
-function CustomTooltip({ active, payload }: any) {
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payload: ChartPoint }[] }) {
   if (!active || !payload?.length) return null;
   const d = payload[0]?.payload as ChartPoint;
   if (!d) return null;

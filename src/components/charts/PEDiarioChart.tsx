@@ -170,7 +170,9 @@ export function transformPEDiario(
 
 // ── Custom Dots ───────────────────────────────────────────────────────────────
 
-function StatusDot(props: any) {
+type RCDot = { cx?: number; cy?: number; payload?: PEDayPoint }
+
+function StatusDot(props: RCDot) {
   const { cx, cy, payload } = props
   if (!payload || cx == null || cy == null) return null
   return (
@@ -183,7 +185,7 @@ function StatusDot(props: any) {
   )
 }
 
-function StatusActiveDot(props: any) {
+function StatusActiveDot(props: RCDot) {
   const { cx, cy, payload } = props
   if (!payload || cx == null || cy == null) return null
   return (
@@ -198,7 +200,7 @@ function StatusActiveDot(props: any) {
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 
-function CustomTooltip({ active, payload }: any) {
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payload: PEDayPoint }[] }) {
   if (!active || !payload?.length) return null
   const d = payload[0]?.payload as PEDayPoint
   if (!d) return null

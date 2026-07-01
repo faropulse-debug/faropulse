@@ -464,7 +464,7 @@ function PreviewStatCard({ label, value, accent }: { label: string; value: strin
   )
 }
 
-function PreviewBanner({ result, accent }: { result: UploadResult; accent: string }) {
+function PreviewBanner({ result, accent: _accent }: { result: UploadResult; accent: string }) {
   const docs = result.documents ?? result.items
   if (result.status === 'dry_run_duplicate') {
     return (
@@ -894,10 +894,7 @@ function CardCucinaGo({ locationId, orgId }: { locationId: string; orgId: string
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function UploadPage() {
-  const { user } = useAuth()
-
-  const locationId = user?.activeMembership?.location_id ?? ''
-  const orgId      = user?.activeMembership?.org_id      ?? ''
+  const { locationId, orgId } = useAuth()
 
   return (
     <div style={{ position: 'relative', minHeight: '100vh', background: '#0a0a12' }}>
@@ -935,9 +932,9 @@ export default function UploadPage() {
         {/* Cards */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <CardPnLNav />
-          <CardVentas   locationId={locationId} orgId={orgId} />
-          <CardItems    locationId={locationId} orgId={orgId} />
-          <CardCucinaGo locationId={locationId} orgId={orgId} />
+          <CardVentas   locationId={locationId ?? ''} orgId={orgId ?? ''} />
+          <CardItems    locationId={locationId ?? ''} orgId={orgId ?? ''} />
+          <CardCucinaGo locationId={locationId ?? ''} orgId={orgId ?? ''} />
         </div>
       </div>
 

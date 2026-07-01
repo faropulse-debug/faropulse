@@ -124,7 +124,7 @@ export function transformPEData(rows: FinancialRow[]): PEPoint[] {
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 
-function CustomTooltip({ active, payload }: any) {
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payload: PEPoint }[] }) {
   if (!active || !payload?.length) return null
   const d = payload[0]?.payload as PEPoint
   if (!d) return null

@@ -4,6 +4,7 @@ import { useState }                     from 'react'
 import Link                              from 'next/link'
 import { useAuth }                       from '@/hooks/useAuth'
 import { DashboardFiltersProvider }      from '@/src/context/dashboard-filters'
+import { DashboardDataProvider }         from '@/providers/DashboardDataProvider'
 import { WidgetError }                   from '@/src/components/widgets'
 import {
   getEnabledWidgets,
@@ -83,13 +84,11 @@ function TabContent({ categories, locationId }: { categories: WidgetCategory[]; 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OwnerDashboardV2() {
-  const { user, isLoading } = useAuth()
+  const { user, isLoading, error: authError, locationId } = useAuth()
   const [activeTab, setActiveTab] = useState<TabKey>('resumen')
 
-  const DEV_FALLBACK_LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001'
-  const isDev      = process.env.NODE_ENV === 'development'
-  const locationId = user?.activeMembership?.location_id ?? (isDev ? DEV_FALLBACK_LOCATION_ID : null)
-  const orgName    = user?.activeMembership?.organization?.name ?? 'Dashboard'
+  const isDev   = process.env.NODE_ENV === 'development'
+  const orgName = user?.activeMembership?.organization?.name ?? 'Dashboard'
 
   if (isLoading && !isDev) {
     return (
@@ -110,7 +109,7 @@ export default function OwnerDashboardV2() {
         height: '100vh', color: MUTED,
         fontFamily: FONT_MONO, fontSize: '0.75rem', letterSpacing: '0.15em',
       }}>
-        sin ubicación activa
+        {authError ?? 'sin ubicación activa'}
       </div>
     )
   }
@@ -119,6 +118,7 @@ export default function OwnerDashboardV2() {
 
   return (
     <DashboardFiltersProvider>
+    <DashboardDataProvider locationId={locationId}>
       <div style={{ padding: '32px 24px', maxWidth: '1280px', margin: '0 auto' }}>
 
         {/* Header */}
@@ -189,6 +189,7 @@ export default function OwnerDashboardV2() {
         <TabContent categories={currentTab.categories} locationId={locationId} />
 
       </div>
+    </DashboardDataProvider>
     </DashboardFiltersProvider>
   )
 }

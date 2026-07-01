@@ -41,7 +41,7 @@ function getFirstDayOfCurrentMonth(): string {
 }
 
 const DEFAULT_FILTERS: DashboardFilters = {
-  locationId:     'e5931742-8249-4d0d-a028-7f1d65b10857',
+  locationId:     process.env.NEXT_PUBLIC_LOCATION_ID ?? '',
   weekReference:  getMondayOfCurrentWeek(),
   monthReference: getFirstDayOfCurrentMonth(),
   compareMode:    'vs_prev_month',

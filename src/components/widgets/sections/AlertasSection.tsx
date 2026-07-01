@@ -1,22 +1,14 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useMemo }                        from 'react'
 import { SectionLabel }                  from '@/components/dashboard/SectionLabel'
-import { fmtPeso, fmtPct, fmtMillones } from '@/lib/format'
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const ANON_KEY     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const HEADERS = {
-  'Content-Type':  'application/json',
-  'apikey':        ANON_KEY,
-  'Authorization': `Bearer ${ANON_KEY}`,
-} as const
+import { fmtPct, fmtMillones } from '@/lib/format'
+import { useDashboardDataCtx }           from '@/providers/DashboardDataProvider'
+import { type VentaDiaSemana }           from '@/src/lib/dia-semana-helpers'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface FinancialRow { periodo: string; categoria: string; concepto: string; monto: number }
-interface DailySaleRow { fecha: string; facturacion: number; tickets: number }
 
 type FinPivot = Map<string, Record<string, number>>
 
@@ -113,7 +105,7 @@ function IconTrend({ color }: { color: string }) {
 
 // ─── Compute insights ─────────────────────────────────────────────────────────
 
-function computeInsights(pivot: FinPivot, daily: DailySaleRow[]): Insight[] {
+function computeInsights(pivot: FinPivot, diaSemana: VentaDiaSemana[]): Insight[] {
   const periods = Array.from(pivot.keys()).sort()
   if (periods.length === 0) return []
 
@@ -148,15 +140,21 @@ function computeInsights(pivot: FinPivot, daily: DailySaleRow[]): Insight[] {
 
   // ── 2. DÍAS FLOJOS ─────────────────────────────────────────────────────────
   const diasFlojos = (() => {
-    const byDay: Record<number, number[]> = {}
-    for (const r of daily) {
-      const d = new Date(r.fecha + 'T12:00:00').getDay()
-      if (!byDay[d]) byDay[d] = []
-      byDay[d].push(r.facturacion)
+    // Aggregate ventas/ocurrencias per DOW across all months (from Context).
+    // Weighted average (totalVentas / totalOcurrencias) is more accurate than
+    // the previous mean-of-daily-rows from get_daily_sales_full.
+    const byDow: Record<number, { totalVentas: number; totalOcurrencias: number }> = {}
+    for (const r of diaSemana) {
+      if (!byDow[r.dow]) byDow[r.dow] = { totalVentas: 0, totalOcurrencias: 0 }
+      byDow[r.dow].totalVentas      += Number(r.ventas)
+      byDow[r.dow].totalOcurrencias += Number(r.ocurrencias)
     }
-    const ranked = Object.entries(byDay)
-      .filter(([, vs]) => vs.length >= 4)
-      .map(([d, vs]) => ({ day: Number(d), avg: avg(vs) }))
+    const ranked = Object.entries(byDow)
+      .filter(([, { totalOcurrencias }]) => totalOcurrencias >= 4)
+      .map(([d, { totalVentas, totalOcurrencias }]) => ({
+        day: Number(d),
+        avg: totalOcurrencias > 0 ? totalVentas / totalOcurrencias : 0,
+      }))
       .sort((a, b) => a.avg - b.avg)
     const bottom2 = ranked.slice(0, 2)
     const color = '#f59e0b'
@@ -356,29 +354,14 @@ function SkeletonCard() {
 
 interface Props { locationId: string }
 
-export function AlertasSection({ locationId }: Props) {
-  const [financial,  setFinancial]  = useState<FinancialRow[]>([])
-  const [dailySales, setDailySales] = useState<DailySaleRow[]>([])
-  const [isLoading,  setIsLoading]  = useState(true)
+export function AlertasSection({ locationId: _locationId }: Props) {
+  const { data, isLoading, isRefreshing } = useDashboardDataCtx()
 
-  useEffect(() => {
-    if (!locationId) return
-    setIsLoading(true)
-    const body = JSON.stringify({ p_location_id: locationId })
-
-    Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/get_financial_results`, { method: 'POST', headers: HEADERS, body })
-        .then(r => r.json()).then(r => Array.isArray(r) ? r : []).catch(() => []),
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/get_daily_sales_full`, { method: 'POST', headers: HEADERS, body })
-        .then(r => r.json()).then(r => Array.isArray(r) ? r : []).catch(() => []),
-    ]).then(([fin, dly]) => {
-      setFinancial(fin)
-      setDailySales(dly)
-    }).finally(() => setIsLoading(false))
-  }, [locationId])
+  const financial = useMemo(() => data?.financialResults  ?? [], [data?.financialResults])
+  const diaSemana = useMemo(() => data?.ventasPorDiaSemana ?? [], [data?.ventasPorDiaSemana])
 
   const pivot    = useMemo(() => buildPivot(financial), [financial])
-  const insights = useMemo(() => computeInsights(pivot, dailySales), [pivot, dailySales])
+  const insights = useMemo(() => computeInsights(pivot, diaSemana), [pivot, diaSemana])
 
   return (
     <div style={{ marginBottom: '52px' }}>
@@ -388,6 +371,8 @@ export function AlertasSection({ locationId }: Props) {
         display: 'grid',
         gridTemplateColumns: 'repeat(2, 1fr)',
         gap: '12px',
+        opacity: isRefreshing ? 0.6 : 1,
+        transition: 'opacity 0.3s',
       }}>
         {isLoading
           ? Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)

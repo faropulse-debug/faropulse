@@ -2,6 +2,11 @@ import { describe, it, expect, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
 
+// ── Mock api-auth so upload tests focus on pipeline logic, not auth ───────────
+vi.mock('@/lib/api-auth', () => ({
+  requireMembership: vi.fn().mockResolvedValue({ userId: 'test-user' }),
+}))
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeXlsx(rows: Record<string, unknown>[], sheetName = 'Sheet1'): File {
