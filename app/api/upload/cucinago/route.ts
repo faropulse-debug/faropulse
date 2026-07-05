@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireMembership } from '@/lib/api-auth'
+import { createClient }       from '@supabase/supabase-js'
+import { requireMembership }  from '@/lib/api-auth'
+import { getCucinaGoConfig }  from '@/lib/pos-config'
 
-const BATCH          = 500
-const CUCINAGO_BASE  = 'https://gd55d70ed7f53c9-o1anc1ft1sdt1pqp.adb.sa-santiago-1.oraclecloudapps.com/ords/restoweb'
-const CUCINAGO_SUCA  = '2216'
-const PAGE_SIZE      = 25
+const BATCH     = 500
+const PAGE_SIZE = 25
 
 // ─── CucinaGo response types ──────────────────────────────────────────────────
 // Adjust field names to match the actual CucinaGo API response.
@@ -205,6 +205,9 @@ export async function POST(req: NextRequest) {
     const authResult = await requireMembership(req, locationId)
     if (authResult instanceof Response) return authResult
 
+    const supabase = createClient(SUPA_URL!, SUPA_KEY!)
+    const cucinagoConfig = await getCucinaGoConfig(locationId, supabase)
+
     // Fetch all pages from CucinaGo
     const allItems: CucinaGoItem[] = []
     let offset  = 0
@@ -213,7 +216,7 @@ export async function POST(req: NextRequest) {
     const MAX_PAGES = 200  // safety cap (~5000 items)
 
     while (hasMore && pages < MAX_PAGES) {
-      const url = `${CUCINAGO_BASE}/grupopopular/items/${from}/${to}/${CUCINAGO_SUCA}?offset=${offset}&limit=${PAGE_SIZE}`
+      const url = `${cucinagoConfig.baseUrl}/${cucinagoConfig.empresa}/items/${from}/${to}/${cucinagoConfig.suca}?offset=${offset}&limit=${PAGE_SIZE}`
       const res = await fetch(url, {
         headers: { 'Accept': 'application/json' },
         signal: AbortSignal.timeout(30_000),
