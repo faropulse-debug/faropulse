@@ -67,6 +67,8 @@ const CARD_BG    = 'rgba(255,255,255,0.025)'
 const CARD_BORDER = 'rgba(255,255,255,0.07)'
 const VIOLET      = '#a78bfa'
 
+const SHOW_CUCINAGO_SYNC = false
+
 // ── Background ────────────────────────────────────────────────────────────────
 
 function SceneBackground() {
@@ -934,7 +936,7 @@ export default function UploadPage() {
           <CardPnLNav />
           <CardVentas   locationId={locationId ?? ''} orgId={orgId ?? ''} />
           <CardItems    locationId={locationId ?? ''} orgId={orgId ?? ''} />
-          <CardCucinaGo locationId={locationId ?? ''} orgId={orgId ?? ''} />
+          {SHOW_CUCINAGO_SYNC && <CardCucinaGo locationId={locationId ?? ''} orgId={orgId ?? ''} />}
         </div>
       </div>
 
