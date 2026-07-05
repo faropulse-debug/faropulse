@@ -68,35 +68,44 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Wait for Vercel deploy (3 min)
-        run: sleep 180
-
-      - name: Fetch health endpoint
+      - name: Poll health endpoint (up to 3 min)
         id: health
         run: |
-          HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" \
-            --max-time 15 \
-            https://faropulse.vercel.app/api/health || echo "000")
+          MAX_ATTEMPTS=12
+          SLEEP_SECS=15
+          healthy=false
 
-          if [ "$HTTP_CODE" = "200" ]; then
-            CONN=$(jq -r '.supabaseConnection' /tmp/health.json)
-          else
-            CONN="error"
-            echo "{\"supabaseConnection\":\"error\",\"httpCode\":\"$HTTP_CODE\",\"detail\":\"fetch failed or timeout\"}" \
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" \
+              --max-time 10 \
+              https://faropulse.vercel.app/api/health || echo "000")
+
+            if [ "$HTTP_CODE" = "200" ] && [ "$(jq -r '.status' /tmp/health.json)" = "ok" ]; then
+              healthy=true
+              echo "Intento $attempt/$MAX_ATTEMPTS: HTTP $HTTP_CODE — healthy"
+              break
+            fi
+
+            echo "Intento $attempt/$MAX_ATTEMPTS: HTTP $HTTP_CODE — not healthy yet"
+            [ "$attempt" -lt "$MAX_ATTEMPTS" ] && sleep "$SLEEP_SECS"
+          done
+
+          if [ "$healthy" = "false" ]; then
+            echo "{\"status\":\"error\",\"httpCode\":\"$HTTP_CODE\",\"detail\":\"fetch failed or timeout after $MAX_ATTEMPTS attempts\"}" \
               > /tmp/health.json
           fi
 
-          echo "supabaseConnection=$CONN" >> "$GITHUB_OUTPUT"
+          echo "healthy=$healthy" >> "$GITHUB_OUTPUT"
           {
             echo 'response<<HEALTH_EOF'
             cat /tmp/health.json
             echo 'HEALTH_EOF'
           } >> "$GITHUB_OUTPUT"
 
-          echo "HTTP $HTTP_CODE — supabaseConnection=$CONN"
+          echo "healthy=$healthy"
 
       - name: Abrir issue si el health check falla
-        if: steps.health.outputs.supabaseConnection != 'ok'
+        if: steps.health.outputs.healthy == 'false'
         uses: actions/github-script@v7
         env:
           HEALTH_RESPONSE: ${{ steps.health.outputs.response }}
@@ -138,5 +147,5 @@ jobs:
             })
 
       - name: Health check OK
-        if: steps.health.outputs.supabaseConnection == 'ok'
-        run: echo "✅ Producción saludable — supabaseConnection=ok"
+        if: steps.health.outputs.healthy == 'true'
+        run: echo "✅ Producción saludable — status=ok"
