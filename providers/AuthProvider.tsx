@@ -35,31 +35,7 @@ async function buildUser(session: Session, callId: number): Promise<{ user: Auth
     return { user: null, error: null }
   }
 
-  const rawMemberships = (membershipsResult.data ?? []) as Omit<Membership, 'location_id'>[]
-  const orgIds = [...new Set(rawMemberships.map(m => m.org_id))]
-
-  let locationByOrg: Record<string, string> = {}
-  if (orgIds.length > 0) {
-    const fetchLocs = () =>
-      supabase.from('locations').select('id, org_id').in('org_id', orgIds)
-
-    let { data: locs, error: locsError } = await fetchLocs()
-    if (locsError) {
-      logger.warn('[AuthProvider] locations query failed, retrying:', locsError.message)
-      ;({ data: locs, error: locsError } = await fetchLocs())
-      if (locsError) {
-        logger.error('[AuthProvider] locations query failed after retry:', locsError.message)
-      }
-    }
-    locationByOrg = Object.fromEntries(
-      (locs ?? []).map((l: { id: unknown; org_id: unknown }) => [l.org_id as string, l.id as string])
-    )
-  }
-
-  const memberships: Membership[] = rawMemberships.map(m => ({
-    ...m,
-    location_id: locationByOrg[m.org_id],
-  }))
+  const memberships = (membershipsResult.data ?? []) as Membership[]
 
   const storedId = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
   const activeMembership =
@@ -67,7 +43,7 @@ async function buildUser(session: Session, callId: number): Promise<{ user: Auth
     ?? memberships.find(m => m.location_id)
     ?? null
 
-  if (rawMemberships.length > 0 && !activeMembership) {
+  if (memberships.length > 0 && !activeMembership) {
     logger.error('[AuthProvider] memberships exist but none resolved a location_id')
     return {
       user: {
