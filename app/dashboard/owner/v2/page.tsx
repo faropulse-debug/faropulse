@@ -1,8 +1,9 @@
 'use client'
 
-import { useState }                     from 'react'
+import { useState, useEffect }          from 'react'
 import Link                              from 'next/link'
 import { useAuth }                       from '@/hooks/useAuth'
+import type { Role }                     from '@/types/auth'
 import { DashboardFiltersProvider }      from '@/src/context/dashboard-filters'
 import { DashboardDataProvider }         from '@/providers/DashboardDataProvider'
 import { WidgetError }                   from '@/src/components/widgets'
@@ -16,12 +17,12 @@ import {
 
 type TabKey = 'resumen' | 'pnl' | 'operacion' | 'inversion' | 'descuentos'
 
-const TABS: { key: TabKey; label: string; categories: WidgetCategory[] }[] = [
-  { key: 'resumen',    label: 'Resumen',    categories: ['kpi', 'alert'] },
-  { key: 'pnl',        label: 'P&L',        categories: ['financial']    },
-  { key: 'operacion',  label: 'Operación',  categories: ['diagnostic']   },
-  { key: 'inversion',  label: 'Inversión',  categories: ['investment']   },
-  { key: 'descuentos', label: 'Descuentos', categories: ['descuento']    },
+const TABS: { key: TabKey; label: string; categories: WidgetCategory[]; allowedRoles: Role[] }[] = [
+  { key: 'resumen',    label: 'Resumen',    categories: ['kpi', 'alert'], allowedRoles: ['owner', 'manager', 'encargado', 'super_admin', 'staff'] },
+  { key: 'operacion',  label: 'Operación',  categories: ['diagnostic'],   allowedRoles: ['owner', 'manager', 'encargado', 'super_admin', 'staff'] },
+  { key: 'pnl',        label: 'P&L',        categories: ['financial'],    allowedRoles: ['owner', 'manager', 'super_admin'] },
+  { key: 'inversion',  label: 'Inversión',  categories: ['investment'],   allowedRoles: ['owner', 'manager', 'super_admin'] },
+  { key: 'descuentos', label: 'Descuentos', categories: ['descuento'],    allowedRoles: ['owner', 'manager', 'super_admin'] },
 ]
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -85,11 +86,20 @@ function TabContent({ categories, locationId }: { categories: WidgetCategory[]; 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OwnerDashboardV2() {
-  const { user, isLoading, error: authError, locationId } = useAuth()
+  const { user, isLoading, error: authError, locationId, role } = useAuth()
   const [activeTab, setActiveTab] = useState<TabKey>('resumen')
 
   const isDev   = process.env.NODE_ENV === 'development'
   const orgName = user?.activeMembership?.organization?.name ?? 'Dashboard'
+
+  const currentTab  = TABS.find(t => t.key === activeTab)!
+  const hasTabAccess = !!role && currentTab.allowedRoles.includes(role)
+
+  // If the active tab isn't allowed for the current role (e.g. role changed
+  // mid-session), fall back to 'resumen' — allowed for every role.
+  useEffect(() => {
+    if (role && !hasTabAccess) setActiveTab('resumen')
+  }, [role, hasTabAccess])
 
   if (isLoading && !isDev) {
     return (
@@ -114,8 +124,6 @@ export default function OwnerDashboardV2() {
       </div>
     )
   }
-
-  const currentTab = TABS.find(t => t.key === activeTab)!
 
   return (
     <DashboardFiltersProvider>
@@ -146,7 +154,7 @@ export default function OwnerDashboardV2() {
           borderBottom: '1px solid rgba(255,255,255,0.07)',
           paddingBottom: '0',
         }}>
-          {TABS.map(tab => {
+          {TABS.filter(t => role && t.allowedRoles.includes(role)).map(tab => {
             const isActive = tab.key === activeTab
             return (
               <button
@@ -187,7 +195,17 @@ export default function OwnerDashboardV2() {
         </div>
 
         {/* Content */}
-        <TabContent categories={currentTab.categories} locationId={locationId} />
+        {hasTabAccess ? (
+          <TabContent categories={currentTab.categories} locationId={locationId} />
+        ) : (
+          <div style={{
+            padding: '60px 0', textAlign: 'center',
+            fontFamily: FONT_MONO, fontSize: '0.7rem',
+            color: MUTED, letterSpacing: '0.14em',
+          }}>
+            No tenés acceso a esta sección.
+          </div>
+        )}
 
       </div>
     </DashboardDataProvider>
