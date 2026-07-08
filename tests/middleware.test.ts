@@ -62,8 +62,8 @@ describe('middleware — role cookie server-side validation', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
     mockMembershipSingle.mockResolvedValue({ data: null, error: null })
 
-    const { middleware } = await import('@/middleware')
-    const res = await middleware(makeReq('/dashboard/owner/overview', { faro_role: 'owner' }))
+    const { proxy } = await import('@/proxy')
+    const res = await proxy(makeReq('/dashboard/owner/overview', { faro_role: 'owner' }))
 
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('/role-select')
@@ -79,8 +79,8 @@ describe('middleware — role cookie server-side validation', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
     mockMembershipSingle.mockResolvedValue({ data: { id: 'mem-1' }, error: null })
 
-    const { middleware } = await import('@/middleware')
-    const res = await middleware(makeReq('/dashboard/owner/overview', { faro_role: 'owner' }))
+    const { proxy } = await import('@/proxy')
+    const res = await proxy(makeReq('/dashboard/owner/overview', { faro_role: 'owner' }))
 
     expect(res.status).toBe(200)
     expect(mockCreateClient).toHaveBeenCalled()
@@ -90,8 +90,8 @@ describe('middleware — role cookie server-side validation', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
     // mockMembershipSingle intentionally not set — DB must not be reached
 
-    const { middleware } = await import('@/middleware')
-    const res = await middleware(makeReq('/dashboard/owner/overview', { faro_role: 'manager' }))
+    const { proxy } = await import('@/proxy')
+    const res = await proxy(makeReq('/dashboard/owner/overview', { faro_role: 'manager' }))
 
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('/role-select')
@@ -101,8 +101,8 @@ describe('middleware — role cookie server-side validation', () => {
   it('4. no session on /dashboard/owner → redirect /login, no DB call', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null }, error: null })
 
-    const { middleware } = await import('@/middleware')
-    const res = await middleware(makeReq('/dashboard/owner/overview'))
+    const { proxy } = await import('@/proxy')
+    const res = await proxy(makeReq('/dashboard/owner/overview'))
 
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('/login')
