@@ -94,7 +94,7 @@ export async function proxy(request: NextRequest) {
     // a transient PostgREST issue shouldn't lock out a legitimate user from navigation.
   } else if (pathname.startsWith('/dashboard/')) {
     // Fallback: /dashboard/* path not matched by owner or manager above.
-    // Roles without a mapped dashboard (e.g. viewer) must not roam freely.
+    // Roles without a mapped dashboard (e.g. encargado) must not roam freely.
     const cookieRole = request.cookies.get('faro_role')?.value
     if (!cookieRole || !DASHBOARD_ROLES.has(cookieRole)) {
       return NextResponse.redirect(new URL('/role-select', request.url))
