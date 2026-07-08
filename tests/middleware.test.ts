@@ -86,16 +86,17 @@ describe('middleware — role cookie server-side validation', () => {
     expect(mockCreateClient).toHaveBeenCalled()
   })
 
-  it('3. faro_role=manager on /dashboard/owner → fast-path redirect, no DB call', async () => {
+  it('3. faro_role inválido/desconocido on /dashboard/owner → fast-path redirect, no DB call', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
     // mockMembershipSingle intentionally not set — DB must not be reached
 
     const { proxy } = await import('@/proxy')
-    const res = await proxy(makeReq('/dashboard/owner/overview', { faro_role: 'manager' }))
+    const res = await proxy(makeReq('/dashboard/owner/overview', { faro_role: 'intruso' }))
 
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('/role-select')
     expect(mockCreateClient).not.toHaveBeenCalled()
+    expect(mockMembershipSingle).not.toHaveBeenCalled()
   })
 
   it('4. no session on /dashboard/owner → redirect /login, no DB call', async () => {
