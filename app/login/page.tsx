@@ -369,11 +369,6 @@ function LoginFormInner() {
         return
       }
       const list = memberships ?? []
-      // Set role cookie for solo-membership fast path (middleware/proxy reads this)
-      if (list.length === 1) {
-        const maxAge = remember ? 60 * 60 * 24 * 30 : 86400
-        document.cookie = `faro_role=${list[0].role}; path=/; max-age=${maxAge}; SameSite=Lax`
-      }
       const { getRedirectPath } = await import('@/lib/redirectAfterLogin')
       router.push(getRedirectPath(list))
     } catch (err) {

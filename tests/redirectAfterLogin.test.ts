@@ -19,16 +19,16 @@ describe('getRedirectPath', () => {
     expect(getRedirectPath([])).toBe('/role-select')
   })
 
-  it('1 membership with role owner → /dashboard/owner/v2', () => {
-    expect(getRedirectPath([makeMembership('owner')])).toBe('/dashboard/owner/v2')
+  it('1 membership with role owner → /role-select', () => {
+    expect(getRedirectPath([makeMembership('owner')])).toBe('/role-select')
   })
 
-  it('1 membership with role encargado → /dashboard/owner/v2', () => {
-    expect(getRedirectPath([makeMembership('encargado')])).toBe('/dashboard/owner/v2')
+  it('1 membership with role encargado → /role-select', () => {
+    expect(getRedirectPath([makeMembership('encargado')])).toBe('/role-select')
   })
 
-  it('1 membership with role manager → /dashboard/owner/v2', () => {
-    expect(getRedirectPath([makeMembership('manager')])).toBe('/dashboard/owner/v2')
+  it('1 membership with role manager → /role-select', () => {
+    expect(getRedirectPath([makeMembership('manager')])).toBe('/role-select')
   })
 
   it('2 memberships (any role) → /role-select', () => {
