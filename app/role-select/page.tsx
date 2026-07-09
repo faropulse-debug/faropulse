@@ -242,19 +242,11 @@ export default function RoleSelectPage() {
   const router = useRouter()
   const { user, isLoading, setActiveMembership, signOut } = useAuth()
 
-  const ownerMemberships  = user?.memberships.filter(m => m.role === 'owner')  ?? []
-  const managerMemberships = user?.memberships.filter(m => m.role === 'manager') ?? []
+  const memberships = user?.memberships ?? []
 
-  function handleSelectOwner() {
-    if (ownerMemberships.length === 0) return
-    setActiveMembership(ownerMemberships[0].id)
-    router.push('/dashboard/owner')
-  }
-
-  function handleSelectManager() {
-    if (managerMemberships.length === 0) return
-    setActiveMembership(managerMemberships[0].id)
-    router.push('/dashboard/manager')
+  function handleSelectMembership(membershipId: string) {
+    setActiveMembership(membershipId)
+    router.push('/dashboard/owner/v2')
   }
 
   async function handleSignOut() {
@@ -302,34 +294,39 @@ export default function RoleSelectPage() {
         </p>
 
         {/* Cards */}
-        <div style={{
-          display: 'flex',
-          gap: '24px',
-          flexWrap: 'wrap',
-          justifyContent: 'center',
-          width: '100%',
-        }}>
-          <RoleCard
-            icon={<CompassIcon size={40} />}
-            title="Vista Dueño"
-            subtitle="Perspectiva estratégica"
-            description="Accedé a métricas globales, rentabilidad por local, comparativas de rendimiento y decisiones de alto nivel."
-            accentColor="#f5820a"
-            accentGlow="rgba(245,130,10,0.15)"
-            onClick={handleSelectOwner}
-            disabled={isLoading || ownerMemberships.length === 0}
-          />
-          <RoleCard
-            icon={<PanelIcon size={40} />}
-            title="Vista Encargado"
-            subtitle="Perspectiva operativa"
-            description="Gestioná el turno activo, controlá el equipo, revisá el panel diario y ejecutá acciones operativas."
-            accentColor="#64a0f0"
-            accentGlow="rgba(100,160,240,0.15)"
-            onClick={handleSelectManager}
-            disabled={isLoading || managerMemberships.length === 0}
-          />
-        </div>
+        {memberships.length === 0 ? (
+          <p style={{
+            fontFamily: 'var(--font-body)',
+            fontWeight: 300,
+            fontSize: '0.85rem',
+            color: 'rgba(255,255,255,0.5)',
+            textAlign: 'center',
+          }}>
+            No tenés acceso a ningún local. Contactá al administrador.
+          </p>
+        ) : (
+          <div style={{
+            display: 'flex',
+            gap: '24px',
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+            width: '100%',
+          }}>
+            {memberships.map(m => (
+              <RoleCard
+                key={m.id}
+                icon={<CompassIcon size={40} />}
+                title={m.organization?.name ?? 'Mi local'}
+                subtitle={m.role.toUpperCase()}
+                description="Acceder al panel de este local"
+                accentColor="#f5820a"
+                accentGlow="rgba(245,130,10,0.15)"
+                onClick={() => handleSelectMembership(m.id)}
+                disabled={isLoading}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Upload link */}
         <Link
