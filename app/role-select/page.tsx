@@ -1,10 +1,10 @@
 'use client'
 
+import { useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
 
-// ─── BACKGROUND ───────────────────────────────────────────────────────────────
+// BACKGROUND
 
 function SceneBackground() {
   return (
@@ -52,7 +52,7 @@ function SceneBackground() {
   )
 }
 
-// ─── COMPASS ICON (owner) ─────────────────────────────────────────────────────
+// ICONS
 
 function CompassIcon({ size = 40 }: { size?: number }) {
   return (
@@ -67,25 +67,55 @@ function CompassIcon({ size = 40 }: { size?: number }) {
   )
 }
 
-// ─── PANEL ICON (manager) ─────────────────────────────────────────────────────
-
 function PanelIcon({ size = 40 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
       <rect x="4" y="4" width="32" height="32" rx="5" stroke="rgba(100,160,240,0.5)" strokeWidth="1.5" />
       <rect x="4" y="4" width="15" height="32" rx="5" fill="rgba(100,160,240,0.08)" />
       <line x1="19" y1="4" x2="19" y2="36" stroke="rgba(100,160,240,0.3)" strokeWidth="1" />
-      <rect x="8" y="9"  width="7" height="2" rx="1" fill="rgba(100,160,240,0.6)" />
+      <rect x="8" y="9" width="7" height="2" rx="1" fill="rgba(100,160,240,0.6)" />
       <rect x="8" y="14" width="7" height="2" rx="1" fill="rgba(100,160,240,0.4)" />
       <rect x="8" y="19" width="7" height="2" rx="1" fill="rgba(100,160,240,0.3)" />
-      <rect x="23" y="9"  width="10" height="5" rx="2" fill="rgba(100,160,240,0.15)" stroke="rgba(100,160,240,0.3)" strokeWidth="1" />
+      <rect x="23" y="9" width="10" height="5" rx="2" fill="rgba(100,160,240,0.15)" stroke="rgba(100,160,240,0.3)" strokeWidth="1" />
       <rect x="23" y="18" width="10" height="5" rx="2" fill="rgba(100,160,240,0.15)" stroke="rgba(100,160,240,0.3)" strokeWidth="1" />
       <rect x="23" y="27" width="10" height="5" rx="2" fill="rgba(100,160,240,0.15)" stroke="rgba(100,160,240,0.3)" strokeWidth="1" />
     </svg>
   )
 }
 
-// ─── WORDMARK ─────────────────────────────────────────────────────────────────
+function LocationIcon({ size = 36 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+      <path d="M8 17.5h24v16H8v-16Z" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.22)" strokeWidth="1.4" />
+      <path d="M6 17.5 9.5 8h21L34 17.5H6Z" fill="rgba(245,130,10,0.16)" stroke="rgba(245,130,10,0.45)" strokeWidth="1.4" />
+      <path d="M12 17.5V22c0 1.8 1.4 3.2 3.2 3.2s3.2-1.4 3.2-3.2v-4.5" stroke="rgba(245,130,10,0.5)" strokeWidth="1.3" />
+      <path d="M21.6 17.5V22c0 1.8 1.4 3.2 3.2 3.2S28 23.8 28 22v-4.5" stroke="rgba(245,130,10,0.5)" strokeWidth="1.3" />
+      <rect x="14" y="27" width="12" height="6.5" rx="1.6" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
+    </svg>
+  )
+}
+
+function UploadIcon({ size = 40 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+      <path d="M12 28.5h16c3.6 0 6.5-2.8 6.5-6.4 0-3.2-2.3-5.9-5.4-6.3C27.9 10.4 23.9 7 19 7c-5.6 0-10.2 4.4-10.5 10-3.2.8-5.5 3.5-5.5 6.9 0 3.9 3.1 4.6 7 4.6" stroke="rgba(245,130,10,0.52)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20 30V17" stroke="#f5820a" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M15.5 21.5 20 17l4.5 4.5" stroke="#f5820a" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="20" cy="20" r="17" stroke="rgba(245,130,10,0.16)" strokeWidth="1" />
+    </svg>
+  )
+}
+
+function LockIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+      <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M5.5 7V5.2A2.5 2.5 0 0 1 8 2.7a2.5 2.5 0 0 1 2.5 2.5V7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// WORDMARK
 
 function Wordmark() {
   return (
@@ -111,12 +141,118 @@ function Wordmark() {
   )
 }
 
-// ─── ROLE CARD ────────────────────────────────────────────────────────────────
+// CARDS
+
+interface LocationCardProps {
+  title: string
+  role: string
+  onClick: () => void
+  disabled?: boolean
+}
+
+function LocationCard({ title, role, onClick, disabled }: LocationCardProps) {
+  return (
+    <button
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      style={{
+        width: '100%',
+        minHeight: '270px',
+        padding: '14px',
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.07)',
+        borderRadius: '16px',
+        backdropFilter: 'blur(20px)',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
+        textAlign: 'left',
+        transition: 'transform 0.2s, border-color 0.2s, background 0.2s, box-shadow 0.2s',
+        outline: 'none',
+      }}
+      onMouseEnter={e => {
+        if (disabled) return
+        const el = e.currentTarget
+        el.style.transform = 'translateY(-4px)'
+        el.style.borderColor = 'rgba(245,130,10,0.36)'
+        el.style.background = 'rgba(255,255,255,0.055)'
+        el.style.boxShadow = '0 20px 60px rgba(0,0,0,0.38), 0 0 26px rgba(245,130,10,0.12)'
+      }}
+      onMouseLeave={e => {
+        if (disabled) return
+        const el = e.currentTarget
+        el.style.transform = 'translateY(0)'
+        el.style.borderColor = 'rgba(255,255,255,0.07)'
+        el.style.background = 'rgba(255,255,255,0.03)'
+        el.style.boxShadow = 'none'
+      }}
+    >
+      <div style={{
+        position: 'relative',
+        height: '120px',
+        borderRadius: '12px',
+        overflow: 'hidden',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: '18px',
+        background: 'linear-gradient(135deg, rgba(245,130,10,0.18), rgba(100,160,240,0.08) 58%, rgba(255,255,255,0.04))',
+        border: '1px solid rgba(255,255,255,0.08)',
+      }}>
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'radial-gradient(circle at 30% 20%, rgba(255,255,255,0.18), transparent 34%), radial-gradient(circle at 78% 70%, rgba(245,130,10,0.16), transparent 40%)',
+        }} />
+        <div style={{ position: 'relative', color: 'rgba(255,255,255,0.62)' }}>
+          <LocationIcon size={42} />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '14px' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{
+            fontFamily: 'var(--font-display)',
+            fontWeight: 700,
+            fontSize: '1rem',
+            letterSpacing: '0.04em',
+            color: 'rgba(255,255,255,0.88)',
+            marginBottom: '8px',
+            overflowWrap: 'anywhere',
+          }}>
+            {title}
+          </div>
+          <div style={{
+            fontFamily: 'var(--font-body)',
+            fontWeight: 300,
+            fontSize: '0.78rem',
+            color: 'rgba(255,255,255,0.34)',
+          }}>
+            Dirección no configurada
+          </div>
+        </div>
+
+        <span style={{
+          flexShrink: 0,
+          padding: '5px 8px',
+          borderRadius: '999px',
+          border: '1px solid rgba(245,130,10,0.22)',
+          background: 'rgba(245,130,10,0.08)',
+          fontFamily: 'var(--font-display)',
+          fontSize: '0.58rem',
+          letterSpacing: '0.14em',
+          textTransform: 'uppercase',
+          color: 'rgba(245,130,10,0.82)',
+        }}>
+          {role}
+        </span>
+      </div>
+    </button>
+  )
+}
 
 interface RoleCardProps {
-  icon: React.ReactNode
+  icon: ReactNode
   title: string
-  subtitle: string
   description: string
   accentColor: string
   accentGlow: string
@@ -124,10 +260,10 @@ interface RoleCardProps {
   disabled?: boolean
 }
 
-function RoleCard({ icon, title, subtitle, description, accentColor, accentGlow, onClick, disabled }: RoleCardProps) {
+function RoleCard({ icon, title, description, accentColor, accentGlow, onClick, disabled }: RoleCardProps) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       disabled={disabled}
       style={{
         position: 'relative',
@@ -135,11 +271,11 @@ function RoleCard({ icon, title, subtitle, description, accentColor, accentGlow,
         maxWidth: '340px',
         padding: '36px 32px',
         background: 'rgba(255,255,255,0.03)',
-        border: `1px solid rgba(255,255,255,0.07)`,
+        border: '1px solid rgba(255,255,255,0.07)',
         borderRadius: '16px',
         backdropFilter: 'blur(20px)',
         cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.45 : 1,
+        opacity: disabled ? 0.4 : 1,
         textAlign: 'left',
         transition: 'transform 0.2s, border-color 0.2s, background 0.2s, box-shadow 0.2s',
         outline: 'none',
@@ -153,6 +289,7 @@ function RoleCard({ icon, title, subtitle, description, accentColor, accentGlow,
         el.style.boxShadow = `0 20px 60px rgba(0,0,0,0.4), 0 0 30px ${accentGlow}`
       }}
       onMouseLeave={e => {
+        if (disabled) return
         const el = e.currentTarget
         el.style.transform = 'translateY(0)'
         el.style.borderColor = 'rgba(255,255,255,0.07)'
@@ -178,22 +315,9 @@ function RoleCard({ icon, title, subtitle, description, accentColor, accentGlow,
         letterSpacing: '0.15em',
         textTransform: 'uppercase',
         color: accentColor,
-        marginBottom: '4px',
-      }}>
-        {title}
-      </div>
-
-      {/* Subtitle */}
-      <div style={{
-        fontFamily: 'var(--font-display)',
-        fontWeight: 500,
-        fontSize: '0.62rem',
-        letterSpacing: '0.2em',
-        textTransform: 'uppercase',
-        color: 'rgba(255,255,255,0.35)',
         marginBottom: '20px',
       }}>
-        {subtitle}
+        {title}
       </div>
 
       {/* Divider */}
@@ -214,7 +338,7 @@ function RoleCard({ icon, title, subtitle, description, accentColor, accentGlow,
         {description}
       </div>
 
-      {/* Arrow */}
+      {/* Action */}
       <div style={{
         marginTop: '28px',
         display: 'flex',
@@ -227,26 +351,94 @@ function RoleCard({ icon, title, subtitle, description, accentColor, accentGlow,
         color: accentColor,
         opacity: 0.7,
       }}>
-        <span>Continuar</span>
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M2 7h10M8 3l4 4-4 4" stroke={accentColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        {disabled ? (
+          <>
+            <LockIcon size={14} />
+            <span>Sin acceso</span>
+          </>
+        ) : (
+          <>
+            <span>Continuar</span>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M2 7h10M8 3l4 4-4 4" stroke={accentColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </>
+        )}
       </div>
     </button>
   )
 }
 
-// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+// MAIN PAGE
+
+type ModuleKey = 'business' | 'operations' | 'upload'
 
 export default function RoleSelectPage() {
   const router = useRouter()
   const { user, isLoading, setActiveMembership, signOut } = useAuth()
+  const [selectedMembershipId, setSelectedMembershipId] = useState<string | null>(null)
 
   const memberships = user?.memberships ?? []
+  const selectedMembership = memberships.find(m => m.id === selectedMembershipId) ?? null
+  const selectedLocalName = selectedMembership?.organization?.name ?? 'este local'
+
+  const modules: Array<{
+    key: ModuleKey
+    icon: ReactNode
+    title: string
+    description: string
+    href: string
+    accentColor: string
+    accentGlow: string
+  }> = [
+    {
+      key: 'business',
+      icon: <CompassIcon size={42} />,
+      title: 'Datos de Negocio',
+      description: 'Rentabilidad, P&L, inversión y descuentos',
+      href: '/dashboard/owner/v2',
+      accentColor: '#f5820a',
+      accentGlow: 'rgba(245,130,10,0.16)',
+    },
+    {
+      key: 'operations',
+      icon: <PanelIcon size={42} />,
+      title: 'Datos Operativos',
+      description: 'Operación del día, ventas y mix de canales',
+      href: '/dashboard/owner/v2',
+      accentColor: '#64a0f0',
+      accentGlow: 'rgba(100,160,240,0.16)',
+    },
+    {
+      key: 'upload',
+      icon: <UploadIcon size={42} />,
+      title: 'Carga de Información',
+      description: 'Subir datos de ventas y P&L',
+      href: '/dashboard/upload',
+      accentColor: '#f5820a',
+      accentGlow: 'rgba(245,130,10,0.16)',
+    },
+  ]
 
   function handleSelectMembership(membershipId: string) {
     setActiveMembership(membershipId)
-    router.push('/dashboard/owner/v2')
+    setSelectedMembershipId(membershipId)
+  }
+
+  function handleSelectModule(href: string) {
+    router.push(href)
+  }
+
+  function canAccessModule(module: ModuleKey) {
+    if (!selectedMembership) return false
+
+    const { role } = selectedMembership
+
+    if (role === 'owner' || role === 'super_admin') return true
+    if (role === 'manager') return module !== 'upload'
+    if (role === 'encargado' || role === 'staff') return module === 'operations'
+
+    return false
   }
 
   async function handleSignOut() {
@@ -255,46 +447,57 @@ export default function RoleSelectPage() {
   }
 
   const firstName = user?.profile.full_name?.split(' ')[0] ?? user?.profile.email?.split('@')[0] ?? ''
+  const isModuleStep = Boolean(selectedMembership)
 
   return (
     <div style={{ position: 'relative', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
       <SceneBackground />
 
-      <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '800px', padding: '40px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: isModuleStep ? '1040px' : '960px', padding: '40px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
         {/* Logo */}
-        <div style={{ marginBottom: '56px' }}>
+        <div style={{ marginBottom: '48px' }}>
           <Wordmark />
         </div>
 
         {/* Welcome headline */}
-        <div style={{ textAlign: 'center', marginBottom: '12px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '14px' }}>
           <h1 style={{
             fontFamily: 'var(--font-display)',
             fontWeight: 600,
-            fontSize: 'clamp(1.5rem, 3vw, 2rem)',
+            fontSize: '2rem',
             letterSpacing: '0.04em',
             color: 'rgba(255,255,255,0.88)',
             margin: 0,
           }}>
-            {isLoading ? 'Cargando…' : firstName ? `Bienvenido, ${firstName}` : 'Seleccioná tu vista'}
+            {isLoading ? 'Cargando...' : firstName ? `Bienvenido, ${firstName}` : 'Bienvenido'}
           </h1>
         </div>
 
-        {/* Subheading */}
-        <p style={{
-          fontFamily: 'var(--font-body)',
-          fontWeight: 300,
-          fontSize: '0.85rem',
-          color: 'rgba(255,255,255,0.38)',
-          marginBottom: '52px',
+        <h2 style={{
+          fontFamily: 'var(--font-display)',
+          fontWeight: 500,
+          fontSize: '1.25rem',
           letterSpacing: '0.03em',
+          color: 'rgba(255,255,255,0.58)',
+          margin: '0 0 42px',
+          textAlign: 'center',
+          overflowWrap: 'anywhere',
         }}>
-          ¿Con qué perspectiva querés operar hoy?
-        </p>
+          {isModuleStep ? `¿Qué querés hacer en ${selectedLocalName}?` : '¿En qué local querés trabajar?'}
+        </h2>
 
-        {/* Cards */}
-        {memberships.length === 0 ? (
+        {isLoading ? (
+          <p style={{
+            fontFamily: 'var(--font-body)',
+            fontWeight: 300,
+            fontSize: '0.85rem',
+            color: 'rgba(255,255,255,0.5)',
+            textAlign: 'center',
+          }}>
+            Cargando locales...
+          </p>
+        ) : memberships.length === 0 ? (
           <p style={{
             fontFamily: 'var(--font-body)',
             fontWeight: 300,
@@ -304,65 +507,74 @@ export default function RoleSelectPage() {
           }}>
             No tenés acceso a ningún local. Contactá al administrador.
           </p>
+        ) : isModuleStep ? (
+          <>
+            <button
+              onClick={() => setSelectedMembershipId(null)}
+              style={{
+                alignSelf: 'flex-start',
+                marginBottom: '24px',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-display)',
+                fontSize: '0.68rem',
+                letterSpacing: '0.16em',
+                textTransform: 'uppercase',
+                color: 'rgba(255,255,255,0.42)',
+                transition: 'color 0.2s',
+                padding: '8px 0',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(245,130,10,0.82)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.42)' }}
+            >
+              ← Volver
+            </button>
+
+            <div style={{
+              display: 'flex',
+              gap: '24px',
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+              width: '100%',
+            }}>
+              {modules.map(module => {
+                const hasAccess = canAccessModule(module.key)
+
+                return (
+                  <RoleCard
+                    key={module.key}
+                    icon={module.icon}
+                    title={module.title}
+                    description={module.description}
+                    accentColor={module.accentColor}
+                    accentGlow={module.accentGlow}
+                    onClick={() => handleSelectModule(module.href)}
+                    disabled={!hasAccess}
+                  />
+                )
+              })}
+            </div>
+          </>
         ) : (
           <div style={{
-            display: 'flex',
+            display: 'grid',
             gap: '24px',
-            flexWrap: 'wrap',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
             justifyContent: 'center',
             width: '100%',
           }}>
             {memberships.map(m => (
-              <RoleCard
+              <LocationCard
                 key={m.id}
-                icon={<CompassIcon size={40} />}
                 title={m.organization?.name ?? 'Mi local'}
-                subtitle={m.role.toUpperCase()}
-                description="Acceder al panel de este local"
-                accentColor="#f5820a"
-                accentGlow="rgba(245,130,10,0.15)"
+                role={m.role.toUpperCase()}
                 onClick={() => handleSelectMembership(m.id)}
                 disabled={isLoading}
               />
             ))}
           </div>
         )}
-
-        {/* Upload link */}
-        <Link
-          href="/dashboard/upload"
-          style={{
-            marginTop: '28px',
-            display: 'inline-flex', alignItems: 'center', gap: '8px',
-            textDecoration: 'none',
-            padding: '10px 22px',
-            background: 'rgba(245,130,10,0.06)',
-            border: '1px solid rgba(245,130,10,0.18)',
-            borderRadius: '24px',
-            fontFamily: 'var(--font-display)', fontSize: '0.62rem',
-            letterSpacing: '0.18em', textTransform: 'uppercase',
-            color: 'rgba(245,130,10,0.7)',
-            transition: 'all 0.2s',
-          }}
-          onMouseEnter={e => {
-            const el = e.currentTarget as HTMLAnchorElement
-            el.style.background = 'rgba(245,130,10,0.12)'
-            el.style.borderColor = 'rgba(245,130,10,0.4)'
-            el.style.color = '#f5820a'
-          }}
-          onMouseLeave={e => {
-            const el = e.currentTarget as HTMLAnchorElement
-            el.style.background = 'rgba(245,130,10,0.06)'
-            el.style.borderColor = 'rgba(245,130,10,0.18)'
-            el.style.color = 'rgba(245,130,10,0.7)'
-          }}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="16 16 12 12 8 16" /><line x1="12" y1="12" x2="12" y2="21" />
-            <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
-          </svg>
-          Carga de información
-        </Link>
 
         {/* Sign out */}
         <button
