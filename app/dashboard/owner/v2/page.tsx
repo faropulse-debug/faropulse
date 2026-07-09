@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect }          from 'react'
+import { useState }                      from 'react'
 import Link                              from 'next/link'
 import { useAuth }                       from '@/hooks/useAuth'
 import type { Role }                     from '@/types/auth'
@@ -92,14 +92,13 @@ export default function OwnerDashboardV2() {
   const isDev   = process.env.NODE_ENV === 'development'
   const orgName = user?.activeMembership?.organization?.name ?? 'Dashboard'
 
-  const currentTab  = TABS.find(t => t.key === activeTab)!
+  // Derive the effective tab without setState-in-effect: if the requested
+  // tab isn't allowed for the current role (e.g. role changed mid-session),
+  // fall back to 'resumen' — allowed for every role — for this render only.
+  const requestedTab      = TABS.find(t => t.key === activeTab)!
+  const hasRequestedAccess = !!role && requestedTab.allowedRoles.includes(role)
+  const currentTab   = hasRequestedAccess ? requestedTab : TABS.find(t => t.key === 'resumen')!
   const hasTabAccess = !!role && currentTab.allowedRoles.includes(role)
-
-  // If the active tab isn't allowed for the current role (e.g. role changed
-  // mid-session), fall back to 'resumen' — allowed for every role.
-  useEffect(() => {
-    if (role && !hasTabAccess) setActiveTab('resumen')
-  }, [role, hasTabAccess])
 
   if (isLoading && !isDev) {
     return (
@@ -155,7 +154,7 @@ export default function OwnerDashboardV2() {
           paddingBottom: '0',
         }}>
           {TABS.filter(t => role && t.allowedRoles.includes(role)).map(tab => {
-            const isActive = tab.key === activeTab
+            const isActive = tab.key === currentTab.key
             return (
               <button
                 key={tab.key}
