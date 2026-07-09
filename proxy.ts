@@ -73,7 +73,7 @@ export async function proxy(request: NextRequest) {
     // using service role so this check stays correct after RLS is enabled on
     // memberships (a session-key query would return empty → false forgery).
     // user.id is always from supabase.auth.getUser() above — never from the cookie.
-    const { data: mem, error: memErr } = await createClient(
+    const { data: mems, error: memErr } = await createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
@@ -82,9 +82,9 @@ export async function proxy(request: NextRequest) {
       .eq('user_id', user.id)
       .eq('role', cookieRole)
       .eq('is_active', true)
-      .maybeSingle()
+      .limit(1)
 
-    if (!memErr && !mem) {
+    if (!memErr && (!mems || mems.length === 0)) {
       // Confirmed: no matching membership in DB — clear forged cookie + redirect
       const res = NextResponse.redirect(new URL('/role-select', request.url))
       res.cookies.set('faro_role', '', { maxAge: 0, path: '/' })

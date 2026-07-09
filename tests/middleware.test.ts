@@ -11,9 +11,9 @@ const { mockGetUser, mockMembershipSingle, mockCreateClient, mockCreateServerCli
     const mockMembershipSingle = vi.fn()
 
     const memChain: Record<string, unknown> = {}
-    memChain['select']      = vi.fn(() => memChain)
-    memChain['eq']          = vi.fn(() => memChain)
-    memChain['maybeSingle'] = mockMembershipSingle
+    memChain['select'] = vi.fn(() => memChain)
+    memChain['eq']     = vi.fn(() => memChain)
+    memChain['limit']  = mockMembershipSingle
 
     const mockCreateClient = vi.fn(() => ({
       from: vi.fn((table: string) => {
@@ -60,7 +60,7 @@ function makeReq(pathname: string, cookies: Record<string, string> = {}) {
 describe('middleware — role cookie server-side validation', () => {
   it('1. forged faro_role=owner without DB membership → redirect /role-select + clear cookie', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
-    mockMembershipSingle.mockResolvedValue({ data: null, error: null })
+    mockMembershipSingle.mockResolvedValue({ data: [], error: null })
 
     const { proxy } = await import('@/proxy')
     const res = await proxy(makeReq('/dashboard/owner/overview', { faro_role: 'owner' }))
@@ -77,7 +77,7 @@ describe('middleware — role cookie server-side validation', () => {
 
   it('2. valid faro_role=owner + active owner membership in DB → passes through (200)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
-    mockMembershipSingle.mockResolvedValue({ data: { id: 'mem-1' }, error: null })
+    mockMembershipSingle.mockResolvedValue({ data: [{ id: 'mem-1' }], error: null })
 
     const { proxy } = await import('@/proxy')
     const res = await proxy(makeReq('/dashboard/owner/overview', { faro_role: 'owner' }))
