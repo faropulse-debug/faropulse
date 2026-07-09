@@ -10,11 +10,9 @@ export function getRedirectPath(memberships: Membership[]): string {
   }
 
   if (memberships.length === 1) {
-    const { role } = memberships[0]
-    // Only managers go directly to their dashboard.
-    // Owners always land on role-select so they can choose their perspective.
-    if (role === 'manager') return '/dashboard/manager'
-    return '/role-select'
+    // Any single role goes straight to the dashboard; tab visibility
+    // is filtered per role once there.
+    return '/dashboard/owner/v2'
   }
 
   // Multiple memberships → always let the user pick
