@@ -6,7 +6,7 @@ import type { NextRequest } from 'next/server'
 const PUBLIC_ROUTES      = ['/login', '/forgot-password', '/reset-password']
 const PUBLIC_API_PREFIXES = ['/api/health']
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   if (
@@ -55,36 +55,36 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  const DASHBOARD_ROLES = new Set(['owner', 'manager'])
+  const DASHBOARD_ROLES = new Set(['owner', 'manager', 'encargado', 'super_admin', 'staff'])
 
-  const requiredRole = pathname.startsWith('/dashboard/owner')   ? 'owner'
-                     : pathname.startsWith('/dashboard/manager') ? 'manager'
-                     : null
+  const requiredRoles = (pathname.startsWith('/dashboard/owner') || pathname.startsWith('/dashboard/manager'))
+    ? DASHBOARD_ROLES
+    : null
 
-  if (requiredRole) {
+  if (requiredRoles) {
     const cookieRole = request.cookies.get('faro_role')?.value
 
-    // Fast path: wrong or missing cookie — no DB call needed
-    if (cookieRole !== requiredRole) {
+    // Fast path: missing cookie or role not allowed on this path — no DB call needed
+    if (!cookieRole || !requiredRoles.has(cookieRole)) {
       return NextResponse.redirect(new URL('/role-select', request.url))
     }
 
-    // Cookie value matches the path. Verify it reflects a real active membership
+    // Cookie value is an allowed role. Verify it reflects a real active membership
     // using service role so this check stays correct after RLS is enabled on
     // memberships (a session-key query would return empty → false forgery).
     // user.id is always from supabase.auth.getUser() above — never from the cookie.
-    const { data: mem, error: memErr } = await createClient(
+    const { data: mems, error: memErr } = await createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
       .from('memberships')
       .select('id')
       .eq('user_id', user.id)
-      .eq('role', requiredRole)
+      .eq('role', cookieRole)
       .eq('is_active', true)
-      .maybeSingle()
+      .limit(1)
 
-    if (!memErr && !mem) {
+    if (!memErr && (!mems || mems.length === 0)) {
       // Confirmed: no matching membership in DB — clear forged cookie + redirect
       const res = NextResponse.redirect(new URL('/role-select', request.url))
       res.cookies.set('faro_role', '', { maxAge: 0, path: '/' })
@@ -94,7 +94,7 @@ export async function middleware(request: NextRequest) {
     // a transient PostgREST issue shouldn't lock out a legitimate user from navigation.
   } else if (pathname.startsWith('/dashboard/')) {
     // Fallback: /dashboard/* path not matched by owner or manager above.
-    // Roles without a mapped dashboard (e.g. viewer) must not roam freely.
+    // Roles without a mapped dashboard (e.g. an unknown/invalid role) must not roam freely.
     const cookieRole = request.cookies.get('faro_role')?.value
     if (!cookieRole || !DASHBOARD_ROLES.has(cookieRole)) {
       return NextResponse.redirect(new URL('/role-select', request.url))

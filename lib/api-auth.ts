@@ -57,28 +57,14 @@ export async function requireMembership(
 
   const svc = createClient(url, svcKey)
 
-  // ── Step 2: resolve locationId → org_id ─────────────────────────────────────
-  // memberships has no location_id column — it links to org_id.
-  // locations.id is the UUID the API receives; locations.org_id is the bridge.
-  const { data: loc, error: locError } = await svc
-    .from('locations')
-    .select('org_id')
-    .eq('id', locationId)
-    .maybeSingle()
-
-  if (locError || !loc) {
-    return NextResponse.json(
-      { error: 'Forbidden: location not found' },
-      { status: 403 },
-    )
-  }
-
-  // ── Step 3: verify active membership in that org ─────────────────────────────
+  // ── Step 2: verify active membership for this location ──────────────────────
+  // memberships.location_id is now populated directly — no need to bridge
+  // through locations.org_id anymore.
   const { data, error: memberError } = await svc
     .from('memberships')
     .select('id')
     .eq('user_id', userId)
-    .eq('org_id', loc.org_id)
+    .eq('location_id', locationId)
     .eq('is_active', true)
     .maybeSingle()
 

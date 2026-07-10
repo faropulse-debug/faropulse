@@ -67,14 +67,15 @@ VALUES (
 ON CONFLICT (id) DO NOTHING;
 
 -- ── 5. Membership ────────────────────────────────────────────
-INSERT INTO public.memberships (user_id, org_id, role, is_active)
+INSERT INTO public.memberships (user_id, org_id, location_id, role, is_active)
 VALUES (
   'cccccccc-0000-0000-0000-000000000001',
   'aaaaaaaa-0000-0000-0000-000000000001',
+  'bbbbbbbb-0000-0000-0000-000000000001',
   'owner',
   true
 )
-ON CONFLICT (user_id, org_id) DO NOTHING;
+ON CONFLICT (user_id, location_id) DO NOTHING;
 
 -- ── 6. Sales documents (50) y items (200) ────────────────────
 -- Fecha base: 2025-12-23 (90 días antes de la generación del seed)

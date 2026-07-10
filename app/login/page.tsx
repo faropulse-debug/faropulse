@@ -369,11 +369,6 @@ function LoginFormInner() {
         return
       }
       const list = memberships ?? []
-      // Set role cookie for solo-manager fast path (middleware reads this)
-      if (list.length === 1 && list[0].role === 'manager') {
-        const maxAge = remember ? 60 * 60 * 24 * 30 : 86400
-        document.cookie = `faro_role=manager; path=/; max-age=${maxAge}; SameSite=Lax`
-      }
       const { getRedirectPath } = await import('@/lib/redirectAfterLogin')
       router.push(getRedirectPath(list))
     } catch (err) {
@@ -604,12 +599,12 @@ function LoginFormInner() {
 
 export default function FaropulseLogin() {
   return (
-    <div className="relative min-h-screen flex overflow-hidden" style={{ background: '#03050a' }}>
+    <div className="login-root relative min-h-[100dvh] flex overflow-hidden" style={{ background: '#03050a' }}>
       <SceneBackground />
 
       {/* ── Left panel: 58% ─────────────────────────────────────────────── */}
       <div
-        className="relative z-10 flex flex-col justify-between"
+        className="login-hero relative z-10 flex flex-col justify-between"
         style={{
           flex: '0 0 58%',
           padding: '52px 58px 46px 62px',
@@ -655,7 +650,7 @@ export default function FaropulseLogin() {
           </p>
 
           {/* Benefits */}
-          <div className="flex" style={{ gap: '44px' }}>
+          <div className="login-benefits flex" style={{ gap: '44px' }}>
             {[
               { icon: <Bell size={17}/>,     label: 'Alertas\nInteligentes'    },
               { icon: <BarChart2 size={17}/>, label: 'Insights\nEn tiempo real' },
@@ -694,7 +689,7 @@ export default function FaropulseLogin() {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center" style={{
+        <div className="login-footer flex items-center" style={{
           gap: '14px',
           fontFamily: 'var(--font-body)',
           fontSize: '0.72rem',
@@ -713,7 +708,7 @@ export default function FaropulseLogin() {
 
       {/* ── Right panel: 42% ────────────────────────────────────────────── */}
       <div
-        className="relative z-10 flex items-center justify-center"
+        className="login-form relative z-10 flex items-center justify-center"
         style={{
           flex: '0 0 42%',
           padding: '48px 54px',
@@ -726,7 +721,16 @@ export default function FaropulseLogin() {
         </Suspense>
       </div>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media (max-width: 767px) {
+          .login-root { flex-direction: column; overflow-y: auto; }
+          .login-hero { flex: none !important; width: 100%; padding: 32px 24px !important; }
+          .login-form { flex: none !important; width: 100%; padding: 24px !important; border-left: none !important; }
+          .login-benefits { gap: 20px !important; flex-wrap: wrap !important; }
+          .login-footer { flex-wrap: wrap !important; gap: 8px !important; }
+        }
+      `}</style>
     </div>
   )
 }

@@ -11,9 +11,9 @@ const { mockGetUser, mockMembershipSingle, mockCreateClient, mockCreateServerCli
     const mockMembershipSingle = vi.fn()
 
     const memChain: Record<string, unknown> = {}
-    memChain['select']      = vi.fn(() => memChain)
-    memChain['eq']          = vi.fn(() => memChain)
-    memChain['maybeSingle'] = mockMembershipSingle
+    memChain['select'] = vi.fn(() => memChain)
+    memChain['eq']     = vi.fn(() => memChain)
+    memChain['limit']  = mockMembershipSingle
 
     const mockCreateClient = vi.fn(() => ({
       from: vi.fn((table: string) => {
@@ -60,10 +60,10 @@ function makeReq(pathname: string, cookies: Record<string, string> = {}) {
 describe('middleware — role cookie server-side validation', () => {
   it('1. forged faro_role=owner without DB membership → redirect /role-select + clear cookie', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
-    mockMembershipSingle.mockResolvedValue({ data: null, error: null })
+    mockMembershipSingle.mockResolvedValue({ data: [], error: null })
 
-    const { middleware } = await import('@/middleware')
-    const res = await middleware(makeReq('/dashboard/owner/overview', { faro_role: 'owner' }))
+    const { proxy } = await import('@/proxy')
+    const res = await proxy(makeReq('/dashboard/owner/overview', { faro_role: 'owner' }))
 
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('/role-select')
@@ -77,32 +77,33 @@ describe('middleware — role cookie server-side validation', () => {
 
   it('2. valid faro_role=owner + active owner membership in DB → passes through (200)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
-    mockMembershipSingle.mockResolvedValue({ data: { id: 'mem-1' }, error: null })
+    mockMembershipSingle.mockResolvedValue({ data: [{ id: 'mem-1' }], error: null })
 
-    const { middleware } = await import('@/middleware')
-    const res = await middleware(makeReq('/dashboard/owner/overview', { faro_role: 'owner' }))
+    const { proxy } = await import('@/proxy')
+    const res = await proxy(makeReq('/dashboard/owner/overview', { faro_role: 'owner' }))
 
     expect(res.status).toBe(200)
     expect(mockCreateClient).toHaveBeenCalled()
   })
 
-  it('3. faro_role=manager on /dashboard/owner → fast-path redirect, no DB call', async () => {
+  it('3. faro_role inválido/desconocido on /dashboard/owner → fast-path redirect, no DB call', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } }, error: null })
     // mockMembershipSingle intentionally not set — DB must not be reached
 
-    const { middleware } = await import('@/middleware')
-    const res = await middleware(makeReq('/dashboard/owner/overview', { faro_role: 'manager' }))
+    const { proxy } = await import('@/proxy')
+    const res = await proxy(makeReq('/dashboard/owner/overview', { faro_role: 'intruso' }))
 
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('/role-select')
     expect(mockCreateClient).not.toHaveBeenCalled()
+    expect(mockMembershipSingle).not.toHaveBeenCalled()
   })
 
   it('4. no session on /dashboard/owner → redirect /login, no DB call', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null }, error: null })
 
-    const { middleware } = await import('@/middleware')
-    const res = await middleware(makeReq('/dashboard/owner/overview'))
+    const { proxy } = await import('@/proxy')
+    const res = await proxy(makeReq('/dashboard/owner/overview'))
 
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('/login')
