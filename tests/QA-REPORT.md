@@ -6,6 +6,47 @@
 
 ---
 
+## Auditoría Pre-Merge a PROD (2026-07-09)
+
+### 1. Revisión de Regresión (Cardinalidad y Roles)
+- **Bugs de Cardinalidad:**
+  - El `.maybeSingle()` riesgoso en `proxy.ts` reportado anteriormente fue solucionado en esta rama usando `.limit(1)`.
+  - El uso de `.maybeSingle()` en `lib/api-auth.ts` ahora es 100% seguro gracias a la nueva migración en DB (`20260705000002_memberships_unique_location.sql`) que aplica la restricción `UNIQUE (user_id, location_id)`.
+  - El `.find()` en `AuthProvider.tsx` opera como un fallback inofensivo; si la sesión local se corrompe, el middleware atajará al usuario enviándolo a `/role-select` para regenerar la cookie.
+  - **Resultado:** No hay bugs de cardinalidad. El código asimila correctamente el esquema multi-location.
+- **Coherencia del Sistema de Roles:**
+  - Constraints en DB (5 roles), enum TS, `TABS` y `proxy.ts` están perfectamente alineados.
+  - Los roles más restrictivos (`staff`, `encargado`) están limitados por interfaz y middleware al módulo de `operaciones`. No existen contradicciones.
+- **Flujo de Usuario:**
+  - El rediseño de dos pasos (Sucursal → Módulo) funciona de maravilla y no deja a ningún usuario atascado o con tabs vacías.
+- **Casos Borde:**
+  - Usuarios con 0 membresías ven un mensaje amigable.
+  - Manipulación directa de URLs (query params inválidos) hace fallback a valores por defecto (`operaciones`) de forma segura.
+
+### 2. Verificaciones Automáticas
+- Linter (`npm run lint`): 🟢 (0 errores).
+- Typecheck (`npx tsc --noEmit`): 🟢
+- Tests Unitarios (`npx vitest run`): 🟢 (236/236 OK).
+- Build (`npm run build`): 🟢 (Compilación de Next.js exitosa).
+- Tests E2E (`npm run test:e2e`): 🟡 (El endpoint de health falla por timeout local contra Supabase, no es regresión de código. Los tests de roles están OK).
+
+### 3. Hallazgo Estructural de Proceso (Bloqueante)
+> [!WARNING]
+> **El repositorio NO es la fuente de verdad del estado de la base de datos.**
+> Se detectó que existen migraciones SQL (como el agregado de la columna `location_id` en `memberships` y la creación de la tabla `location_pos_config`) que fueron aplicadas manualmente en el entorno de STG a través del SQL Editor, pero **nunca se versionaron en el repositorio**.
+> **Riesgo Crítico:** Cualquier deploy a PROD asume un esquema de base de datos que no existe en el ambiente de destino. Si este código se despliega, `user_has_membership` fallará por intentar leer una columna inexistente, dejando al cliente piloto sin acceso a sus datos.
+
+> [!TIP]
+> **Sugerencia de Fix de Proceso:**
+> Se debe implementar un script de verificación pre-deploy (similar al existente `audit-rls.ts`) que conecte con la base de datos del entorno de destino, lea el esquema real y lo compare automáticamente contra las migraciones declaradas en el repositorio. Si detecta discrepancias en tablas, columnas o constraints, el pipeline de CI/CD debe fallar e impedir el despliegue.
+
+### 4. Veredicto Final
+> [!CAUTION]
+> 🔴 **NO MERGEAR**
+> Si bien el código fuente pasó todas las validaciones de QA con éxito, **la ausencia de las migraciones SQL en el repositorio es un impedimento bloqueante.** No se debe mergear hasta que los archivos de migración `.sql` correspondientes sean commiteados al repositorio.
+
+---
+
 ## Regresión de Roles (Sprint D)
 
 ### Respuestas a la Revisión de Coherencia:
