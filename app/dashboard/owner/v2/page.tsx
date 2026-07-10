@@ -1,7 +1,8 @@
 'use client'
 
-import { useState }                      from 'react'
+import { useState, Suspense }            from 'react'
 import Link                              from 'next/link'
+import { useSearchParams }               from 'next/navigation'
 import { useAuth }                       from '@/hooks/useAuth'
 import type { Role }                     from '@/types/auth'
 import { DashboardFiltersProvider }      from '@/src/context/dashboard-filters'
@@ -15,14 +16,15 @@ import {
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 
-type TabKey = 'resumen' | 'pnl' | 'operacion' | 'inversion' | 'descuentos'
+type TabKey    = 'resumen' | 'pnl' | 'operacion' | 'inversion' | 'descuentos'
+type ModuloKey = 'negocio' | 'operaciones'
 
-const TABS: { key: TabKey; label: string; categories: WidgetCategory[]; allowedRoles: Role[] }[] = [
-  { key: 'resumen',    label: 'Resumen',    categories: ['kpi', 'alert'], allowedRoles: ['owner', 'manager', 'encargado', 'super_admin', 'staff'] },
-  { key: 'operacion',  label: 'Operación',  categories: ['diagnostic'],   allowedRoles: ['owner', 'manager', 'encargado', 'super_admin', 'staff'] },
-  { key: 'pnl',        label: 'P&L',        categories: ['financial'],    allowedRoles: ['owner', 'manager', 'super_admin'] },
-  { key: 'inversion',  label: 'Inversión',  categories: ['investment'],   allowedRoles: ['owner', 'manager', 'super_admin'] },
-  { key: 'descuentos', label: 'Descuentos', categories: ['descuento'],    allowedRoles: ['owner', 'manager', 'super_admin'] },
+const TABS: { key: TabKey; label: string; categories: WidgetCategory[]; allowedRoles: Role[]; modulos: ModuloKey[] }[] = [
+  { key: 'resumen',    label: 'Resumen',    categories: ['kpi', 'alert'], allowedRoles: ['owner', 'manager', 'super_admin'], modulos: ['negocio'] },
+  { key: 'operacion',  label: 'Operación',  categories: ['diagnostic'],   allowedRoles: ['owner', 'manager', 'encargado', 'super_admin', 'staff'], modulos: ['operaciones'] },
+  { key: 'pnl',        label: 'P&L',        categories: ['financial'],    allowedRoles: ['owner', 'manager', 'super_admin'], modulos: ['negocio'] },
+  { key: 'inversion',  label: 'Inversión',  categories: ['investment'],   allowedRoles: ['owner', 'manager', 'super_admin'], modulos: ['negocio'] },
+  { key: 'descuentos', label: 'Descuentos', categories: ['descuento'],    allowedRoles: ['owner', 'manager', 'encargado', 'super_admin', 'staff'], modulos: ['operaciones'] },
 ]
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -85,20 +87,28 @@ function TabContent({ categories, locationId }: { categories: WidgetCategory[]; 
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function OwnerDashboardV2() {
+function OwnerDashboardV2Inner() {
   const { user, isLoading, error: authError, locationId, role } = useAuth()
-  const [activeTab, setActiveTab] = useState<TabKey>('resumen')
+  const searchParams = useSearchParams()
+
+  // 'operaciones' is the default/fallback: it's the one module every role can see,
+  // so an absent or invalid ?modulo= param never leaves a role with zero tabs.
+  const moduloParam = searchParams.get('modulo')
+  const modulo: ModuloKey = moduloParam === 'negocio' || moduloParam === 'operaciones' ? moduloParam : 'operaciones'
+
+  const visibleTabs = TABS.filter(t => role && t.allowedRoles.includes(role) && t.modulos.includes(modulo))
+
+  const [activeTab, setActiveTab] = useState<TabKey | null>(() => visibleTabs[0]?.key ?? null)
 
   const isDev   = process.env.NODE_ENV === 'development'
   const orgName = user?.activeMembership?.organization?.name ?? 'Dashboard'
 
   // Derive the effective tab without setState-in-effect: if the requested
-  // tab isn't allowed for the current role (e.g. role changed mid-session),
-  // fall back to 'resumen' — allowed for every role — for this render only.
-  const requestedTab      = TABS.find(t => t.key === activeTab)!
-  const hasRequestedAccess = !!role && requestedTab.allowedRoles.includes(role)
-  const currentTab   = hasRequestedAccess ? requestedTab : TABS.find(t => t.key === 'resumen')!
-  const hasTabAccess = !!role && currentTab.allowedRoles.includes(role)
+  // tab isn't in visibleTabs (e.g. role/modulo changed mid-session), fall
+  // back to the first visible tab for this render only.
+  const requestedTab = visibleTabs.find(t => t.key === activeTab) ?? null
+  const currentTab   = requestedTab ?? visibleTabs[0] ?? null
+  const hasTabAccess = !!currentTab
 
   if (isLoading && !isDev) {
     return (
@@ -153,8 +163,8 @@ export default function OwnerDashboardV2() {
           borderBottom: '1px solid rgba(255,255,255,0.07)',
           paddingBottom: '0',
         }}>
-          {TABS.filter(t => role && t.allowedRoles.includes(role)).map(tab => {
-            const isActive = tab.key === currentTab.key
+          {visibleTabs.map(tab => {
+            const isActive = tab.key === currentTab?.key
             return (
               <button
                 key={tab.key}
@@ -194,7 +204,7 @@ export default function OwnerDashboardV2() {
         </div>
 
         {/* Content */}
-        {hasTabAccess ? (
+        {hasTabAccess && currentTab ? (
           <TabContent categories={currentTab.categories} locationId={locationId} />
         ) : (
           <div style={{
@@ -209,5 +219,15 @@ export default function OwnerDashboardV2() {
       </div>
     </DashboardDataProvider>
     </DashboardFiltersProvider>
+  )
+}
+
+// ─── Default export (needs Suspense for useSearchParams) ─────────────────────
+
+export default function OwnerDashboardV2() {
+  return (
+    <Suspense>
+      <OwnerDashboardV2Inner />
+    </Suspense>
   )
 }
