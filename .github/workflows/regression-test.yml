@@ -99,6 +99,7 @@ jobs:
           {
             echo 'response<<HEALTH_EOF'
             cat /tmp/health.json
+            echo ""
             echo 'HEALTH_EOF'
           } >> "$GITHUB_OUTPUT"
 

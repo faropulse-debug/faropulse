@@ -38,13 +38,32 @@ Sí, los 5 valores coinciden exactamente en `types/auth.ts`: `'owner' | 'manager
 - **Descripción:** El query usa `.maybeSingle()` para validar que el rol de la cookie exista en base de datos. Si un usuario tiene más de 1 local **con el mismo rol** (ej: es `owner` de 2 sucursales), la query va a fallar lanzando un error de PostgREST `PGRST116` (múltiples filas encontradas). Por cómo está armada la validación (`if (!memErr && !mem)`), el sistema **falla abierto** y lo deja pasar, pero debilita la seguridad y va a inundar los logs de BD con errores 500 cada vez que este usuario navegue.
 - **Sugerencia de Fix:** Cambiar `.maybeSingle()` por `.limit(1)` (o `.maybeSingle()` si de verdad aseguramos unicidad, cosa que aquí no aplica).
 
-### Bug 2: Componentes muertos / Lógica olvidada en UI
-- **Ubicación:** `app/role-select/page.tsx`.
-- **Riesgo:** Muy Bajo (Cosmético).
-- **Descripción:** Se encuentra definido y exportado el componente `PanelIcon` pensado para renderizarse si el rol es de `manager` o similar. Sin embargo, nunca se invoca en todo el mapeo de `RoleCard`, dejándolo como código muerto y usando el `CompassIcon` ciegamente para todos los roles.
+### 3. HALLAZGO DE PROCESO — El repositorio no es fuente de verdad del schema
+> [!WARNING]
+> **Punto ciego estructural en el Veredicto de QA**
+> El veredicto original de "APTO PARA MERGE" evaluó con éxito la coherencia del código fuente, pero contenía una falla estructural: **asumió ciegamente que el esquema de la base de datos de producción reflejaba las migraciones del repositorio**. Como agente de QA, mi capacidad de certificación estuvo limitada al repositorio, desconociendo el estado real de la infraestructura destino.
 
-### Bug 3 (Previo - Solucionado): Renderizados en cascada
-- **Estado:** Ya fue solucionado por el equipo en rama paralela, removiendo el `useEffect` en favor de estado derivado directo.
+**El Problema:**
+Existen mutaciones en la base de datos aplicadas directamente a través del SQL Editor en STG que nunca fueron consolidadas en archivos de migración (`.sql`) dentro del repo. 
+
+**Evidencia Encontrada:**
+1. **Migraciones Fantasma:**
+   - `ALTER TABLE memberships ADD COLUMN location_id` (y su posterior backfill) se corrió a mano.
+   - `CREATE TABLE location_pos_config` se creó a mano.
+2. **Divergencia de Constraints:**
+   - La restricción `memberships_role_check` en PROD validaba roles viejos (`owner`, `manager`, `viewer`). En STG ese constraint aparentemente ni existía de la misma forma, por lo que nunca hubo colisión en pruebas. Una migración para el nuevo check fallaría o dejaría el schema inconsistente en PROD.
+
+**El Riesgo Crítico:**
+Si este código se hubiera desplegado a PROD tal como estaba, la función `user_has_membership()` hubiese filtrado por la columna `location_id` (inexistente en PROD). Esto habría devuelto `0 filas` para todos los usuarios, rompiendo por completo las políticas de RLS y dejando al cliente piloto sin ver ningún dato en su dashboard. Todo deploy futuro es una ruleta rusa si se asume un schema irreal.
+
+> [!TIP]
+> **Sugerencia de Fix de Proceso (En diseño):**
+> Implementar un script de verificación pre-deploy que compare el schema REAL del ambiente (columnas, constraints, tablas) contra el esperado del repo.
+
+### 4. Veredicto Final
+> [!CAUTION]
+> 🔴 **NO MERGEAR**
+> Hasta que los esquemas de BD no estén sincronizados y versionados, el código fuente es inutilizable en producción.
 
 ---
 

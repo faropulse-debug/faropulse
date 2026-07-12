@@ -1,0 +1,46 @@
+name: Security & Schema Audit
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Backup seed.sql
+        run: |
+          if [ -f supabase/seed.sql ]; then
+            mv supabase/seed.sql supabase/seed.sql.bak
+            echo "Seed omitted to avoid conflict errors"
+          fi
+
+      - name: Start Shadow DB
+        run: npx supabase start
+
+      - name: Audit Security Posture (STG)
+        env:
+          PROJECT_REF: egjxyskqhnmuqwkrbshu
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: npx tsx scripts/audit-security-posture.ts
+
+      - name: Audit Schema (STG)
+        env:
+          PROJECT_REF: egjxyskqhnmuqwkrbshu
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SHADOW_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: npx tsx scripts/audit-schema.ts --mode ci
