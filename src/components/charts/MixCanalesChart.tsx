@@ -1,23 +1,18 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import {
   BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid,
 } from 'recharts'
-import { ChartWrapper }             from './ChartWrapper'
-import { MonthSelector, currentYM } from '@/src/components/ui/MonthSelector'
+import { ChartWrapper }  from './ChartWrapper'
+import { MonthSelector } from '@/src/components/ui/MonthSelector'
 import {
   CHANNELS, CHANNEL_COLORS,
-  buildMonthly, buildWeekly, buildDaily,
-  buildChannelStats, availableMonths,
   formatMonthLabel,
-  type RawSaleRow, type ChannelStats, type ChannelSummaryRow,
+  type PeriodPoint, type ChannelStats,
 } from '@/src/lib/canal-chart-helpers'
-
-// Re-export so MixCanalesSection keeps its existing import working
-export type { RawSaleRow }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -123,11 +118,20 @@ function ChannelCards({ stats }: { stats: ChannelStats[] }) {
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
+// Puramente presentacional: todos los datos ya vienen pivoteados por período
+// desde SQL (get_ventas_por_canal / _semana / _dia). No lee sales_documents,
+// no cuenta filas — MixCanalesSection.tsx es quien resuelve las 3 RPCs.
 
 interface MixCanalesChartProps {
-  data:            RawSaleRow[]
-  channelSummary:  ChannelSummaryRow[]   // de get_ventas_por_canal — pedidos/ticket neteados con documento_peso
-  isLoading?:      boolean
+  monthlyPts:       PeriodPoint[]
+  weeklyPts:        PeriodPoint[]
+  dailyPts:         PeriodPoint[]
+  channelStats:     ChannelStats[]
+  months:           string[]              // todos los meses con datos, descendente
+  activeDailyMonth: string
+  onSelectMonth:    (month: string) => void
+  isLoading?:       boolean
+  isDailyLoading?:  boolean
 }
 
 const TABS: { key: Granularity; label: string }[] = [
@@ -136,25 +140,12 @@ const TABS: { key: Granularity; label: string }[] = [
   { key: 'diario',  label: 'Diario'  },
 ]
 
-export default function MixCanalesChart({ data, channelSummary, isLoading }: MixCanalesChartProps) {
-  const [granularity,   setGranularity]   = useState<Granularity>('mensual')
-  const [selectedMonth, setSelectedMonth] = useState<string>('')
-
-  // Semestre móvil: last 6 months in the data (descending)
-  const semestre = useMemo(() => availableMonths(data).slice(0, 6), [data])
-
-  // Default daily month = last complete month (not the partial current month)
-  const activeDailyMonth = useMemo(() => {
-    const todayYM = currentYM()
-    const closed  = semestre.find(m => m < todayYM)
-    const def     = closed ?? semestre[0] ?? ''
-    return (selectedMonth && semestre.includes(selectedMonth)) ? selectedMonth : def
-  }, [semestre, selectedMonth])
-
-  const monthlyPts   = useMemo(() => buildMonthly(data),                       [data])
-  const weeklyPts    = useMemo(() => buildWeekly(data),                        [data])
-  const dailyPts     = useMemo(() => buildDaily(data, activeDailyMonth),       [data, activeDailyMonth])
-  const channelStats = useMemo(() => buildChannelStats(channelSummary),        [channelSummary])
+export default function MixCanalesChart({
+  monthlyPts, weeklyPts, dailyPts, channelStats,
+  months, activeDailyMonth, onSelectMonth,
+  isLoading, isDailyLoading,
+}: MixCanalesChartProps) {
+  const [granularity, setGranularity] = useState<Granularity>('mensual')
 
   const activePts = granularity === 'mensual' ? monthlyPts
                   : granularity === 'semanal' ? weeklyPts
@@ -166,13 +157,15 @@ export default function MixCanalesChart({ data, channelSummary, isLoading }: Mix
 
   if (isLoading) return <div className="animate-pulse rounded-2xl bg-white/5 h-[520px]" />
 
-  if (!data.length) {
+  if (!monthlyPts.length && !weeklyPts.length) {
     return (
       <div className="rounded-2xl bg-white/5 border border-white/10 p-8 text-center text-white/40">
         Sin datos de canales disponibles
       </div>
     )
   }
+
+  const dailyEmpty = granularity === 'diario' && !isDailyLoading && dailyPts.length === 0
 
   return (
     <div className="relative overflow-hidden rounded-2xl p-6"
@@ -217,9 +210,9 @@ export default function MixCanalesChart({ data, channelSummary, isLoading }: Mix
         {/* Month chips — solo en Diario */}
         {granularity === 'diario' && (
           <MonthSelector
-            months={semestre}
+            months={months}
             selected={activeDailyMonth}
-            onChange={setSelectedMonth}
+            onChange={onSelectMonth}
           />
         )}
 
@@ -227,10 +220,12 @@ export default function MixCanalesChart({ data, channelSummary, isLoading }: Mix
         <div className="rounded-xl p-4 pb-2"
           style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
 
-          {granularity === 'diario' && dailyPts.length === 0 ? (
+          {dailyEmpty ? (
             <div className="h-[320px] flex items-center justify-center text-white/30 text-sm">
               Sin datos para {activeDailyMonth ? formatMonthLabel(activeDailyMonth) : 'este mes'}
             </div>
+          ) : granularity === 'diario' && isDailyLoading ? (
+            <div className="h-[320px] animate-pulse rounded-xl bg-white/5" />
           ) : (
             <>
               <ChartWrapper height={320}>
