@@ -13,7 +13,7 @@ import {
   buildMonthly, buildWeekly, buildDaily,
   buildChannelStats, availableMonths,
   formatMonthLabel,
-  type RawSaleRow, type ChannelStats,
+  type RawSaleRow, type ChannelStats, type ChannelSummaryRow,
 } from '@/src/lib/canal-chart-helpers'
 
 // Re-export so MixCanalesSection keeps its existing import working
@@ -125,8 +125,9 @@ function ChannelCards({ stats }: { stats: ChannelStats[] }) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 interface MixCanalesChartProps {
-  data:       RawSaleRow[]
-  isLoading?: boolean
+  data:            RawSaleRow[]
+  channelSummary:  ChannelSummaryRow[]   // de get_ventas_por_canal — pedidos/ticket neteados con documento_peso
+  isLoading?:      boolean
 }
 
 const TABS: { key: Granularity; label: string }[] = [
@@ -135,7 +136,7 @@ const TABS: { key: Granularity; label: string }[] = [
   { key: 'diario',  label: 'Diario'  },
 ]
 
-export default function MixCanalesChart({ data, isLoading }: MixCanalesChartProps) {
+export default function MixCanalesChart({ data, channelSummary, isLoading }: MixCanalesChartProps) {
   const [granularity,   setGranularity]   = useState<Granularity>('mensual')
   const [selectedMonth, setSelectedMonth] = useState<string>('')
 
@@ -153,7 +154,7 @@ export default function MixCanalesChart({ data, isLoading }: MixCanalesChartProp
   const monthlyPts   = useMemo(() => buildMonthly(data),                       [data])
   const weeklyPts    = useMemo(() => buildWeekly(data),                        [data])
   const dailyPts     = useMemo(() => buildDaily(data, activeDailyMonth),       [data, activeDailyMonth])
-  const channelStats = useMemo(() => buildChannelStats(data),                  [data])
+  const channelStats = useMemo(() => buildChannelStats(channelSummary),        [channelSummary])
 
   const activePts = granularity === 'mensual' ? monthlyPts
                   : granularity === 'semanal' ? weeklyPts

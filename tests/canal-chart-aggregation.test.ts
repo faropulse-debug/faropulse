@@ -7,6 +7,7 @@ import {
   buildChannelStats,
   availableMonths,
   type RawSaleRow,
+  type ChannelSummaryRow,
 } from '@/src/lib/canal-chart-helpers'
 
 // ── Validated May 2026 totals (from sales_documents via REST, matches canal RPC) ──
@@ -55,8 +56,9 @@ describe('normalizeChannel', () => {
     expect(normalizeChannel('APP')).toBe('APLICACIONES')
     expect(normalizeChannel('DELIVERY')).toBe('APLICACIONES')
   })
-  it('maps MOSTRADOR to MOSTRADOR', () => {
+  it('maps MOSTRADOR and TAKEAWAY to MOSTRADOR', () => {
     expect(normalizeChannel('MOSTRADOR')).toBe('MOSTRADOR')
+    expect(normalizeChannel('TakeAway')).toBe('MOSTRADOR')
   })
   it('returns null for unknown channel', () => {
     expect(normalizeChannel('PEDIDOSYA')).toBeNull()
@@ -176,33 +178,47 @@ describe('buildDaily', () => {
 })
 
 // ── buildChannelStats ─────────────────────────────────────────────────────────
+// Consume filas de get_ventas_por_canal (RPC neteada con documento_peso en SQL),
+// no sales_documents crudo — por eso pedidos viene ya restado de la Nota de
+// Crédito y acá solo se suma entre meses, sin volver a contar filas.
+
+const MAY26_SUMMARY: ChannelSummaryRow[] = [
+  { canal: 'Salón',    ventas: SALON_TOTAL,        pedidos: 381 },
+  { canal: 'Delivery', ventas: APLICACIONES_TOTAL, pedidos: 218 },
+  { canal: 'TakeAway', ventas: MOSTRADOR_TOTAL,    pedidos: 92  },
+]
 
 describe('buildChannelStats', () => {
   it('smoke: totales validados mayo 2026', () => {
-    const stats = buildChannelStats(MAY26_ONE_PER_CH)
+    const stats = buildChannelStats(MAY26_SUMMARY)
     const salon = stats.find(s => s.channel === 'SALON')!
     expect(salon.total).toBe(SALON_TOTAL)
     expect(stats.find(s => s.channel === 'APLICACIONES')!.total).toBe(APLICACIONES_TOTAL)
     expect(stats.find(s => s.channel === 'MOSTRADOR')!.total).toBe(MOSTRADOR_TOTAL)
   })
   it('pctOfTotal suma 100%', () => {
-    const stats = buildChannelStats(MAY26_ONE_PER_CH)
+    const stats = buildChannelStats(MAY26_SUMMARY)
     expect(stats.reduce((s, r) => s + r.pctOfTotal, 0)).toBeCloseTo(100, 5)
   })
   it('SALON representa ~68.7%', () => {
-    const stats = buildChannelStats(MAY26_ONE_PER_CH)
+    const stats = buildChannelStats(MAY26_SUMMARY)
     expect(stats.find(s => s.channel === 'SALON')!.pctOfTotal).toBeCloseTo(68.7, 0)
   })
-  it('count (pedidos) es correcto', () => {
-    const rows: RawSaleRow[] = [
-      { fecha: '2026-05-01', total: 1000, tipo_zona: 'SALON' },
-      { fecha: '2026-05-01', total: 2000, tipo_zona: 'SALON' },
-      { fecha: '2026-05-01', total: 1500, tipo_zona: 'APLICACIONES' },
+  it('count (pedidos) viene de la RPC, sumado entre meses — no cuenta filas', () => {
+    const rows: ChannelSummaryRow[] = [
+      { canal: 'Salón',    ventas: 3000, pedidos: 2 },
+      { canal: 'Salón',    ventas: 1000, pedidos: 1 },   // segundo mes, mismo canal
+      { canal: 'Delivery', ventas: 1500, pedidos: 1 },
     ]
     const stats = buildChannelStats(rows)
-    expect(stats.find(s => s.channel === 'SALON')!.count).toBe(2)
+    expect(stats.find(s => s.channel === 'SALON')!.count).toBe(3)
     expect(stats.find(s => s.channel === 'APLICACIONES')!.count).toBe(1)
     expect(stats.find(s => s.channel === 'MOSTRADOR')!.count).toBe(0)
+  })
+  it('ticketAvg = ventas / pedidos (division simple sobre valores ya neteados, no re-implementa documento_peso)', () => {
+    const stats = buildChannelStats(MAY26_SUMMARY)
+    const salon = stats.find(s => s.channel === 'SALON')!
+    expect(salon.ticketAvg).toBeCloseTo(SALON_TOTAL / 381, 5)
   })
 })
 

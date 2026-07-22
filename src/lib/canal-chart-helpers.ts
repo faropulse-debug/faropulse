@@ -29,9 +29,16 @@ export interface PeriodPoint {
 export interface ChannelStats {
   channel:    Channel
   total:      number
-  count:      number   // number of sales_documents rows (≈ pedidos)
+  count:      number   // pedidos netos (documento_peso) — viene de get_ventas_por_canal, no de un count en cliente
   pctOfTotal: number
   ticketAvg:  number
+}
+
+/** Una fila de get_ventas_por_canal (RPC, neteada con documento_peso en SQL). */
+export interface ChannelSummaryRow {
+  canal:   string   // 'Salón' | 'TakeAway' | 'Delivery' — labels de display de la RPC
+  ventas:  number
+  pedidos: number
 }
 
 type Accum = { SALON: number; APLICACIONES: number; MOSTRADOR: number }
@@ -55,7 +62,7 @@ export function normalizeChannel(raw: string): Channel | null {
   const up = (raw ?? '').toUpperCase().trim()
   if (up === 'SALON' || up === 'SALÓN')                          return 'SALON'
   if (up === 'APLICACIONES' || up === 'APP' || up === 'DELIVERY') return 'APLICACIONES'
-  if (up === 'MOSTRADOR')                                         return 'MOSTRADOR'
+  if (up === 'MOSTRADOR' || up === 'TAKEAWAY')                    return 'MOSTRADOR'
   return null
 }
 
@@ -157,14 +164,20 @@ export function buildDaily(rows: RawSaleRow[], month: string): PeriodPoint[] {
     }))
 }
 
-export function buildChannelStats(rows: RawSaleRow[]): ChannelStats[] {
+/**
+ * Construye los totales/conteo/ticket promedio por canal a partir de
+ * get_ventas_por_canal (RPC neteada con documento_peso — resta la Nota de
+ * Crédito del conteo en SQL). No cuenta filas en cliente: pedidos y ventas
+ * llegan ya agregados por mes desde la RPC, acá solo se suman entre meses.
+ */
+export function buildChannelStats(rows: ChannelSummaryRow[]): ChannelStats[] {
   const totals: Record<Channel, number> = { SALON: 0, APLICACIONES: 0, MOSTRADOR: 0 }
   const counts: Record<Channel, number> = { SALON: 0, APLICACIONES: 0, MOSTRADOR: 0 }
   for (const r of rows) {
-    const ch = normalizeChannel(r.tipo_zona)
+    const ch = normalizeChannel(r.canal)
     if (!ch) continue
-    totals[ch] += Number(r.total)
-    counts[ch] += 1
+    totals[ch] += Number(r.ventas)
+    counts[ch] += Number(r.pedidos)
   }
   const grandTotal = CHANNELS.reduce((s, ch) => s + totals[ch], 0)
   return CHANNELS.map(ch => ({

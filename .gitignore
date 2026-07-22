@@ -66,6 +66,7 @@ scripts/snapshot-*.json
 
 # Supabase CLI temp files
 supabase/.temp/
+supabase/.branches/
 
 # Sentry Config File
 .env.sentry-build-plugin
