@@ -138,6 +138,17 @@ export function availableMonthsFromCanalRows(rows: VentasPorCanalRow[]): string[
 }
 
 /**
+ * Semestre móvil: recorta filas mensuales a los últimos `n` meses presentes
+ * en el dataset (no a los últimos n meses calendario — si falta un mes no
+ * cuenta como "vacío", se toman los n más recientes que sí tengan datos).
+ * Usado para la pestaña Mensual (gráfico legible) y sus tarjetas.
+ */
+export function filterToRecentMonths(rows: VentasPorCanalRow[], n: number): VentasPorCanalRow[] {
+  const recent = new Set(availableMonthsFromCanalRows(rows).slice(0, n))
+  return rows.filter(r => recent.has(r.mes))
+}
+
+/**
  * Construye los totales/conteo/ticket promedio por canal a partir de
  * get_ventas_por_canal (RPC neteada con documento_peso — resta la Nota de
  * Crédito del conteo en SQL). No cuenta filas en cliente: pedidos y ventas

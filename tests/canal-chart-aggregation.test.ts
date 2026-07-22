@@ -6,6 +6,7 @@ import {
   buildDailyFromRpc,
   buildChannelStats,
   availableMonthsFromCanalRows,
+  filterToRecentMonths,
   type VentasPorCanalRow,
   type VentasPorCanalSemanaRow,
   type VentasPorCanalDiaRow,
@@ -204,5 +205,33 @@ describe('availableMonthsFromCanalRows', () => {
   })
   it('retorna [] para array vacío', () => {
     expect(availableMonthsFromCanalRows([])).toHaveLength(0)
+  })
+})
+
+// ── filterToRecentMonths ─────────────────────────────────────────────────────
+// Semestre móvil restaurado: Mensual y el selector de Diario se acotan a los
+// últimos n meses con datos, no a todo el histórico.
+
+describe('filterToRecentMonths', () => {
+  const NINE_MONTHS: VentasPorCanalRow[] = [
+    '2025-09', '2025-10', '2025-11', '2025-12',
+    '2026-01', '2026-02', '2026-03', '2026-04', '2026-05',
+  ].map(mes => ({ mes, canal: 'Salón', ventas: 100, pedidos: 1 }))
+
+  it('se queda solo con los últimos n meses presentes en el dataset', () => {
+    const result = filterToRecentMonths(NINE_MONTHS, 6)
+    const months = [...new Set(result.map(r => r.mes))].sort()
+    expect(months).toEqual(['2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05'])
+  })
+  it('no rompe si hay menos meses que n', () => {
+    const rows: VentasPorCanalRow[] = [{ mes: '2026-05', canal: 'Salón', ventas: 100, pedidos: 1 }]
+    expect(filterToRecentMonths(rows, 6)).toHaveLength(1)
+  })
+  it('preserva todas las filas (todos los canales) de los meses elegidos', () => {
+    const rows: VentasPorCanalRow[] = [
+      { mes: '2026-05', canal: 'Salón',    ventas: 100, pedidos: 1 },
+      { mes: '2026-05', canal: 'Delivery', ventas: 200, pedidos: 2 },
+    ]
+    expect(filterToRecentMonths(rows, 1)).toHaveLength(2)
   })
 })

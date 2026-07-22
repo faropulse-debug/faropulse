@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -11,8 +11,16 @@ import { MonthSelector } from '@/src/components/ui/MonthSelector'
 import {
   CHANNELS, CHANNEL_COLORS,
   formatMonthLabel,
-  type PeriodPoint, type ChannelStats,
+  buildMonthlyFromRpc, buildWeeklyFromRpc, buildDailyFromRpc,
+  buildChannelStats, availableMonthsFromCanalRows, filterToRecentMonths,
+  type ChannelStats,
+  type VentasPorCanalRow, type VentasPorCanalSemanaRow, type VentasPorCanalDiaRow,
 } from '@/src/lib/canal-chart-helpers'
+
+// Semestre móvil: cuántos meses recientes se muestran en Mensual y en el
+// selector de Diario. Restaurado tras el fix del truncamiento (era el diseño
+// original) — gráfico legible y tarjetas accionables en vez de histórico completo.
+const RECENT_MONTHS = 6
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -118,16 +126,18 @@ function ChannelCards({ stats }: { stats: ChannelStats[] }) {
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
-// Puramente presentacional: todos los datos ya vienen pivoteados por período
-// desde SQL (get_ventas_por_canal / _semana / _dia). No lee sales_documents,
-// no cuenta filas — MixCanalesSection.tsx es quien resuelve las 3 RPCs.
+// Recibe filas crudas de las 3 RPC (mensual histórico completo, semanal
+// últimas 6 semanas, diario del mes activo) y resuelve acá adentro tanto el
+// pivot para el gráfico como las tarjetas — que quedan atadas al MISMO rango
+// visible en la pestaña activa (Decisión 2): Mensual → últimos 6 meses,
+// Semanal → últimas 6 semanas, Diario → el mes seleccionado. No lee
+// sales_documents, no cuenta filas — MixCanalesSection.tsx solo resuelve las
+// 3 RPCs y pasa los arrays tal cual.
 
 interface MixCanalesChartProps {
-  monthlyPts:       PeriodPoint[]
-  weeklyPts:        PeriodPoint[]
-  dailyPts:         PeriodPoint[]
-  channelStats:     ChannelStats[]
-  months:           string[]              // todos los meses con datos, descendente
+  monthly:          VentasPorCanalRow[]        // get_ventas_por_canal — todo el histórico
+  weekly:           VentasPorCanalSemanaRow[]  // get_ventas_por_canal_semana — últimas 6 semanas
+  daily:            VentasPorCanalDiaRow[]     // get_ventas_por_canal_dia — mes activo
   activeDailyMonth: string
   onSelectMonth:    (month: string) => void
   isLoading?:       boolean
@@ -141,11 +151,27 @@ const TABS: { key: Granularity; label: string }[] = [
 ]
 
 export default function MixCanalesChart({
-  monthlyPts, weeklyPts, dailyPts, channelStats,
-  months, activeDailyMonth, onSelectMonth,
+  monthly, weekly, daily,
+  activeDailyMonth, onSelectMonth,
   isLoading, isDailyLoading,
 }: MixCanalesChartProps) {
   const [granularity, setGranularity] = useState<Granularity>('mensual')
+
+  // Semestre móvil: últimos 6 meses con datos — alimenta el gráfico Mensual,
+  // sus tarjetas, y el selector de la pestaña Diario (mismo rango, una sola fuente).
+  const recentMonths  = useMemo(() => availableMonthsFromCanalRows(monthly).slice(0, RECENT_MONTHS), [monthly])
+  const monthlyScoped = useMemo(() => filterToRecentMonths(monthly, RECENT_MONTHS), [monthly])
+
+  const monthlyPts = useMemo(() => buildMonthlyFromRpc(monthlyScoped), [monthlyScoped])
+  const weeklyPts  = useMemo(() => buildWeeklyFromRpc(weekly),         [weekly])
+  const dailyPts   = useMemo(() => buildDailyFromRpc(daily),           [daily])
+
+  // Tarjetas atadas al MISMO período visible en la pestaña activa (Decisión 2).
+  const channelStats = useMemo(() => {
+    if (granularity === 'semanal') return buildChannelStats(weekly)
+    if (granularity === 'diario')  return buildChannelStats(daily)
+    return buildChannelStats(monthlyScoped)
+  }, [granularity, monthlyScoped, weekly, daily])
 
   const activePts = granularity === 'mensual' ? monthlyPts
                   : granularity === 'semanal' ? weeklyPts
@@ -157,7 +183,7 @@ export default function MixCanalesChart({
 
   if (isLoading) return <div className="animate-pulse rounded-2xl bg-white/5 h-[520px]" />
 
-  if (!monthlyPts.length && !weeklyPts.length) {
+  if (!monthly.length && !weekly.length) {
     return (
       <div className="rounded-2xl bg-white/5 border border-white/10 p-8 text-center text-white/40">
         Sin datos de canales disponibles
@@ -165,7 +191,10 @@ export default function MixCanalesChart({
     )
   }
 
-  const dailyEmpty = granularity === 'diario' && !isDailyLoading && dailyPts.length === 0
+  // En Diario, mientras se resuelve el mes recién elegido, las tarjetas
+  // muestran loading — nunca los valores del mes anterior.
+  const cardsLoading = granularity === 'diario' && !!isDailyLoading
+  const dailyEmpty   = granularity === 'diario' && !isDailyLoading && dailyPts.length === 0
 
   return (
     <div className="relative overflow-hidden rounded-2xl p-6"
@@ -207,10 +236,10 @@ export default function MixCanalesChart({
           ))}
         </div>
 
-        {/* Month chips — solo en Diario */}
+        {/* Month chips — solo en Diario. Mismo semestre móvil que Mensual. */}
         {granularity === 'diario' && (
           <MonthSelector
-            months={months}
+            months={recentMonths}
             selected={activeDailyMonth}
             onChange={onSelectMonth}
           />
@@ -268,8 +297,14 @@ export default function MixCanalesChart({
           )}
         </div>
 
-        {/* Channel summary cards */}
-        <ChannelCards stats={channelStats} />
+        {/* Channel summary cards — atadas al período visible en la pestaña activa */}
+        {cardsLoading ? (
+          <div className="grid grid-cols-3 gap-3 mt-4">
+            {[0, 1, 2].map(i => <div key={i} className="h-[124px] rounded-lg animate-pulse bg-white/5" />)}
+          </div>
+        ) : (
+          <ChannelCards stats={channelStats} />
+        )}
 
       </div>
     </div>

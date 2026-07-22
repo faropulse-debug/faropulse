@@ -5,8 +5,7 @@ import { SectionLabel }      from '@/components/dashboard/SectionLabel'
 import MixCanalesChart       from '../../charts/MixCanalesChart'
 import { currentYM }         from '@/src/components/ui/MonthSelector'
 import {
-  buildMonthlyFromRpc, buildWeeklyFromRpc, buildDailyFromRpc,
-  buildChannelStats, availableMonthsFromCanalRows,
+  availableMonthsFromCanalRows,
   type VentasPorCanalRow, type VentasPorCanalSemanaRow, type VentasPorCanalDiaRow,
 } from '@/src/lib/canal-chart-helpers'
 import { getSupabase } from '@/lib/supabase'
@@ -95,21 +94,14 @@ export function MixCanalesSection({ locationId }: Props) {
     return () => { cancelled = true }
   }, [locationId, activeDailyMonth])
 
-  const monthlyPts   = useMemo(() => buildMonthlyFromRpc(monthly), [monthly])
-  const weeklyPts    = useMemo(() => buildWeeklyFromRpc(weekly),   [weekly])
-  const dailyPts     = useMemo(() => buildDailyFromRpc(daily),     [daily])
-  const channelStats = useMemo(() => buildChannelStats(monthly),   [monthly])
-
   return (
     <div style={{ marginBottom: '52px' }}>
       <SectionLabel>Mix de Canales</SectionLabel>
       <div style={{ opacity: isRefreshing ? 0.6 : 1, transition: 'opacity 0.3s' }}>
         <MixCanalesChart
-          monthlyPts={monthlyPts}
-          weeklyPts={weeklyPts}
-          dailyPts={dailyPts}
-          channelStats={channelStats}
-          months={months}
+          monthly={monthly}
+          weekly={weekly}
+          daily={daily}
           activeDailyMonth={activeDailyMonth}
           onSelectMonth={setSelectedMonth}
           isLoading={isLoading}
