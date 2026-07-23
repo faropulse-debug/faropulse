@@ -26,7 +26,9 @@ export function MixCanalesSection({ locationId }: Props) {
   const [monthly,        setMonthly]        = useState<VentasPorCanalRow[]>(cachedMonthly ?? [])
   const [weekly,          setWeekly]         = useState<VentasPorCanalSemanaRow[]>(weeklyCache.get(locationId) ?? [])
   const [selectedMonth,   setSelectedMonth]  = useState<string>('')
-  const [daily,           setDaily]          = useState<VentasPorCanalDiaRow[]>([])
+  // Resultado del último fetch (mes no cacheado). El valor mostrado en cache-hit
+  // se deriva directo de dailyCache durante el render — ver `daily` más abajo.
+  const [fetchedDaily,    setFetchedDaily]   = useState<{ key: string; rows: VentasPorCanalDiaRow[] } | null>(null)
   const [isLoading,       setIsLoading]      = useState(!cachedMonthly)
   const [isRefreshing,    setIsRefreshing]   = useState(false)
   const [isDailyLoading,  setIsDailyLoading] = useState(false)
@@ -72,14 +74,22 @@ export function MixCanalesSection({ locationId }: Props) {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadBase() }, [loadBase])
 
+  const dailyCacheKey = locationId && activeDailyMonth ? `${locationId}|${activeDailyMonth}` : null
+  const cachedDaily   = dailyCacheKey ? dailyCache.get(dailyCacheKey) : undefined
+  // Cache-hit: leído directo del Map durante el render, sin pasar por setState.
+  // Cache-miss: sigue en `[]` hasta que el fetch de abajo resuelva (mismo gap
+  // que antes, cubierto por el skeleton de isDailyLoading — MixCanalesChart
+  // nunca pinta `daily` mientras isDailyLoading es true).
+  const daily = cachedDaily ?? (fetchedDaily?.key === dailyCacheKey ? fetchedDaily.rows : [])
+
   // Diario: un fetch por mes visitado, cacheado por `locationId|mes`.
   useEffect(() => {
-    if (!locationId || !activeDailyMonth) return
-    const cacheKey = `${locationId}|${activeDailyMonth}`
-    const cached   = dailyCache.get(cacheKey)
-    if (cached) { setDaily(cached); return }
+    if (!dailyCacheKey || dailyCache.has(dailyCacheKey)) return
 
     let cancelled = false
+    // Igual que loadBase arriba: dispara el fetch, no ajusta estado derivado
+    // de una prop — el flag de loading que arranca antes de un fetch async.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsDailyLoading(true)
     getSupabase()
       .rpc('get_ventas_por_canal_dia', { p_location_id: locationId, p_mes: activeDailyMonth })
@@ -87,12 +97,12 @@ export function MixCanalesSection({ locationId }: Props) {
         if (cancelled) return
         if (error) console.error('[MixCanalesSection] get_ventas_por_canal_dia', error.message)
         const result = (data ?? []) as VentasPorCanalDiaRow[]
-        dailyCache.set(cacheKey, result)
-        setDaily(result)
+        dailyCache.set(dailyCacheKey, result)
+        setFetchedDaily({ key: dailyCacheKey, rows: result })
         setIsDailyLoading(false)
       })
     return () => { cancelled = true }
-  }, [locationId, activeDailyMonth])
+  }, [locationId, activeDailyMonth, dailyCacheKey])
 
   return (
     <div style={{ marginBottom: '52px' }}>
