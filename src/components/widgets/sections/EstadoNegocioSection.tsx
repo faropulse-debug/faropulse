@@ -370,7 +370,7 @@ function EjecutivoKpiCard({
         }} />
       </div>
 
-      <div style={{
+      <div className="executive-kpi-values" style={{
         display: 'flex',
         alignItems: 'flex-end',
         justifyContent: 'space-between',
@@ -388,12 +388,12 @@ function EjecutivoKpiCard({
         }}>
           {value ?? '—'}
         </div>
-        <div style={{
+        <div className="executive-kpi-previous" style={{
           flexShrink: 0,
           textAlign: 'right',
           fontFamily: 'var(--font-body)',
         }}>
-          <div style={{
+          <div className="executive-kpi-previous-label" style={{
             marginBottom: '3px',
             fontFamily: 'var(--font-display)',
             fontSize: '0.52rem',
@@ -1083,6 +1083,16 @@ export function EstadoNegocioSection({ locationId }: Props) {
           .executive-header { flex-direction:column; }
           .executive-freshness { width:100%; min-width:0; }
           .executive-drivers { align-items:flex-start; flex-direction:column; gap:9px; }
+          .executive-kpi-values { align-items:stretch !important; flex-direction:column; gap:9px !important; }
+          .executive-kpi-previous {
+            display:flex;
+            align-items:baseline;
+            justify-content:space-between;
+            padding-top:8px;
+            border-top:1px solid rgba(255,255,255,0.07);
+            text-align:left !important;
+          }
+          .executive-kpi-previous-label { margin-bottom:0 !important; }
         }
       `}</style>
 
