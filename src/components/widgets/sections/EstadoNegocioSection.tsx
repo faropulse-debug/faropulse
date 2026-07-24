@@ -229,7 +229,13 @@ function weekRangeLabel(week: string): string {
   const start = new Date(Date.UTC(year, month - 1, day))
   const end = new Date(start)
   end.setUTCDate(start.getUTCDate() + 6)
-  return `${start.getUTCDate()}–${end.getUTCDate()} ${MONTHS_SHORT[end.getUTCMonth()]}`
+  const startMonth = MONTHS_SHORT[start.getUTCMonth()]
+  const endMonth = MONTHS_SHORT[end.getUTCMonth()]
+
+  if (start.getUTCMonth() === end.getUTCMonth()) {
+    return `${start.getUTCDate()}–${end.getUTCDate()} ${endMonth}`
+  }
+  return `${start.getUTCDate()} ${startMonth} – ${end.getUTCDate()} ${endMonth}`
 }
 
 function isIncompleteWeek(week: string, cutoff: string | null): boolean {
@@ -237,6 +243,15 @@ function isIncompleteWeek(week: string, cutoff: string | null): boolean {
   const [year, month, day] = week.split('-').map(Number)
   const end = new Date(Date.UTC(year, month - 1, day + 6)).toISOString().slice(0, 10)
   return cutoff < end
+}
+
+function loadedDaysInWeek(week: string, cutoff: string | null): number {
+  if (!cutoff) return 7
+  const [year, month, day] = week.split('-').map(Number)
+  const start = Date.UTC(year, month - 1, day)
+  const [cutoffYear, cutoffMonth, cutoffDay] = cutoff.split('-').map(Number)
+  const lastLoadedDay = Date.UTC(cutoffYear, cutoffMonth - 1, cutoffDay)
+  return Math.max(0, Math.min(7, Math.floor((lastLoadedDay - start) / 86_400_000) + 1))
 }
 
 function makeKpi(
@@ -458,6 +473,8 @@ interface WeeklyChartEntry extends WeeklyData {
   label:        string
   axisLabel:    string
   isIncomplete: boolean
+  loadedDays:   number
+  trendVentas:  number | null
   ticket:       number | null
 }
 
@@ -472,21 +489,31 @@ function WeeklyTooltip({ active, payload }: { active?: boolean; payload?: Weekly
       fontFamily: 'var(--font-body)', fontSize: '0.75rem', color: 'rgba(255,255,255,0.85)',
     }}>
       <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.65rem', marginBottom: '5px' }}>
-        {entry.label}{entry.isIncomplete ? ' · en curso' : ''}
+        {entry.label}
       </div>
       <div style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 700 }}>{fmtMillones(entry.ventas)}</div>
       <div style={{ color: 'rgba(255,255,255,0.55)', marginTop: '2px' }}>
         {entry.pedidos.toLocaleString('es-AR')} pedidos
         {entry.ticket != null ? ` · ${fmtPeso(Math.round(entry.ticket))} por pedido` : ''}
       </div>
+      {entry.isIncomplete && (
+        <div style={{ color: AMBER, fontWeight: 700, marginTop: '5px' }}>
+          Semana en curso · {entry.loadedDays} de 7 días cargados
+        </div>
+      )}
     </div>
   )
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function WeeklyTick({ x, y, payload }: any) {
-  const [label, status] = String(payload?.value ?? '').split('|')
+  const [label, status, coverage] = String(payload?.value ?? '').split('|')
   if (!label) return <g />
+  const [rangeStart, rangeEnd] = label.split(' – ')
+  const crossesMonth = Boolean(rangeEnd)
+  const statusY = crossesMonth ? 40 : 29
+  const coverageY = statusY + 13
+
   return (
     <g transform={`translate(${Number(x ?? 0)},${Number(y ?? 0)})`}>
       <text
@@ -497,20 +524,45 @@ function WeeklyTick({ x, y, payload }: any) {
         fontSize={10}
         fontFamily="var(--font-display)"
       >
-        {label}
+        {crossesMonth ? `${rangeStart} –` : label}
       </text>
-      {status === 'en curso' && (
+      {crossesMonth && (
         <text
           x={0}
-          y={28}
+          y={25}
           textAnchor="middle"
-          fill={AMBER}
-          fontSize={9}
-          fontWeight={700}
+          fill="rgba(255,255,255,0.42)"
+          fontSize={10}
           fontFamily="var(--font-display)"
         >
-          en curso
+          {rangeEnd}
         </text>
+      )}
+      {status === 'en curso' && (
+        <>
+          <text
+            x={0}
+            y={statusY}
+            textAnchor="middle"
+            fill={AMBER}
+            fontSize={9}
+            fontWeight={700}
+            fontFamily="var(--font-display)"
+          >
+            en curso
+          </text>
+          <text
+            x={0}
+            y={coverageY}
+            textAnchor="middle"
+            fill="rgba(255,255,255,0.46)"
+            fontSize={8.5}
+            fontWeight={650}
+            fontFamily="var(--font-display)"
+          >
+            {coverage}
+          </text>
+        </>
       )}
     </g>
   )
@@ -913,16 +965,28 @@ export function EstadoNegocioSection({ locationId }: Props) {
   }, [ticket, prevTick])
 
   const weeklyChartData = useMemo((): WeeklyChartEntry[] => (
-    (executiveData?.weekly ?? []).slice(-6).map(row => ({
-      ...row,
-      label: weekRangeLabel(row.semana),
-      axisLabel: `${weekRangeLabel(row.semana)}${
-        isIncompleteWeek(row.semana, executiveData?.latestDataDate ?? null) ? '|en curso' : ''
-      }`,
-      isIncomplete: isIncompleteWeek(row.semana, executiveData?.latestDataDate ?? null),
-      ticket: safeDiv(row.ventas, row.pedidos),
-    }))
+    (executiveData?.weekly ?? []).slice(-6).map(row => {
+      const cutoff = executiveData?.latestDataDate ?? null
+      const isIncomplete = isIncompleteWeek(row.semana, cutoff)
+      const loadedDays = loadedDaysInWeek(row.semana, cutoff)
+      const label = weekRangeLabel(row.semana)
+
+      return {
+        ...row,
+        label,
+        axisLabel: `${label}${isIncomplete ? `|en curso|${loadedDays}/7 días` : ''}`,
+        isIncomplete,
+        loadedDays,
+        trendVentas: isIncomplete ? null : row.ventas,
+        ticket: safeDiv(row.ventas, row.pedidos),
+      }
+    })
   ), [executiveData?.weekly, executiveData?.latestDataDate])
+
+  const incompleteWeek = useMemo(
+    () => weeklyChartData.find(entry => entry.isIncomplete) ?? null,
+    [weeklyChartData],
+  )
 
   const estadoColor = useMemo(() => {
     if (kpiFact.vsPrev === null) return `${AMBER}aa`
@@ -1168,17 +1232,71 @@ export function EstadoNegocioSection({ locationId }: Props) {
             )}
           </div>
 
-          <ChartWrapper height={270}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+            gap: '12px',
+            flexWrap: 'wrap',
+            marginBottom: '5px',
+          }}>
+            <div style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '0.92rem',
+              fontWeight: 700,
+              color: 'rgba(255,255,255,0.82)',
+            }}>
+              Tendencia de las últimas 6 semanas
+            </div>
+            <div style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: '0.7rem',
+              color: 'rgba(255,255,255,0.42)',
+            }}>
+              Semanas completas · lunes a domingo
+            </div>
+          </div>
+          <div style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: '0.72rem',
+            lineHeight: 1.45,
+            color: 'rgba(255,255,255,0.48)',
+            marginBottom: incompleteWeek ? '10px' : '2px',
+          }}>
+            Esta vista muestra la tendencia reciente; no es un desglose del mes.
+          </div>
+          {incompleteWeek && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 10px',
+              marginBottom: '4px',
+              borderLeft: `3px solid ${AMBER}`,
+              background: 'rgba(245,130,10,0.07)',
+              fontFamily: 'var(--font-body)',
+              fontSize: '0.74rem',
+              lineHeight: 1.4,
+              color: 'rgba(255,255,255,0.7)',
+            }}>
+              <span style={{ color: AMBER, fontWeight: 750 }}>{incompleteWeek.label} en curso:</span>
+              <span>
+                {incompleteWeek.loadedDays} de 7 días cargados. No se compara con las semanas cerradas.
+              </span>
+            </div>
+          )}
+
+          <ChartWrapper height={300}>
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={weeklyChartData}
                 barCategoryGap="34%"
-                margin={{ top: 30, right: 12, bottom: 16, left: 12 }}
+                margin={{ top: 30, right: 12, bottom: 22, left: 12 }}
               >
                 <defs>
                   <pattern id="weeklyCurrentHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                    <rect width="8" height="8" fill="rgba(245,130,10,0.18)" />
-                    <line x1="0" y1="0" x2="0" y2="8" stroke="rgba(245,130,10,0.75)" strokeWidth="3" />
+                    <rect width="8" height="8" fill="rgba(245,130,10,0.08)" />
+                    <line x1="0" y1="0" x2="0" y2="8" stroke="rgba(245,130,10,0.38)" strokeWidth="3" />
                   </pattern>
                 </defs>
                 <XAxis
@@ -1186,7 +1304,8 @@ export function EstadoNegocioSection({ locationId }: Props) {
                   axisLine={false}
                   tickLine={false}
                   tick={<WeeklyTick />}
-                  height={42}
+                  interval={0}
+                  height={60}
                 />
                 <YAxis hide domain={[0, 'dataMax']} />
                 <Tooltip
@@ -1198,7 +1317,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
                     <Cell
                       key={entry.semana}
                       fill={entry.isIncomplete ? 'url(#weeklyCurrentHatch)' : 'rgba(245,130,10,0.72)'}
-                      stroke={entry.isIncomplete ? AMBER : 'rgba(245,130,10,0.9)'}
+                      stroke={entry.isIncomplete ? 'rgba(245,130,10,0.5)' : 'rgba(245,130,10,0.9)'}
                       strokeWidth={1}
                     />
                   ))}
@@ -1206,11 +1325,12 @@ export function EstadoNegocioSection({ locationId }: Props) {
                 </Bar>
                 <Line
                   type="linear"
-                  dataKey="ventas"
+                  dataKey="trendVentas"
                   stroke="rgba(255,255,255,0.52)"
                   strokeWidth={1.5}
                   dot={{ r: 2.5, fill: '#0b0b0f', stroke: 'rgba(255,255,255,0.68)', strokeWidth: 1.5 }}
                   activeDot={false}
+                  connectNulls={false}
                   isAnimationActive={false}
                 />
               </ComposedChart>
