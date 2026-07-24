@@ -1,5 +1,7 @@
 -- Versiona data_freshness. Ya existe en STG (aplicada a mano vía
--- scripts/migration-data-freshness.sql, nunca versionada). No existe en PROD.
+-- scripts/migration-data-freshness.sql, nunca versionada). Aplicada también en
+-- PROD el 2026-07-23 (verificado 2026-07-24 vía Management API: tabla + policy
+-- presentes, 0 filas — normal, todavía no corrió upload en PROD desde que se creó).
 -- Write-only: usada por upsertFreshness() en src/lib/upload/pipeline/runPipeline.ts
 -- (solo en el código de develop; la ruta de upload de main no la toca).
 -- Idempotente: CREATE TABLE IF NOT EXISTS + DROP POLICY IF EXISTS antes de CREATE POLICY.
