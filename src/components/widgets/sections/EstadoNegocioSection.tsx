@@ -758,6 +758,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
     async function loadExecutiveData() {
       setExecutiveLoading(true)
       setExecutiveError(null)
+      setExecutiveData(null)
       const supabase = getSupabase()
       const currentBounds = monthBounds(currentMonth!)
       const latestBounds = monthBounds(latestMonth!)
