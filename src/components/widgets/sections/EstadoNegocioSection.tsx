@@ -323,10 +323,11 @@ function DeltaBadge({
 
 // ── Task 1: semantic border + value color; Task 4: isMonetary for nominal note ──
 function EjecutivoKpiCard({
-  label, value, kpi, currentPeriod, comparisonPeriod, yearAgoPeriod, isMonetary,
+  label, value, comparisonValue, kpi, currentPeriod, comparisonPeriod, yearAgoPeriod, isMonetary,
 }: {
   label: string
   value: string | null
+  comparisonValue: string | null
   kpi: KpiResult
   currentPeriod: PeriodData
   comparisonPeriod: PeriodData
@@ -370,10 +371,47 @@ function EjecutivoKpiCard({
       </div>
 
       <div style={{
-        fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: '1.8rem',
-        lineHeight: 1, color: 'rgba(255,255,255,0.92)', letterSpacing: 0,
+        display: 'flex',
+        alignItems: 'flex-end',
+        justifyContent: 'space-between',
+        gap: '12px',
+        minWidth: 0,
       }}>
-        {value ?? '—'}
+        <div style={{
+          minWidth: 0,
+          fontFamily: 'var(--font-body)',
+          fontWeight: 700,
+          fontSize: '1.8rem',
+          lineHeight: 1,
+          color: 'rgba(255,255,255,0.92)',
+          letterSpacing: 0,
+        }}>
+          {value ?? '—'}
+        </div>
+        <div style={{
+          flexShrink: 0,
+          textAlign: 'right',
+          fontFamily: 'var(--font-body)',
+        }}>
+          <div style={{
+            marginBottom: '3px',
+            fontFamily: 'var(--font-display)',
+            fontSize: '0.52rem',
+            fontWeight: 650,
+            textTransform: 'uppercase',
+            color: 'rgba(255,255,255,0.34)',
+          }}>
+            Anterior
+          </div>
+          <div style={{
+            fontSize: '0.9rem',
+            lineHeight: 1,
+            fontWeight: 650,
+            color: 'rgba(255,255,255,0.62)',
+          }}>
+            {comparisonValue ?? '—'}
+          </div>
+        </div>
       </div>
 
       <div style={{
@@ -802,6 +840,18 @@ export function EstadoNegocioSection({ locationId }: Props) {
   const [executiveData, setExecutiveData] = useState<ExecutiveData | null>(null)
   const [executiveLoading, setExecutiveLoading] = useState(false)
   const [executiveError, setExecutiveError] = useState<string | null>(null)
+  const [weeksShown, setWeeksShown] = useState<6 | 12>(12)
+  const [hasSelectedWeekRange, setHasSelectedWeekRange] = useState(false)
+
+  useEffect(() => {
+    if (hasSelectedWeekRange) return
+    const mobileQuery = window.matchMedia('(max-width: 767px)')
+    const applyResponsiveDefault = () => setWeeksShown(mobileQuery.matches ? 6 : 12)
+
+    applyResponsiveDefault()
+    mobileQuery.addEventListener('change', applyResponsiveDefault)
+    return () => mobileQuery.removeEventListener('change', applyResponsiveDefault)
+  }, [hasSelectedWeekRange])
 
   useEffect(() => {
     if (!currentMonth || !latestMonth || !locationId) return
@@ -965,7 +1015,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
   }, [ticket, prevTick])
 
   const weeklyChartData = useMemo((): WeeklyChartEntry[] => (
-    (executiveData?.weekly ?? []).slice(-6).map(row => {
+    (executiveData?.weekly ?? []).slice(-weeksShown).map(row => {
       const cutoff = executiveData?.latestDataDate ?? null
       const isIncomplete = isIncompleteWeek(row.semana, cutoff)
       const loadedDays = loadedDaysInWeek(row.semana, cutoff)
@@ -981,7 +1031,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
         ticket: safeDiv(row.ventas, row.pedidos),
       }
     })
-  ), [executiveData?.weekly, executiveData?.latestDataDate])
+  ), [executiveData?.weekly, executiveData?.latestDataDate, weeksShown])
 
   const incompleteWeek = useMemo(
     () => weeklyChartData.find(entry => entry.isIncomplete) ?? null,
@@ -1130,6 +1180,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
             <EjecutivoKpiCard
               label="Facturación"
               value={facturacion != null ? fmtMillones(facturacion) : null}
+              comparisonValue={previous ? fmtMillones(previous.ventas) : null}
               kpi={kpiFact}
               currentPeriod={current!}
               comparisonPeriod={previous!}
@@ -1139,6 +1190,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
             <EjecutivoKpiCard
               label="Pedidos (documentos)"
               value={pedidos != null ? pedidos.toLocaleString('es-AR') : null}
+              comparisonValue={prevPed != null ? prevPed.toLocaleString('es-AR') : null}
               kpi={kpiPed}
               currentPeriod={current!}
               comparisonPeriod={previous!}
@@ -1147,6 +1199,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
             <EjecutivoKpiCard
               label="Cubiertos (salón)"
               value={cubiertos != null ? cubiertos.toLocaleString('es-AR') : null}
+              comparisonValue={previous ? previous.comensales.toLocaleString('es-AR') : null}
               kpi={kpiCub}
               currentPeriod={current!}
               comparisonPeriod={previous!}
@@ -1155,6 +1208,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
             <EjecutivoKpiCard
               label="Ticket Promedio"
               value={ticket != null ? fmtPeso(Math.round(ticket)) : null}
+              comparisonValue={prevTick != null ? fmtPeso(Math.round(prevTick)) : null}
               kpi={kpiTick}
               currentPeriod={current!}
               comparisonPeriod={previous!}
@@ -1234,7 +1288,7 @@ export function EstadoNegocioSection({ locationId }: Props) {
 
           <div style={{
             display: 'flex',
-            alignItems: 'baseline',
+            alignItems: 'center',
             justifyContent: 'space-between',
             gap: '12px',
             flexWrap: 'wrap',
@@ -1246,14 +1300,60 @@ export function EstadoNegocioSection({ locationId }: Props) {
               fontWeight: 700,
               color: 'rgba(255,255,255,0.82)',
             }}>
-              Tendencia de las últimas 6 semanas
+              Tendencia de las últimas {weeksShown} semanas
             </div>
-            <div style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: '0.7rem',
-              color: 'rgba(255,255,255,0.42)',
-            }}>
-              Semanas completas · lunes a domingo
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: '0.7rem',
+                color: 'rgba(255,255,255,0.42)',
+              }}>
+                Semanas completas · lunes a domingo
+              </div>
+              <div
+                role="group"
+                aria-label="Semanas visibles"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, 36px)',
+                  gap: '2px',
+                  padding: '2px',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '6px',
+                  background: 'rgba(255,255,255,0.035)',
+                }}
+              >
+                {([6, 12] as const).map(range => {
+                  const isActive = weeksShown === range
+                  return (
+                    <button
+                      key={range}
+                      type="button"
+                      aria-label={`Mostrar ${range} semanas`}
+                      aria-pressed={isActive}
+                      onClick={() => {
+                        setWeeksShown(range)
+                        setHasSelectedWeekRange(true)
+                      }}
+                      style={{
+                        width: '36px',
+                        height: '26px',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        background: isActive ? 'rgba(245,130,10,0.2)' : 'transparent',
+                        color: isActive ? AMBER : 'rgba(255,255,255,0.46)',
+                        fontFamily: 'var(--font-display)',
+                        fontSize: '0.68rem',
+                        fontWeight: 750,
+                        transition: 'background 0.15s ease, color 0.15s ease',
+                      }}
+                    >
+                      {range}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </div>
           <div style={{
