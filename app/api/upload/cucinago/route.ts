@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient }       from '@supabase/supabase-js'
 import { requireMembership }  from '@/lib/api-auth'
+import { WRITE_ROLES }        from '@/lib/authz'
 import { getCucinaGoConfig }  from '@/lib/pos-config'
 
 const BATCH     = 500
@@ -202,7 +203,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Faltan campos: from, to, location_id, org_id' }, { status: 400 })
     }
 
-    const authResult = await requireMembership(req, locationId)
+    const authResult = await requireMembership(req, locationId, { roles: WRITE_ROLES })
     if (authResult instanceof Response) return authResult
 
     const supabase = createClient(SUPA_URL!, SUPA_KEY!)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { requireMembership } from '@/lib/api-auth'
+import { WRITE_ROLES } from '@/lib/authz'
 
 const BATCH = 500
 
@@ -180,7 +181,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Faltan campos: financial, location_id, org_id' }, { status: 400 })
     }
 
-    const authResult = await requireMembership(req, locationId)
+    const authResult = await requireMembership(req, locationId, { roles: WRITE_ROLES })
     if (authResult instanceof Response) return authResult
 
     const buf               = await pnlFile.arrayBuffer()

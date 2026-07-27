@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireMembership } from '@/lib/api-auth'
+import { WRITE_ROLES } from '@/lib/authz'
 import { getContract } from '@/src/lib/upload/contracts/registry'
 import { runUploadPipeline } from '@/src/lib/upload/pipeline/runPipeline'
 
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Se requiere al menos un archivo (ventas o items)' }, { status: 400 })
   }
 
-  const authResult = await requireMembership(req, locationId)
+  const authResult = await requireMembership(req, locationId, { roles: WRITE_ROLES })
   if (authResult instanceof Response) return authResult
 
   const contract = getContract('maxirest-sales')!

@@ -133,4 +133,41 @@ describe('requireMembership', () => {
     expect(result).toBeInstanceOf(Response)
     expect((result as Response).status).toBe(403)
   })
+
+  // ── opts.roles (write-route gate, e.g. lib/authz.ts WRITE_ROLES) ────────────
+
+  it('403 — active membership but role not in opts.roles', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-manager' } }, error: null })
+    mockMembershipSingle.mockResolvedValue({ data: { id: 'mem-1', role: 'manager' }, error: null })
+
+    const { requireMembership } = await import('@/lib/api-auth')
+    const result = await requireMembership(makeReq(), 'loc-123', { roles: ['owner', 'super_admin'] })
+
+    expect(result).toBeInstanceOf(Response)
+    expect((result as Response).status).toBe(403)
+    const body = await (result as Response).json()
+    expect(body.error).toMatch(/role not permitted/)
+  })
+
+  it('200 — active membership with role in opts.roles', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-owner' } }, error: null })
+    mockMembershipSingle.mockResolvedValue({ data: { id: 'mem-2', role: 'owner' }, error: null })
+
+    const { requireMembership } = await import('@/lib/api-auth')
+    const result = await requireMembership(makeReq(), 'loc-123', { roles: ['owner', 'super_admin'] })
+
+    expect(result).not.toBeInstanceOf(Response)
+    expect((result as { userId: string }).userId).toBe('user-owner')
+  })
+
+  it('200 — opts.roles omitted skips the role check entirely (any active membership passes)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-staff' } }, error: null })
+    mockMembershipSingle.mockResolvedValue({ data: { id: 'mem-3', role: 'staff' }, error: null })
+
+    const { requireMembership } = await import('@/lib/api-auth')
+    const result = await requireMembership(makeReq(), 'loc-123')
+
+    expect(result).not.toBeInstanceOf(Response)
+    expect((result as { userId: string }).userId).toBe('user-staff')
+  })
 })
