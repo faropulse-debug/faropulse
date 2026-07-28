@@ -20,6 +20,11 @@ function parseMissingCols(detail: string): string {
   return m ? m[1] : ''
 }
 
+export function resolveUploadApiError(status: number, apiError?: string): string {
+  if (status === 403) return 'HTTP 403'
+  return apiError?.trim() || `HTTP ${status}`
+}
+
 export function translateUploadError(
   error: string,
   errors?: string[],
@@ -115,6 +120,14 @@ export function translateUploadError(
     return {
       titulo:  'Falta el archivo',
       detalle: 'Seleccioná el archivo antes de continuar.',
+      tecnico,
+    }
+  }
+
+  if (error === 'HTTP 403') {
+    return {
+      titulo:  'No tenés permisos para cargar datos',
+      detalle: 'Esta función está reservada para el dueño de la cuenta. El archivo no tiene ningún problema.',
       tecnico,
     }
   }
