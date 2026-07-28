@@ -2,7 +2,9 @@
 
 import { useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
+import { LockKeyhole } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
+import { WRITE_ROLES } from '@/lib/authz'
 import { resolveUploadApiError, translateUploadError } from '@/src/lib/upload/error-messages'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -83,6 +85,86 @@ function SceneBackground() {
 }
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
+
+function AccessState({ loading }: { loading: boolean }) {
+  return (
+    <div style={{ position: 'relative', minHeight: '100vh', background: '#0a0a12' }}>
+      <SceneBackground />
+      <main style={{
+        position: 'relative', zIndex: 1, minHeight: '100vh',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '40px 24px',
+      }}>
+        <section style={{ width: '100%', maxWidth: 540, textAlign: 'center' }}>
+          <div style={{
+            fontSize: 10, letterSpacing: 0, color: 'rgba(255,255,255,0.3)',
+            textTransform: 'uppercase', marginBottom: 28,
+          }}>
+            FARO<span style={{ color: AMBER }}>PULSE</span>
+          </div>
+
+          <div style={{
+            width: 64, height: 64, margin: '0 auto 24px', borderRadius: 16,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: loading ? AMBER : 'rgba(255,255,255,0.62)',
+            background: loading ? 'rgba(245,130,10,0.1)' : 'rgba(255,255,255,0.055)',
+            border: loading ? '1px solid rgba(245,130,10,0.24)' : '1px solid rgba(255,255,255,0.1)',
+          }}>
+            {loading
+              ? <RefreshIcon size={25} color={AMBER} spinning />
+              : <LockKeyhole size={27} strokeWidth={1.6} />}
+          </div>
+
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', minHeight: 26,
+            padding: '5px 10px', marginBottom: 16, borderRadius: 6,
+            background: loading ? 'rgba(245,130,10,0.08)' : 'rgba(255,255,255,0.05)',
+            border: loading ? '1px solid rgba(245,130,10,0.18)' : '1px solid rgba(255,255,255,0.08)',
+            fontFamily: 'var(--font-display)', fontSize: '0.58rem',
+            letterSpacing: 0, textTransform: 'uppercase',
+            color: loading ? AMBER : 'rgba(255,255,255,0.42)',
+          }}>
+            {loading ? 'Verificando acceso' : 'Acceso restringido'}
+          </div>
+
+          <h1 style={{
+            margin: '0 0 14px', fontFamily: 'var(--font-display)', fontWeight: 700,
+            fontSize: 'clamp(1.55rem, 5vw, 2.25rem)', lineHeight: 1.2,
+            letterSpacing: 0, color: 'rgba(255,255,255,0.94)',
+          }}>
+            {loading ? 'Un momento...' : 'No tenés permisos para cargar datos'}
+          </h1>
+
+          <p style={{
+            maxWidth: 440, margin: '0 auto', fontFamily: 'var(--font-body)',
+            fontSize: '0.92rem', lineHeight: 1.65, color: 'rgba(255,255,255,0.48)',
+          }}>
+            {loading
+              ? 'Estamos confirmando los permisos de tu membresía.'
+              : 'Esta función está reservada para el dueño de la cuenta. No hay ningún problema con tus archivos.'}
+          </p>
+
+          {!loading && (
+            <Link href="/role-select" style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              gap: 8, minHeight: 42, marginTop: 30, padding: '0 18px',
+              borderRadius: 8, textDecoration: 'none',
+              background: `linear-gradient(135deg, ${AMBER}cc, ${AMBER})`,
+              color: '#09090f', boxShadow: `0 4px 20px ${AMBER}30`,
+              fontFamily: 'var(--font-display)', fontSize: '0.64rem',
+              fontWeight: 700, letterSpacing: 0, textTransform: 'uppercase',
+            }}>
+              <ArrowLeftIcon size={13} />
+              Volver a elegir módulo
+            </Link>
+          )}
+        </section>
+      </main>
+
+      <style>{`@keyframes faro-spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  )
+}
 
 function UploadCloudIcon({ size = 28, color = 'currentColor' }: { size?: number; color?: string }) {
   return (
@@ -900,7 +982,11 @@ function CardCucinaGo({ locationId, orgId }: { locationId: string; orgId: string
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function UploadPage() {
-  const { locationId, orgId } = useAuth()
+  const { locationId, orgId, role, isLoading } = useAuth()
+  const canWrite = role !== null && WRITE_ROLES.includes(role)
+
+  if (isLoading) return <AccessState loading />
+  if (!canWrite) return <AccessState loading={false} />
 
   return (
     <div style={{ position: 'relative', minHeight: '100vh', background: '#0a0a12' }}>
