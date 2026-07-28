@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
-import { translateUploadError } from '@/src/lib/upload/error-messages'
+import { resolveUploadApiError, translateUploadError } from '@/src/lib/upload/error-messages'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -171,6 +171,7 @@ function ResultBanner({ status, result, error }: { status: CardStatus; result: U
   const isOk  = status === 'success'
   const color = isOk ? GREEN : RED
   const bg    = isOk ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'
+  const errorMessage = !isOk ? translateUploadError(error) : null
   return (
     <div style={{ padding: '12px 16px', background: bg, border: `1px solid ${color}30`, borderRadius: 8, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, marginTop: 5, flexShrink: 0, boxShadow: `0 0 6px ${color}` }} />
@@ -223,7 +224,10 @@ function ResultBanner({ status, result, error }: { status: CardStatus; result: U
             </>
           )
         ) : (
-          <div style={{ color: '#fca5a5' }}>{error}</div>
+          <div>
+            <div style={{ color: '#fca5a5', fontWeight: 650 }}>{errorMessage?.titulo}</div>
+            <div style={{ color: 'rgba(255,255,255,0.52)', marginTop: 3 }}>{errorMessage?.detalle}</div>
+          </div>
         )}
       </div>
     </div>
@@ -613,7 +617,7 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
       const res  = await fetch('/api/upload/sales?dry_run=true', { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) {
-        setError(data.error ?? `HTTP ${res.status}`)
+        setError(resolveUploadApiError(res.status, data.error))
         setErrorDetails(data.errors ?? [])
         setStatus('error')
         return
@@ -631,7 +635,7 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
       const res  = await fetch('/api/upload/sales', { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) {
-        setError(data.error ?? `HTTP ${res.status}`)
+        setError(resolveUploadApiError(res.status, data.error))
         setErrorDetails(data.errors ?? [])
         setStatus('error')
         return
@@ -721,7 +725,7 @@ function CardItems({ locationId, orgId }: { locationId: string; orgId: string })
       const res  = await fetch('/api/upload/items?dry_run=true', { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) {
-        setError(data.error ?? `HTTP ${res.status}`)
+        setError(resolveUploadApiError(res.status, data.error))
         setErrorDetails(data.errors ?? [])
         setStatus('error')
         return
@@ -739,7 +743,7 @@ function CardItems({ locationId, orgId }: { locationId: string; orgId: string })
       const res  = await fetch('/api/upload/items', { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) {
-        setError(data.error ?? `HTTP ${res.status}`)
+        setError(resolveUploadApiError(res.status, data.error))
         setErrorDetails(data.errors ?? [])
         setStatus('error')
         return
@@ -821,7 +825,7 @@ function CardCucinaGo({ locationId, orgId }: { locationId: string; orgId: string
         body: JSON.stringify({ from: desde, to: hasta, location_id: locationId, org_id: orgId }),
       })
       const data = await res.json()
-      if (!res.ok || data.error) { setError(data.error ?? `HTTP ${res.status}`); setStatus('error'); return }
+      if (!res.ok || data.error) { setError(resolveUploadApiError(res.status, data.error)); setStatus('error'); return }
       setResult(data); setStatus('success')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e)); setStatus('error')
