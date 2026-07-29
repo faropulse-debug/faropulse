@@ -97,6 +97,45 @@ Regla clave:
 
 ---
 
+## 5.1) Matriz de usuarios de prueba en STG (QA por rol)
+
+Para verificar role-gating (403 de API, guards de página, RLS cross-tenant) sin
+tocar PROD ni usar cuentas reales, STG (`egjxyskqhnmuqwkrbshu`, location
+`bbbbbbbb-0000-0000-0000-000000000001` / org `aaaaaaaa-0000-0000-0000-000000000001`)
+tiene una cuenta activa por cada rol del sistema:
+
+| Rol         | Email                          |
+|-------------|---------------------------------|
+| owner       | `qa-owner@faropulse.test`       |
+| manager     | `qa-manager@faropulse.test`     |
+| encargado   | `qa-encargado@faropulse.test`   |
+| staff       | `qa-staff@faropulse.test`       |
+
+Patrón: `qa-<rol>@faropulse.test` — dominio `.test` (reservado por RFC 2606,
+nunca resuelve) para que sea imposible confundirlas con cuentas reales o
+mandarles mail por error.
+
+**Contraseñas:** en `.env.stg-test-users` (raíz del repo, gitignorado por la
+regla `.env*` de `.gitignore` — nunca se commitea). Si no lo tenés localmente,
+pedíselo a quien corrió el alta o regenerá las cuentas (ver abajo).
+
+**Cómo se crearon:** cada cuenta se dio de alta vía Supabase Admin API
+(`email_confirm: true`) y se le asignó rol/org/location con
+`provision_membership()` (`supabase/migrations/20260728000002_add_provision_membership_function.sql`,
+ver también `supabase/runbook-alta-usuario.sql`). Para recrear la matriz o
+agregar un rol nuevo, seguir el mismo patrón: alta en Auth + una llamada a
+`provision_membership(user_id, org_id, location_id, role, full_name)`.
+
+**Nota de infraestructura:** el anon key en `.env.staging` (local) es un
+*legacy key* y Supabase lo deshabilitó — cualquier llamada a
+`/auth/v1/token` (login) con ese valor devuelve 401 "Legacy API keys are
+disabled", aunque el resto de las queries (Management API, `SUPABASE_ACCESS_TOKEN`)
+sigan funcionando igual. El anon key vigente es el que Vercel tiene cargado en
+Preview (`sb_publishable_...`, formato nuevo) — para probar login real usar
+ese, no el de `.env.staging` sin antes actualizarlo.
+
+---
+
 ## 6) Checklist de salida a producción
 
 ### Técnico
