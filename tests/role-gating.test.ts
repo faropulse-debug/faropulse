@@ -1,3 +1,8 @@
+// @vitest-environment node
+// jsdom's fetch/Response layer mishandled the PostgREST membership lookup inside
+// requireMembership() -- owner requests came back 403 (wrong role/no membership)
+// even though the same call succeeded outside jsdom. Real network + NextRequest,
+// no DOM needed, so node is both correct and faster.
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest } from 'next/server';

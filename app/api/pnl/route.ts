@@ -86,25 +86,29 @@ export async function POST(req: NextRequest) {
     'Prefer':       'return=minimal',
   }
 
+  const location_id = req.nextUrl.searchParams.get('location_id')
+  if (!location_id) {
+    return NextResponse.json({ error: 'Falta location_id (query param)' }, { status: 400 })
+  }
+
+  const authResult = await requireMembership(req, location_id, { roles: WRITE_ROLES })
+  if (authResult instanceof Response) return authResult
+
   try {
     const body = await req.json() as {
-      periodo:     string
-      location_id: string
-      org_id:      string
-      inputs:      PnLInputs
+      periodo: string
+      org_id:  string
+      inputs:  PnLInputs
     }
 
-    const { periodo, location_id, org_id, inputs } = body
+    const { periodo, org_id, inputs } = body
 
-    if (!periodo || !location_id || !org_id || !inputs) {
-      return NextResponse.json({ error: 'Faltan campos requeridos: periodo, location_id, org_id, inputs' }, { status: 400 })
+    if (!periodo || !org_id || !inputs) {
+      return NextResponse.json({ error: 'Faltan campos requeridos: periodo, org_id, inputs' }, { status: 400 })
     }
     if (!/^\d{4}-\d{2}$/.test(periodo)) {
       return NextResponse.json({ error: 'Formato de periodo inválido (esperado YYYY-MM)' }, { status: 400 })
     }
-
-    const authResult = await requireMembership(req, location_id, { roles: WRITE_ROLES })
-    if (authResult instanceof Response) return authResult
 
     const rows = buildRows(inputs, org_id, location_id, periodo)
 

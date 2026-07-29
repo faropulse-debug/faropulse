@@ -200,7 +200,9 @@ describe('mapVentas', () => {
 // that cycle by providing a mock req whose formData() returns the File directly.
 
 function makeReq(fields: Record<string, string | File | null>): NextRequest {
+  const locationId = (fields.location_id as string) ?? 'loc-1'
   return {
+    nextUrl: new URL(`http://localhost/api/test?location_id=${encodeURIComponent(locationId)}`),
     formData: async () => ({ get: (k: string) => fields[k] ?? null }),
   } as unknown as NextRequest
 }

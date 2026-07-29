@@ -168,21 +168,25 @@ export async function POST(req: NextRequest) {
     'Prefer':       'return=minimal',
   }
 
+  const locationId = req.nextUrl.searchParams.get('location_id')
+  if (!locationId) {
+    return NextResponse.json({ error: 'Falta location_id (query param)' }, { status: 400 })
+  }
+
+  const authResult = await requireMembership(req, locationId, { roles: WRITE_ROLES })
+  if (authResult instanceof Response) return authResult
+
   try {
     const form = await req.formData()
 
-    const pnlFile    = form.get('financial')   as File   | null
-    const locationId = form.get('location_id') as string | null
-    const orgId      = form.get('org_id')      as string | null
+    const pnlFile = form.get('financial') as File   | null
+    const orgId   = form.get('org_id')    as string | null
 
     console.log(`[upload/financial] location_id=${locationId} org_id=${orgId} file=${pnlFile?.name ?? 'none'}`)
 
-    if (!pnlFile || !locationId || !orgId) {
-      return NextResponse.json({ error: 'Faltan campos: financial, location_id, org_id' }, { status: 400 })
+    if (!pnlFile || !orgId) {
+      return NextResponse.json({ error: 'Faltan campos: financial, org_id' }, { status: 400 })
     }
-
-    const authResult = await requireMembership(req, locationId, { roles: WRITE_ROLES })
-    if (authResult instanceof Response) return authResult
 
     const buf               = await pnlFile.arrayBuffer()
     const { rows, periodos } = parsePnL(buf, orgId, locationId)

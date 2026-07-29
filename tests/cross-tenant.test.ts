@@ -1,3 +1,6 @@
+// @vitest-environment node
+// Real network against STG, no DOM needed -- see role-gating.test.ts for the
+// jsdom fetch quirk this avoids.
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 

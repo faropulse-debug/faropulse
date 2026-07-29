@@ -243,10 +243,10 @@ export default function PnlPage() {
     if (!canSave) return
     setStatus('syncing'); setErrorMsg('')
     try {
-      const res = await fetch('/api/pnl', {
+      const res = await fetch(`/api/pnl?location_id=${encodeURIComponent(locationId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ periodo, location_id: locationId, org_id: orgId, inputs: parsed }),
+        body: JSON.stringify({ periodo, org_id: orgId, inputs: parsed }),
       })
       const data = await res.json() as { success?: boolean; error?: string }
       if (!res.ok || data.error) {
