@@ -103,7 +103,7 @@ describe.runIf(shouldRunIntegration)('Documento Peso (Integración contra STG)',
     const tpJulio = ticketProm?.filter((r: any) => r.fecha?.startsWith('2026-07'));
     const totalTickets = tpJulio.reduce((acc: number, row: any) => acc + row.tickets, 0);
     expect(totalTickets).toBe(netoMensual);
-  });
+  }, 15_000);
 });
 
 

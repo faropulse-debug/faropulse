@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { fetchCucinaGoSales }        from '@/src/lib/reconcile/cucinago-source'
 import { groupByComprobante, reconcile } from '@/src/lib/reconcile/compare'
 import { requireMembership } from '@/lib/api-auth'
+import { CUCINAGO_INTEGRATION_ENABLED } from '@/lib/feature-flags'
 
 const POSTGREST_PAGE = 1000
 
@@ -72,6 +73,13 @@ export async function POST(req: NextRequest) {
 
   const authResult = await requireMembership(req, location_id)
   if (authResult instanceof Response) return authResult
+
+  if (!CUCINAGO_INTEGRATION_ENABLED) {
+    return NextResponse.json({
+      error: 'CUCINAGO_INTEGRATION_DISABLED',
+      message: 'La reconciliación directa contra CucinaGo fue archivada. Camino futuro: reconciliar contra el Excel de ventas.',
+    }, { status: 410 })
+  }
 
   try {
     const [rawItems, maxirestMap] = await Promise.all([

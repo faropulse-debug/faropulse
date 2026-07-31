@@ -3,6 +3,7 @@ import { createClient }       from '@supabase/supabase-js'
 import { requireMembership }  from '@/lib/api-auth'
 import { WRITE_ROLES }        from '@/lib/authz'
 import { getCucinaGoConfig }  from '@/lib/pos-config'
+import { CUCINAGO_INTEGRATION_ENABLED } from '@/lib/feature-flags'
 
 const BATCH     = 500
 const PAGE_SIZE = 25
@@ -200,6 +201,13 @@ export async function POST(req: NextRequest) {
 
   const authResult = await requireMembership(req, locationId, { roles: WRITE_ROLES })
   if (authResult instanceof Response) return authResult
+
+  if (!CUCINAGO_INTEGRATION_ENABLED) {
+    return NextResponse.json({
+      error: 'CUCINAGO_INTEGRATION_DISABLED',
+      message: 'La sincronización directa con CucinaGo fue archivada. Cargá los datos vía Excel.',
+    }, { status: 410 })
+  }
 
   try {
     const body       = await req.json() as { from: string; to: string; org_id: string }

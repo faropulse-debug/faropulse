@@ -34,11 +34,11 @@ describe.runIf(shouldRunIntegration)('Cross-Tenant Isolation (Integración contr
       .select('*')
       .eq('location_id', locationB)
       .limit(10);
-      
+
     // Debe devolver vacío sin fallar (aislamiento RLS clásico)
     expect(error).toBeNull();
     expect(data?.length).toBe(0);
-  });
+  }, 15_000);
 
   it('Usuario A recibe 0 filas o vacío al invocar RPCs con location_id de la location B', async () => {
     // Test get_ventas_mensuales
@@ -50,5 +50,5 @@ describe.runIf(shouldRunIntegration)('Cross-Tenant Isolation (Integración contr
     const { data: cascada, error: err2 } = await supabase.rpc('get_ventas_cascada_semanal', { p_location_id: locationB });
     expect(err2).toBeNull();
     expect(cascada?.length || 0).toBe(0);
-  });
+  }, 15_000);
 });
