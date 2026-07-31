@@ -4,7 +4,7 @@
 // even though the same call succeeded outside jsdom. Real network + NextRequest,
 // no DOM needed, so node is both correct and faster.
 import { describe, it, expect, beforeAll } from 'vitest';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest } from 'next/server';
 
 // Import all 6 write routes
@@ -23,7 +23,7 @@ describe.runIf(shouldRunIntegration)('Role-Gating (Integración contra STG)', ()
   // igual corre en la fase de colección, así que esto NO puede vivir acá
   // arriba: rompería la colección entera de este archivo en cualquier run
   // sin las env vars de integración (o sea, casi todos los PRs a develop).
-  let supabase: ReturnType<typeof createClient>;
+  let supabase: SupabaseClient;
 
   const locationId = 'bbbbbbbb-0000-0000-0000-000000000001';
 
