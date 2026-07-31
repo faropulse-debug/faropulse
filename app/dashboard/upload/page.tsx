@@ -696,7 +696,7 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
     if (!slot.file || !locationId) return
     setStatus('previewing'); setError(''); setErrorDetails([]); setPreviewResult(null)
     try {
-      const res  = await fetch('/api/upload/sales?dry_run=true', { method: 'POST', body: buildForm() })
+      const res  = await fetch(`/api/upload/sales?dry_run=true&location_id=${encodeURIComponent(locationId)}`, { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) {
         setError(resolveUploadApiError(res.status, data.error))
@@ -714,7 +714,7 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
     if (!slot.file || !locationId) return
     setStatus('syncing'); setError(''); setErrorDetails([]); setResult(null)
     try {
-      const res  = await fetch('/api/upload/sales', { method: 'POST', body: buildForm() })
+      const res  = await fetch(`/api/upload/sales?location_id=${encodeURIComponent(locationId)}`, { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) {
         setError(resolveUploadApiError(res.status, data.error))
@@ -804,7 +804,7 @@ function CardItems({ locationId, orgId }: { locationId: string; orgId: string })
     if (!slot.file || !locationId) return
     setStatus('previewing'); setError(''); setErrorDetails([]); setPreviewResult(null)
     try {
-      const res  = await fetch('/api/upload/items?dry_run=true', { method: 'POST', body: buildForm() })
+      const res  = await fetch(`/api/upload/items?dry_run=true&location_id=${encodeURIComponent(locationId)}`, { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) {
         setError(resolveUploadApiError(res.status, data.error))
@@ -822,7 +822,7 @@ function CardItems({ locationId, orgId }: { locationId: string; orgId: string })
     if (!slot.file || !locationId) return
     setStatus('syncing'); setError(''); setErrorDetails([]); setResult(null)
     try {
-      const res  = await fetch('/api/upload/items', { method: 'POST', body: buildForm() })
+      const res  = await fetch(`/api/upload/items?location_id=${encodeURIComponent(locationId)}`, { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) {
         setError(resolveUploadApiError(res.status, data.error))
@@ -901,10 +901,10 @@ function CardCucinaGo({ locationId, orgId }: { locationId: string; orgId: string
     if (!locationId) return
     setStatus('syncing'); setError(''); setResult(null)
     try {
-      const res  = await fetch('/api/upload/cucinago', {
+      const res  = await fetch(`/api/upload/cucinago?location_id=${encodeURIComponent(locationId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: desde, to: hasta, location_id: locationId, org_id: orgId }),
+        body: JSON.stringify({ from: desde, to: hasta, org_id: orgId }),
       })
       const data = await res.json()
       if (!res.ok || data.error) { setError(resolveUploadApiError(res.status, data.error)); setStatus('error'); return }

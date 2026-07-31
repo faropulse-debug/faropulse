@@ -3,6 +3,7 @@ import { createClient }       from '@supabase/supabase-js'
 import { requireMembership }  from '@/lib/api-auth'
 import { WRITE_ROLES }        from '@/lib/authz'
 import { getCucinaGoConfig }  from '@/lib/pos-config'
+import { CUCINAGO_INTEGRATION_ENABLED } from '@/lib/feature-flags'
 
 const BATCH     = 500
 const PAGE_SIZE = 25
@@ -193,18 +194,30 @@ export async function POST(req: NextRequest) {
     'Prefer':       'return=minimal',
   }
 
+  const locationId = req.nextUrl.searchParams.get('location_id')
+  if (!locationId) {
+    return NextResponse.json({ error: 'Falta location_id (query param)' }, { status: 400 })
+  }
+
+  const authResult = await requireMembership(req, locationId, { roles: WRITE_ROLES })
+  if (authResult instanceof Response) return authResult
+
+  if (!CUCINAGO_INTEGRATION_ENABLED) {
+    return NextResponse.json({
+      error: 'CUCINAGO_INTEGRATION_DISABLED',
+      message: 'La sincronización directa con CucinaGo fue archivada. Cargá los datos vía Excel.',
+    }, { status: 410 })
+  }
+
   try {
-    const body       = await req.json() as { from: string; to: string; location_id: string; org_id: string }
-    const { from, to, location_id: locationId, org_id: orgId } = body
+    const body       = await req.json() as { from: string; to: string; org_id: string }
+    const { from, to, org_id: orgId } = body
 
     console.log(`[upload/cucinago] from=${from} to=${to} location_id=${locationId} org_id=${orgId}`)
 
-    if (!from || !to || !locationId || !orgId) {
-      return NextResponse.json({ error: 'Faltan campos: from, to, location_id, org_id' }, { status: 400 })
+    if (!from || !to || !orgId) {
+      return NextResponse.json({ error: 'Faltan campos: from, to, org_id' }, { status: 400 })
     }
-
-    const authResult = await requireMembership(req, locationId, { roles: WRITE_ROLES })
-    if (authResult instanceof Response) return authResult
 
     const supabase = createClient(SUPA_URL!, SUPA_KEY!)
     const cucinagoConfig = await getCucinaGoConfig(locationId, supabase)

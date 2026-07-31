@@ -2,7 +2,7 @@ name: CI Quality Gate
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   # Nombre del check sin tocar a propósito: "CI Quality Gate / Typecheck + Lint
@@ -21,7 +21,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -36,10 +36,46 @@ jobs:
       - name: Tests
         run: npx vitest run
 
-  # No-bloqueante por diseño: nombre de check nuevo, nunca agregado a required
-  # checks en branch protection. Corre y reporta de verdad (sin
-  # continue-on-error) — si hay vulnerabilidades altas/críticas, el check
-  # queda en rojo y visible, simplemente no impide mergear.
+      # Solo en PRs a main (gate de promoción), no en cada PR a develop:
+      # loguean 6 usuarios reales contra STG (owner x3 archivos + manager +
+      # encargado + staff) y agregan ~10s. Verificado estable: 3 corridas
+      # limpias en local (299/299) antes de activar esto en CI.
+      - name: Integration Tests (STG)
+        if: github.base_ref == 'main'
+        env:
+          RUN_INTEGRATION_TESTS: 'true'
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL_STG }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY_STG }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY_STG }}
+          QA_OWNER_EMAIL: ${{ secrets.QA_OWNER_EMAIL }}
+          QA_OWNER_PASSWORD: ${{ secrets.QA_OWNER_PASSWORD }}
+          QA_MANAGER_EMAIL: ${{ secrets.QA_MANAGER_EMAIL }}
+          QA_MANAGER_PASSWORD: ${{ secrets.QA_MANAGER_PASSWORD }}
+          QA_ENCARGADO_EMAIL: ${{ secrets.QA_ENCARGADO_EMAIL }}
+          QA_ENCARGADO_PASSWORD: ${{ secrets.QA_ENCARGADO_PASSWORD }}
+          QA_STAFF_EMAIL: ${{ secrets.QA_STAFF_EMAIL }}
+          QA_STAFF_PASSWORD: ${{ secrets.QA_STAFF_PASSWORD }}
+          QA_TENANT_B_LOCATION_ID: ${{ secrets.QA_TENANT_B_LOCATION_ID }}
+        run: npx vitest run tests/cross-tenant.test.ts tests/role-gating.test.ts tests/documento-peso.test.ts
+
+  # Nombre de check nuevo, nunca agregado a required checks en branch
+  # protection — no bloquea el merge por diseño (defensa en profundidad).
+  #
+  # Criterio (antes: `npm audit --audit-level=high`, rojo permanente porque
+  # sharp/postcss/esbuild y los pins internos de Next no tienen fix sin
+  # --force — un check siempre rojo no informa nada):
+  #
+  #   Falla SOLO si hay una vulnerabilidad high/critical ACCIONABLE, es
+  #   decir, algo que `npm audit fix` (sin --force) resolvería. Lo demás
+  #   (sin fix, o que requiere --force / bump major) se loguea pero no
+  #   tiñe el check de rojo.
+  #
+  #   Verificado empíricamente en vez de confiar en el campo `fixAvailable`
+  #   del JSON (puede ser engañoso en árboles anidados — ver comentario en
+  #   scripts/check-dependency-audit.mjs): se corre `npm audit fix` de
+  #   verdad sobre este checkout descartable y se compara el set de
+  #   vulnerabilidades high/critical antes vs. después. Lo que desaparece
+  #   es lo accionable.
   dependency-audit:
     name: Dependency Audit (non-blocking)
     runs-on: ubuntu-latest
@@ -51,11 +87,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit (high+critical only)
-        run: npm audit --audit-level=high
+      - name: Audit (fail solo si hay algo accionable)
+        run: |
+          npm audit --json > before.json || true
+          npm audit fix > /dev/null 2>&1 || true
+          npm audit --json > after.json || true
+          node scripts/check-dependency-audit.mjs before.json after.json

@@ -20,6 +20,7 @@ type ExpectedTable = { rls: boolean; policies: string[] }
 const EXPECTED: Record<string, ExpectedTable> = {
   calendar_context:  { rls: true, policies: ['calendar_context_select'] },
   financial_results: { rls: true, policies: ['financial_results_delete', 'financial_results_insert', 'financial_results_select'] },
+  location_pos_config: { rls: true, policies: ['location_pos_config_delete', 'location_pos_config_insert', 'location_pos_config_select'] },
   locations:         { rls: true, policies: ['locations_select_own_org'] },
   memberships:       { rls: true, policies: ['memberships_select_own'] },
   organizations:     { rls: true, policies: ['organizations_select_own'] },
@@ -32,69 +33,15 @@ const EXPECTED: Record<string, ExpectedTable> = {
   stock_movements:   { rls: true, policies: ['stock_movements_delete', 'stock_movements_insert', 'stock_movements_select'] },
   upload_events:     { rls: true, policies: ['upload_events_delete', 'upload_events_insert', 'upload_events_select'] },
   uploads:           { rls: true, policies: ['uploads_insert', 'uploads_select'] },
+  user_widget_config: { rls: true, policies: ['user_widget_config_delete', 'user_widget_config_insert', 'user_widget_config_select', 'user_widget_config_update'] },
 }
 
-// ── Management API ────────────────────────────────────────────────────────────
-
-async function sql(query: string): Promise<Record<string, unknown>[]> {
-  const res = await fetch(`https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`, {
-    method: 'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${SUPABASE_ACCESS_TOKEN}`,
-    },
-    body: JSON.stringify({ query }),
-  })
-  if (!res.ok) throw new Error(`SQL error ${res.status}: ${await res.text()}`)
-  return res.json() as Promise<Record<string, unknown>[]>
-}
-
-// ── Estado real ────────────────────────────────────────────────────────────────
-
-type ActualPolicy = { name: string; cmd: string; roles: string[] }
-type ActualTable  = { rls: boolean; policies: ActualPolicy[] }
-
-function isRlsEnabled(value: unknown): boolean {
-  return value === true || value === 't'
-}
-
-async function fetchActualState(): Promise<Record<string, ActualTable>> {
-  const tables = await sql(`
-    SELECT tablename, rowsecurity
-    FROM pg_tables
-    WHERE schemaname = 'public'
-  `)
-
-  const policies = await sql(`
-    SELECT tablename, policyname, cmd, array_to_string(roles, ',') AS roles
-    FROM pg_policies
-    WHERE schemaname = 'public'
-  `)
-
-  const state: Record<string, ActualTable> = {}
-
-  for (const row of tables) {
-    const name = row.tablename as string
-    state[name] = { rls: isRlsEnabled(row.rowsecurity), policies: [] }
-  }
-
-  for (const row of policies) {
-    const name = row.tablename as string
-    if (!state[name]) state[name] = { rls: false, policies: [] }
-    state[name].policies.push({
-      name:  row.policyname as string,
-      cmd:   row.cmd as string,
-      roles: String(row.roles ?? '').split(',').filter(Boolean),
-    })
-  }
-
-  return state
-}
+import { fetchActualState } from './lib/supabase-api'
 
 // ── Run ───────────────────────────────────────────────────────────────────────
 
 async function run() {
-  const actualState = await fetchActualState()
+  const actualState = await fetchActualState(PROJECT_REF as string, SUPABASE_ACCESS_TOKEN as string)
 
   const tablesWithoutRls: string[]   = []
   const missingPolicies: string[]    = []

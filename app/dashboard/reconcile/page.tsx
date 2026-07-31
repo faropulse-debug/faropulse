@@ -4,6 +4,7 @@ import { useState }   from 'react'
 import { useRouter }  from 'next/navigation'
 import { useAuth }    from '@/hooks/useAuth'
 import { fmtPeso }    from '@/lib/format'
+import { CUCINAGO_INTEGRATION_ENABLED } from '@/lib/feature-flags'
 
 // ─── Design tokens (same as owner/v2) ────────────────────────────────────────
 
@@ -145,6 +146,43 @@ export default function ReconcilePage() {
   const [status, setStatus] = useState<'idle' | 'loading' | 'error' | 'result'>('idle')
   const [error,  setError]  = useState<string | null>(null)
   const [result, setResult] = useState<ReconcileResult | null>(null)
+
+  if (!CUCINAGO_INTEGRATION_ENABLED) {
+    return (
+      <div style={{ padding: '32px 24px', maxWidth: '960px', margin: '0 auto' }}>
+        <button
+          onClick={() => router.back()}
+          style={{
+            background: 'transparent', border: 'none', padding: 0,
+            fontFamily: FONT_MONO, fontSize: '0.58rem', letterSpacing: '0.15em',
+            textTransform: 'uppercase', color: MUTED, cursor: 'pointer',
+            marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '6px',
+          }}
+        >
+          ← Volver
+        </button>
+        <div style={{
+          background: CARD_BG, border: CARD_BD, borderRadius: '16px',
+          padding: '28px 24px', textAlign: 'center',
+        }}>
+          <div style={{
+            fontFamily: FONT_SYNE, fontWeight: 700, fontSize: '1.15rem',
+            color: 'rgba(255,255,255,0.9)', marginBottom: '10px',
+          }}>
+            Reconciliador CucinaGo archivado
+          </div>
+          <div style={{
+            fontFamily: FONT_BODY, fontSize: '0.82rem', lineHeight: 1.6,
+            color: MUTED, maxWidth: '520px', margin: '0 auto',
+          }}>
+            La integración directa con la API de CucinaGo está apagada. La comparación
+            FARO vs. POS sigue siendo parte del producto — el camino a futuro es
+            reconciliar contra el Excel que ya usás para cargar ventas.
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (isLoading && !isDev) {
     return (
