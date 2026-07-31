@@ -58,3 +58,5 @@ npx cross-env PROJECT_REF=lahnngwyfbejgesulafr \
 ```
 
 > **Salvaguarda de Frescura:** El script `audit-schema.ts` validará que la base de datos shadow (indicada en `SHADOW_DB_URL`) tenga *efectivamente* aplicados todos los archivos `.sql` presentes en `supabase/migrations/`. Si usás una Shadow vieja, abortará inmediatamente para prevenir falsos positivos.
+
+<!-- PR de verificación Fase 2 (2026-07-31): confirma que audit gate, CI quality gate + integration tests, y dependency-audit corren en verde juntos contra main. No se mergea, solo se cierra tras verificar. -->
