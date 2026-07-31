@@ -18,18 +18,22 @@ import { POST as pnl } from '@/app/api/pnl/route';
 const shouldRunIntegration = process.env.RUN_INTEGRATION_TESTS === 'true';
 
 describe.runIf(shouldRunIntegration)('Role-Gating (Integración contra STG)', () => {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  const supabase = createClient(url, key);
-  
+  // createClient() valida la URL al construirse y tira si es undefined.
+  // describe.runIf(false) solo saltea los it() -- el cuerpo del describe
+  // igual corre en la fase de colección, así que esto NO puede vivir acá
+  // arriba: rompería la colección entera de este archivo en cualquier run
+  // sin las env vars de integración (o sea, casi todos los PRs a develop).
+  let supabase: ReturnType<typeof createClient>;
+
   const locationId = 'bbbbbbbb-0000-0000-0000-000000000001';
-  
+
   let ownerToken = '';
   let managerToken = '';
   let encargadoToken = '';
   let staffToken = '';
-  
+
   beforeAll(async () => {
+    supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
     // Authenticate roles
     const authRoles = [
       { email: process.env.QA_OWNER_EMAIL!, pass: process.env.QA_OWNER_PASSWORD! },

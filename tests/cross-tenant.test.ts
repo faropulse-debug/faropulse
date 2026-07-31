@@ -7,16 +7,19 @@ import { createClient } from '@supabase/supabase-js';
 const shouldRunIntegration = process.env.RUN_INTEGRATION_TESTS === 'true';
 
 describe.runIf(shouldRunIntegration)('Cross-Tenant Isolation (Integración contra STG)', () => {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  const supabase = createClient(url, key);
+  // createClient() valida la URL al construirse y tira si es undefined.
+  // describe.runIf(false) solo saltea los it() -- el cuerpo del describe
+  // igual corre en la fase de colección, así que esto NO puede vivir acá
+  // arriba: rompería la colección entera de este archivo en cualquier run
+  // sin las env vars de integración (o sea, casi todos los PRs a develop).
+  let supabase: ReturnType<typeof createClient>;
 
-  const orgAId = process.env.QA_OWNER_USER_ID; // We just need user to login
   const emailA = process.env.QA_OWNER_EMAIL!;
   const passA = process.env.QA_OWNER_PASSWORD!;
   const locationB = process.env.QA_TENANT_B_LOCATION_ID!;
-  
+
   beforeAll(async () => {
+    supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
     // Authenticate as Org A Owner
     const { error } = await supabase.auth.signInWithPassword({
       email: emailA,

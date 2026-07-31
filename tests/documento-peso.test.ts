@@ -56,22 +56,28 @@ describe('Documento Peso (Motor Puro / Lógica en Memoria)', () => {
  * - RUN_INTEGRATION_TESTS=true
  * - NEXT_PUBLIC_SUPABASE_URL (URL de STG)
  * - NEXT_PUBLIC_SUPABASE_ANON_KEY (Publishable Key / Anon)
- * - TEST_USER_EMAIL (e.g. owner@demo.com)
- * - TEST_USER_PASSWORD
+ * - QA_OWNER_EMAIL / QA_OWNER_PASSWORD (mismo owner que cross-tenant.test.ts
+ *   y role-gating.test.ts — un solo par de credenciales para las 3 suites)
  */
 const shouldRunIntegration = process.env.RUN_INTEGRATION_TESTS === 'true';
 
 describe.runIf(shouldRunIntegration)('Documento Peso (Integración contra STG)', () => {
-  it('Las funciones de conteo deben devolver el valor neto (410) para Julio 2026', async () => {
+  it('get_ventas_mensuales, get_daily_sales_full y get_ticket_promedio_full deben coincidir en el neto de Julio 2026', async () => {
+    // Antes este test fijaba un número mágico (410) capturado en un momento
+    // dado — quedaba roto cada vez que STG recibía más datos de Julio (igual
+    // que financial_results: count = 363, ver regression-test.ts). El
+    // invariante real que vale la pena proteger es que las 3 RPCs, que
+    // agregan por mes/día/ticket-promedio respectivamente, concuerden entre
+    // sí en el neto (documento_peso ya restó las Notas de Crédito en las 3).
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
     const supabase = createClient(url, key);
 
     const { error: authError } = await supabase.auth.signInWithPassword({
-      email: process.env.TEST_USER_EMAIL!,
-      password: process.env.TEST_USER_PASSWORD!,
+      email: process.env.QA_OWNER_EMAIL!,
+      password: process.env.QA_OWNER_PASSWORD!,
     });
-    
+
     expect(authError).toBeNull();
 
     const locationId = 'bbbbbbbb-0000-0000-0000-000000000001';
@@ -81,21 +87,22 @@ describe.runIf(shouldRunIntegration)('Documento Peso (Integración contra STG)',
     expect(err1).toBeNull();
     const dataJulio = mensuales?.find((r: any) => r.mes === '2026-07' || r.mes === 7);
     expect(dataJulio).toBeDefined();
-    expect(dataJulio.tickets).toBe(410); // El valor neto esperado (412 bruto -> 410 neto)
+    expect(dataJulio.tickets).toBeGreaterThan(0);
+    const netoMensual = dataJulio.tickets;
 
-    // Probar get_daily_sales_full (sumatoria)
+    // Probar get_daily_sales_full (sumatoria) — debe coincidir con el mensual
     const { data: daily, error: err2 } = await supabase.rpc('get_daily_sales_full', { p_location_id: locationId });
     expect(err2).toBeNull();
     const dailyJulio = daily?.filter((r: any) => r.fecha?.startsWith('2026-07'));
     const totalDaily = dailyJulio.reduce((acc: number, row: any) => acc + row.tickets, 0);
-    expect(totalDaily).toBe(410);
+    expect(totalDaily).toBe(netoMensual);
 
-    // Ticket Promedio
+    // Ticket Promedio — misma sumatoria, misma fuente, debe coincidir también
     const { data: ticketProm, error: err3 } = await supabase.rpc('get_ticket_promedio_full', { p_location_id: locationId });
     expect(err3).toBeNull();
     const tpJulio = ticketProm?.filter((r: any) => r.fecha?.startsWith('2026-07'));
     const totalTickets = tpJulio.reduce((acc: number, row: any) => acc + row.tickets, 0);
-    expect(totalTickets).toBe(410);
+    expect(totalTickets).toBe(netoMensual);
   });
 });
 
