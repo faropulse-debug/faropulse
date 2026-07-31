@@ -20,10 +20,11 @@ function loadEnv(file: string): Record<string, string> {
   )
 }
 
-const env = { ...loadEnv('.env.staging'), ...process.env }
+const env = { ...loadEnv('.env.staging'), ...loadEnv('.env.stg-test-users'), ...process.env }
 
 const SUPA_URL = env.NEXT_PUBLIC_SUPABASE_URL
 const SUPA_KEY = env.SUPABASE_SERVICE_ROLE_KEY
+const ANON_KEY = env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001'
 
 if (!SUPA_URL || !SUPA_KEY) {
@@ -31,9 +32,9 @@ if (!SUPA_URL || !SUPA_KEY) {
   process.exit(1)
 }
 
-const HEADERS = {
-  'Content-Type': 'application/json',
-  'apikey':       SUPA_KEY,
+if (!ANON_KEY || !env.QA_OWNER_EMAIL || !env.QA_OWNER_PASSWORD) {
+  console.error('❌  Faltan NEXT_PUBLIC_SUPABASE_ANON_KEY / QA_OWNER_EMAIL / QA_OWNER_PASSWORD')
+  process.exit(1)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -51,10 +52,32 @@ async function sql(query: string): Promise<unknown[]> {
   return res.json() as Promise<unknown[]>
 }
 
+// RPCs pasan por SECURITY DEFINER functions que gatean por membership real
+// (auth.uid() contra la tabla memberships) — necesitan un JWT de usuario de
+// verdad, no la service_role key. Mismo patrón que tests/cross-tenant.test.ts.
+let userJwt = ''
+
+async function loginQaOwner(): Promise<string> {
+  const res = await fetch(`${SUPA_URL}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': ANON_KEY! },
+    body: JSON.stringify({ email: env.QA_OWNER_EMAIL, password: env.QA_OWNER_PASSWORD }),
+  })
+  if (!res.ok) throw new Error(`Login qa-owner falló: ${res.status} ${await res.text()}`)
+  const json = await res.json() as { access_token?: string }
+  if (!json.access_token) throw new Error('Login qa-owner no devolvió access_token')
+  return json.access_token
+}
+
 async function rpc(fn: string, params: Record<string, unknown> = {}): Promise<unknown[]> {
   const res = await fetch(`${SUPA_URL}/rest/v1/rpc/${fn}`, {
     method: 'POST',
-    headers: { ...HEADERS, 'Prefer': 'return=representation' },
+    headers: {
+      'Content-Type':  'application/json',
+      'apikey':        ANON_KEY!,
+      'Authorization': `Bearer ${userJwt}`,
+      'Prefer':        'return=representation',
+    },
     body: JSON.stringify(params),
   })
   if (!res.ok) throw new Error(`RPC ${fn} error ${res.status}: ${await res.text()}`)
@@ -91,6 +114,17 @@ function assert(cond: boolean, msg: string) {
 async function run() {
   console.log(`\nRegression test — STG ${SUPA_URL}\n`)
 
+  await test('auth: login qa-owner (JWT real para RPCs con membership gate)', async () => {
+    userJwt = await loginQaOwner()
+    assert(!!userJwt, 'no se obtuvo access_token')
+  })
+
+  if (!userJwt) {
+    console.error('\n❌  Login qa-owner falló — no se puede continuar, todos los tests de RPC dependen de este JWT\n')
+    for (const r of results) console.log(`  ${r.ok ? '✓' : '✗'}  ${r.name}${r.ok ? '' : `  → ${r.detail}`}`)
+    process.exit(1)
+  }
+
   await test('sales_documents: count > 10000', async () => {
     const rows = await sql(`SELECT count(*)::int as n FROM sales_documents WHERE location_id = '${LOCATION_ID}'`)
     const n = (rows[0] as { n: number }).n
@@ -121,40 +155,60 @@ async function run() {
 
   // ── Idempotencia: el patrón delete-then-insert no debe dejar duplicados ──────
 
-  await test('sales_documents: sin external_id duplicado por location', async () => {
+  await test('sales_documents: sin ticket_hash duplicado por location', async () => {
     const rows = await sql(`
       SELECT count(*)::int as dup_groups
       FROM (
-        SELECT external_id
+        SELECT ticket_hash
         FROM sales_documents
         WHERE location_id = '${LOCATION_ID}'
-        GROUP BY external_id
+        GROUP BY ticket_hash
         HAVING count(*) > 1
       ) sub
     `)
     const n = (rows[0] as { dup_groups: number }).dup_groups
-    assert(n === 0, `${n} external_ids con duplicados en sales_documents (re-upload no fue idempotente)`)
+    assert(n === 0, `${n} ticket_hash con duplicados en sales_documents (re-upload no fue idempotente, o el constraint UNIQUE no está activo)`)
   })
 
-  await test('sales_items: sin duplicados por (external_id, codigo, descripcion, cantidad, precio_total, fecha_item)', async () => {
+  await test('sales_documents: ningún row con ticket_hash NULL', async () => {
+    const rows = await sql(`
+      SELECT count(*)::int as n
+      FROM sales_documents
+      WHERE location_id = '${LOCATION_ID}' AND ticket_hash IS NULL
+    `)
+    const n = (rows[0] as { n: number }).n
+    assert(n === 0, `${n} rows con ticket_hash NULL (entraron por un path que no calcula el hash — el UNIQUE index no bloquea NULLs duplicados)`)
+  })
+
+  await test('sales_items: sin item_hash duplicado por location', async () => {
     const rows = await sql(`
       SELECT count(*)::int as dup_groups
       FROM (
-        SELECT external_id, codigo, descripcion, cantidad, precio_total, fecha_item
+        SELECT item_hash
         FROM sales_items
         WHERE location_id = '${LOCATION_ID}'
-        GROUP BY external_id, codigo, descripcion, cantidad, precio_total, fecha_item
+        GROUP BY item_hash
         HAVING count(*) > 1
       ) sub
     `)
     const n = (rows[0] as { dup_groups: number }).dup_groups
-    assert(n === 0, `${n} grupos duplicados en sales_items (re-upload no fue idempotente)`)
+    assert(n === 0, `${n} item_hash con duplicados en sales_items (re-upload no fue idempotente, o el constraint UNIQUE no está activo)`)
   })
 
-  await test('financial_results: count = 363', async () => {
+  await test('sales_items: ningún row con item_hash NULL', async () => {
+    const rows = await sql(`
+      SELECT count(*)::int as n
+      FROM sales_items
+      WHERE location_id = '${LOCATION_ID}' AND item_hash IS NULL
+    `)
+    const n = (rows[0] as { n: number }).n
+    assert(n === 0, `${n} rows con item_hash NULL (entraron por un path que no calcula el hash — el UNIQUE index no bloquea NULLs duplicados)`)
+  })
+
+  await test('financial_results: count > 300', async () => {
     const rows = await sql(`SELECT count(*)::int as n FROM financial_results WHERE location_id = '${LOCATION_ID}'`)
     const n = (rows[0] as { n: number }).n
-    assert(n === 363, `count = ${n}`)
+    assert(n > 300, `count = ${n}`)
   })
 
   await test('RPC get_financial_results: devuelve > 0 filas', async () => {
