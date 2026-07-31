@@ -5,11 +5,17 @@
 -- mano solo en STG). Idempotente: seguro de re-ejecutar.
 
 -- 1. Habilitar RLS (ALTER TABLE ... ENABLE ROW LEVEL SECURITY es idempotente)
-ALTER TABLE public.memberships   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.profiles      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sales_items   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.upload_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.memberships     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organizations   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.profiles        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sales_items     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.upload_events   ENABLE ROW LEVEL SECURITY;
+-- recipes y calendar_context: policies creadas en 20260630000001 pero RLS
+-- nunca se activó en STG (sí está activo en PROD desde esa misma fecha).
+-- recipes es tenant-scoped (location_id) — sin RLS, INSERT/DELETE cross-tenant
+-- no está bloqueado por policy alguna. Confirmado 2026-07-31: 0 filas en STG.
+ALTER TABLE public.recipes         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.calendar_context ENABLE ROW LEVEL SECURITY;
 
 -- 2. Policies de sales_items — naming real de PROD (creadas a mano vía
 --    Studio, confirmado por lectura directa de pg_policies en PROD el
