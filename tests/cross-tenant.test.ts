@@ -2,7 +2,7 @@
 // Real network against STG, no DOM needed -- see role-gating.test.ts for the
 // jsdom fetch quirk this avoids.
 import { describe, it, expect, beforeAll } from 'vitest';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const shouldRunIntegration = process.env.RUN_INTEGRATION_TESTS === 'true';
 
@@ -12,7 +12,7 @@ describe.runIf(shouldRunIntegration)('Cross-Tenant Isolation (Integración contr
   // igual corre en la fase de colección, así que esto NO puede vivir acá
   // arriba: rompería la colección entera de este archivo en cualquier run
   // sin las env vars de integración (o sea, casi todos los PRs a develop).
-  let supabase: ReturnType<typeof createClient>;
+  let supabase: SupabaseClient;
 
   const emailA = process.env.QA_OWNER_EMAIL!;
   const passA = process.env.QA_OWNER_PASSWORD!;
