@@ -169,7 +169,7 @@ try {
   formDr.append('org_id',      STG_ORG_ID)
   formDr.append('location_id', STG_LOCATION_ID)
 
-  const rDr  = await fetch(`${BASE_URL}/api/upload/maxirest-sales?dry_run=true`, { method: 'POST', body: formDr, headers: apiAuthHeaders })
+  const rDr  = await fetch(`${BASE_URL}/api/upload/maxirest-sales?dry_run=true&location_id=${STG_LOCATION_ID}`, { method: 'POST', body: formDr, headers: apiAuthHeaders })
   const bDr  = await rDr.json()
   console.log(`  HTTP ${rDr.status}`)
   console.log(`  ${JSON.stringify(bDr)}`)
@@ -196,7 +196,7 @@ try {
   formLegDr.append('org_id',      STG_ORG_ID)
   formLegDr.append('location_id', STG_LOCATION_ID)
 
-  const rLegDr  = await fetch(`${BASE_URL}/api/upload/sales?dry_run=true`, { method: 'POST', body: formLegDr, headers: apiAuthHeaders })
+  const rLegDr  = await fetch(`${BASE_URL}/api/upload/sales?dry_run=true&location_id=${STG_LOCATION_ID}`, { method: 'POST', body: formLegDr, headers: apiAuthHeaders })
   const bLegDr  = await rLegDr.json()
   console.log(`  HTTP ${rLegDr.status}`)
   console.log(`  ${JSON.stringify(bLegDr)}`)
@@ -222,7 +222,7 @@ try {
   form.append('org_id',      STG_ORG_ID)
   form.append('location_id', STG_LOCATION_ID)
 
-  const r1  = await fetch(`${BASE_URL}/api/upload/maxirest-sales`, { method: 'POST', body: form, headers: apiAuthHeaders })
+  const r1  = await fetch(`${BASE_URL}/api/upload/maxirest-sales?location_id=${STG_LOCATION_ID}`, { method: 'POST', body: form, headers: apiAuthHeaders })
   const ms  = Date.now() - t0
   const b1  = await r1.json()
   console.log(`  HTTP ${r1.status}  ${ms}ms`)
@@ -294,7 +294,7 @@ try {
   form2.append('org_id',      STG_ORG_ID)
   form2.append('location_id', STG_LOCATION_ID)
 
-  const r2 = await fetch(`${BASE_URL}/api/upload/maxirest-sales`, { method: 'POST', body: form2, headers: apiAuthHeaders })
+  const r2 = await fetch(`${BASE_URL}/api/upload/maxirest-sales?location_id=${STG_LOCATION_ID}`, { method: 'POST', body: form2, headers: apiAuthHeaders })
   const b2 = await r2.json()
   console.log(`  HTTP ${r2.status}`)
   console.log(`  ${JSON.stringify(b2)}`)

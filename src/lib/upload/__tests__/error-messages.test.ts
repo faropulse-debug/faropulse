@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { translateUploadError } from '../error-messages'
+import { resolveUploadApiError, translateUploadError } from '../error-messages'
 
 describe('translateUploadError', () => {
   describe('VALIDATION_FAILED — formato inválido', () => {
@@ -69,6 +69,22 @@ describe('translateUploadError', () => {
     it('Se requiere el archivo', () => {
       const r = translateUploadError('Se requiere el archivo items')
       expect(r.titulo).toContain('Falta el archivo')
+    })
+  })
+
+  describe('Permisos de escritura', () => {
+    it('prioriza el status 403 sobre el mensaje técnico de la API', () => {
+      const error = resolveUploadApiError(403, 'Forbidden: role not permitted for this action')
+      const r = translateUploadError(error)
+
+      expect(error).toBe('HTTP 403')
+      expect(r.titulo).toContain('No tenés permisos')
+      expect(r.detalle).toContain('dueño de la cuenta')
+      expect(r.detalle).toContain('archivo no tiene ningún problema')
+    })
+
+    it('conserva el mensaje de la API para otros status', () => {
+      expect(resolveUploadApiError(422, 'VALIDATION_FAILED')).toBe('VALIDATION_FAILED')
     })
   })
 

@@ -12,9 +12,9 @@ import * as path from 'path'
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const STG_URL         = 'https://faropulse-git-develop-faropulse-debugs-projects.vercel.app'
-const ENDPOINT        = `${STG_URL}/api/upload/sales`
 const LOCATION_ID     = 'bbbbbbbb-0000-0000-0000-000000000001'
 const ORG_ID          = 'aaaaaaaa-0000-0000-0000-000000000001'
+const ENDPOINT        = `${STG_URL}/api/upload/sales?location_id=${LOCATION_ID}`
 const SMOKE_AUTH_TOKEN = process.env.SMOKE_AUTH_TOKEN ?? ''
 
 // ── Args ─────────────────────────────────────────────────────────────────────

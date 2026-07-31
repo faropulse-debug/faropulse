@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient }       from '@supabase/supabase-js'
 import { NextResponse }       from 'next/server'
 import type { NextRequest }   from 'next/server'
+import type { Role }          from '@/types/auth'
 
 /**
  * Validates that the caller has an authenticated session AND an active
@@ -14,13 +15,16 @@ import type { NextRequest }   from 'next/server'
  * In both cases the JWT is validated via supabase.auth.getUser() which hits
  * the Supabase Auth API — it is NOT a local decode and respects token revocation.
  *
- * Role enforcement is NOT included here; it belongs in the role-gating PR.
+ * Pass `opts.roles` to additionally require the membership's role to be in
+ * that list (see lib/authz.ts WRITE_ROLES for the write-route gate) — omit it
+ * for routes where any active membership is sufficient.
  *
  * Returns { userId } on success, or a ready-to-return Response on failure.
  */
 export async function requireMembership(
   req: NextRequest,
   locationId: string,
+  opts?: { roles?: readonly Role[] },
 ): Promise<{ userId: string } | Response> {
   const url     = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const anon    = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -62,7 +66,7 @@ export async function requireMembership(
   // through locations.org_id anymore.
   const { data, error: memberError } = await svc
     .from('memberships')
-    .select('id')
+    .select('id, role')
     .eq('user_id', userId)
     .eq('location_id', locationId)
     .eq('is_active', true)
@@ -71,6 +75,13 @@ export async function requireMembership(
   if (memberError || !data) {
     return NextResponse.json(
       { error: 'Forbidden: no active membership for this location' },
+      { status: 403 },
+    )
+  }
+
+  if (opts?.roles && !opts.roles.includes(data.role)) {
+    return NextResponse.json(
+      { error: 'Forbidden: role not permitted for this action' },
       { status: 403 },
     )
   }

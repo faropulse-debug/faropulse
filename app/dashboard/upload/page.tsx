@@ -2,8 +2,10 @@
 
 import { useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
+import { LockKeyhole } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
-import { translateUploadError } from '@/src/lib/upload/error-messages'
+import { WRITE_ROLES } from '@/lib/authz'
+import { resolveUploadApiError, translateUploadError } from '@/src/lib/upload/error-messages'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -83,6 +85,86 @@ function SceneBackground() {
 }
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
+
+function AccessState({ loading }: { loading: boolean }) {
+  return (
+    <div style={{ position: 'relative', minHeight: '100vh', background: '#0a0a12' }}>
+      <SceneBackground />
+      <main style={{
+        position: 'relative', zIndex: 1, minHeight: '100vh',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '40px 24px',
+      }}>
+        <section style={{ width: '100%', maxWidth: 540, textAlign: 'center' }}>
+          <div style={{
+            fontSize: 10, letterSpacing: 0, color: 'rgba(255,255,255,0.3)',
+            textTransform: 'uppercase', marginBottom: 28,
+          }}>
+            FARO<span style={{ color: AMBER }}>PULSE</span>
+          </div>
+
+          <div style={{
+            width: 64, height: 64, margin: '0 auto 24px', borderRadius: 16,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: loading ? AMBER : 'rgba(255,255,255,0.62)',
+            background: loading ? 'rgba(245,130,10,0.1)' : 'rgba(255,255,255,0.055)',
+            border: loading ? '1px solid rgba(245,130,10,0.24)' : '1px solid rgba(255,255,255,0.1)',
+          }}>
+            {loading
+              ? <RefreshIcon size={25} color={AMBER} spinning />
+              : <LockKeyhole size={27} strokeWidth={1.6} />}
+          </div>
+
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', minHeight: 26,
+            padding: '5px 10px', marginBottom: 16, borderRadius: 6,
+            background: loading ? 'rgba(245,130,10,0.08)' : 'rgba(255,255,255,0.05)',
+            border: loading ? '1px solid rgba(245,130,10,0.18)' : '1px solid rgba(255,255,255,0.08)',
+            fontFamily: 'var(--font-display)', fontSize: '0.58rem',
+            letterSpacing: 0, textTransform: 'uppercase',
+            color: loading ? AMBER : 'rgba(255,255,255,0.42)',
+          }}>
+            {loading ? 'Verificando acceso' : 'Acceso restringido'}
+          </div>
+
+          <h1 style={{
+            margin: '0 0 14px', fontFamily: 'var(--font-display)', fontWeight: 700,
+            fontSize: 'clamp(1.55rem, 5vw, 2.25rem)', lineHeight: 1.2,
+            letterSpacing: 0, color: 'rgba(255,255,255,0.94)',
+          }}>
+            {loading ? 'Un momento...' : 'No tenés permisos para cargar datos'}
+          </h1>
+
+          <p style={{
+            maxWidth: 440, margin: '0 auto', fontFamily: 'var(--font-body)',
+            fontSize: '0.92rem', lineHeight: 1.65, color: 'rgba(255,255,255,0.48)',
+          }}>
+            {loading
+              ? 'Estamos confirmando los permisos de tu membresía.'
+              : 'Esta función está reservada para el dueño de la cuenta. No hay ningún problema con tus archivos.'}
+          </p>
+
+          {!loading && (
+            <Link href="/role-select" style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              gap: 8, minHeight: 42, marginTop: 30, padding: '0 18px',
+              borderRadius: 8, textDecoration: 'none',
+              background: `linear-gradient(135deg, ${AMBER}cc, ${AMBER})`,
+              color: '#09090f', boxShadow: `0 4px 20px ${AMBER}30`,
+              fontFamily: 'var(--font-display)', fontSize: '0.64rem',
+              fontWeight: 700, letterSpacing: 0, textTransform: 'uppercase',
+            }}>
+              <ArrowLeftIcon size={13} />
+              Volver a elegir módulo
+            </Link>
+          )}
+        </section>
+      </main>
+
+      <style>{`@keyframes faro-spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  )
+}
 
 function UploadCloudIcon({ size = 28, color = 'currentColor' }: { size?: number; color?: string }) {
   return (
@@ -171,6 +253,7 @@ function ResultBanner({ status, result, error }: { status: CardStatus; result: U
   const isOk  = status === 'success'
   const color = isOk ? GREEN : RED
   const bg    = isOk ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'
+  const errorMessage = !isOk ? translateUploadError(error) : null
   return (
     <div style={{ padding: '12px 16px', background: bg, border: `1px solid ${color}30`, borderRadius: 8, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, marginTop: 5, flexShrink: 0, boxShadow: `0 0 6px ${color}` }} />
@@ -223,7 +306,10 @@ function ResultBanner({ status, result, error }: { status: CardStatus; result: U
             </>
           )
         ) : (
-          <div style={{ color: '#fca5a5' }}>{error}</div>
+          <div>
+            <div style={{ color: '#fca5a5', fontWeight: 650 }}>{errorMessage?.titulo}</div>
+            <div style={{ color: 'rgba(255,255,255,0.52)', marginTop: 3 }}>{errorMessage?.detalle}</div>
+          </div>
         )}
       </div>
     </div>
@@ -610,10 +696,10 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
     if (!slot.file || !locationId) return
     setStatus('previewing'); setError(''); setErrorDetails([]); setPreviewResult(null)
     try {
-      const res  = await fetch('/api/upload/sales?dry_run=true', { method: 'POST', body: buildForm() })
+      const res  = await fetch(`/api/upload/sales?dry_run=true&location_id=${encodeURIComponent(locationId)}`, { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) {
-        setError(data.error ?? `HTTP ${res.status}`)
+        setError(resolveUploadApiError(res.status, data.error))
         setErrorDetails(data.errors ?? [])
         setStatus('error')
         return
@@ -628,10 +714,10 @@ function CardVentas({ locationId, orgId }: { locationId: string; orgId: string }
     if (!slot.file || !locationId) return
     setStatus('syncing'); setError(''); setErrorDetails([]); setResult(null)
     try {
-      const res  = await fetch('/api/upload/sales', { method: 'POST', body: buildForm() })
+      const res  = await fetch(`/api/upload/sales?location_id=${encodeURIComponent(locationId)}`, { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) {
-        setError(data.error ?? `HTTP ${res.status}`)
+        setError(resolveUploadApiError(res.status, data.error))
         setErrorDetails(data.errors ?? [])
         setStatus('error')
         return
@@ -718,10 +804,10 @@ function CardItems({ locationId, orgId }: { locationId: string; orgId: string })
     if (!slot.file || !locationId) return
     setStatus('previewing'); setError(''); setErrorDetails([]); setPreviewResult(null)
     try {
-      const res  = await fetch('/api/upload/items?dry_run=true', { method: 'POST', body: buildForm() })
+      const res  = await fetch(`/api/upload/items?dry_run=true&location_id=${encodeURIComponent(locationId)}`, { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) {
-        setError(data.error ?? `HTTP ${res.status}`)
+        setError(resolveUploadApiError(res.status, data.error))
         setErrorDetails(data.errors ?? [])
         setStatus('error')
         return
@@ -736,10 +822,10 @@ function CardItems({ locationId, orgId }: { locationId: string; orgId: string })
     if (!slot.file || !locationId) return
     setStatus('syncing'); setError(''); setErrorDetails([]); setResult(null)
     try {
-      const res  = await fetch('/api/upload/items', { method: 'POST', body: buildForm() })
+      const res  = await fetch(`/api/upload/items?location_id=${encodeURIComponent(locationId)}`, { method: 'POST', body: buildForm() })
       const data = await res.json()
       if (!res.ok || data.error) {
-        setError(data.error ?? `HTTP ${res.status}`)
+        setError(resolveUploadApiError(res.status, data.error))
         setErrorDetails(data.errors ?? [])
         setStatus('error')
         return
@@ -815,13 +901,13 @@ function CardCucinaGo({ locationId, orgId }: { locationId: string; orgId: string
     if (!locationId) return
     setStatus('syncing'); setError(''); setResult(null)
     try {
-      const res  = await fetch('/api/upload/cucinago', {
+      const res  = await fetch(`/api/upload/cucinago?location_id=${encodeURIComponent(locationId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: desde, to: hasta, location_id: locationId, org_id: orgId }),
+        body: JSON.stringify({ from: desde, to: hasta, org_id: orgId }),
       })
       const data = await res.json()
-      if (!res.ok || data.error) { setError(data.error ?? `HTTP ${res.status}`); setStatus('error'); return }
+      if (!res.ok || data.error) { setError(resolveUploadApiError(res.status, data.error)); setStatus('error'); return }
       setResult(data); setStatus('success')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e)); setStatus('error')
@@ -896,7 +982,11 @@ function CardCucinaGo({ locationId, orgId }: { locationId: string; orgId: string
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function UploadPage() {
-  const { locationId, orgId } = useAuth()
+  const { locationId, orgId, role, isLoading } = useAuth()
+  const canWrite = role !== null && WRITE_ROLES.includes(role)
+
+  if (isLoading) return <AccessState loading />
+  if (!canWrite) return <AccessState loading={false} />
 
   return (
     <div style={{ position: 'relative', minHeight: '100vh', background: '#0a0a12' }}>

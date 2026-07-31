@@ -16,9 +16,15 @@ on:
 #  NEXT_PUBLIC_SUPABASE_URL_STG    https://egjxyskqhnmuqwkrbshu.supabase.co
 #  SUPABASE_SERVICE_ROLE_KEY_STG   service_role JWT de STG (NO el anon key)
 #  SUPABASE_ACCESS_TOKEN           PAT de Supabase (sbp_...) — shared entre envs
+#  NEXT_PUBLIC_SUPABASE_ANON_KEY_STG  anon key de STG — requerido para el login
+#                                      qa-owner que gatean las RPCs de negocio
+#  QA_OWNER_EMAIL                  usuario de test STG-only (no existe en PROD)
+#  QA_OWNER_PASSWORD               password del usuario de test QA_OWNER_EMAIL
 #
 #  Nota: el regression-test usa service_role para bypasear RLS y el PAT para
-#  correr SQL via Management API. El anon key no alcanza para estas queries.
+#  correr SQL via Management API. El anon key no alcanza para esas queries,
+#  pero sí es lo único que aceptan las RPCs SECURITY DEFINER — necesitan un
+#  JWT de usuario real (login qa-owner), no la service_role key.
 
 jobs:
 
@@ -40,7 +46,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -51,6 +57,9 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL_STG }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY_STG }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY_STG }}
+          QA_OWNER_EMAIL: ${{ secrets.QA_OWNER_EMAIL }}
+          QA_OWNER_PASSWORD: ${{ secrets.QA_OWNER_PASSWORD }}
         run: npx tsx scripts/regression-test.ts
 
   # ── Job 2: Health check post-deploy en PROD ─────────────────────────────────
@@ -99,7 +108,7 @@ jobs:
           {
             echo 'response<<HEALTH_EOF'
             cat /tmp/health.json
-            echo ""
+            echo
             echo 'HEALTH_EOF'
           } >> "$GITHUB_OUTPUT"
 

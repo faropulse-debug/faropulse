@@ -20,7 +20,9 @@ function makeXlsx(rows: Record<string, unknown>[], sheetName = 'Sheet1'): File {
 }
 
 function makeReq(fields: Record<string, string | File | null>): NextRequest {
+  const locationId = (fields.location_id as string) ?? 'loc-1'
   return {
+    nextUrl: new URL(`http://localhost/api/test?location_id=${encodeURIComponent(locationId)}`),
     formData: async () => ({ get: (k: string) => fields[k] ?? null }),
   } as unknown as NextRequest
 }
