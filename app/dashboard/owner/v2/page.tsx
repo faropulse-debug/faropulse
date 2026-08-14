@@ -9,6 +9,7 @@ import { DashboardFiltersProvider }      from '@/src/context/dashboard-filters'
 import { DashboardDataProvider }         from '@/providers/DashboardDataProvider'
 import { WidgetError }                   from '@/src/components/widgets'
 import { CUCINAGO_INTEGRATION_ENABLED }  from '@/lib/feature-flags'
+import { WRITE_ROLES }                   from '@/lib/authz'
 import {
   getEnabledWidgets,
   type WidgetCategory,
@@ -20,7 +21,11 @@ import {
 type TabKey    = 'resumen' | 'pnl' | 'operacion' | 'inversion' | 'descuentos'
 type ModuloKey = 'negocio' | 'operaciones'
 
-const TABS: { key: TabKey; label: string; categories: WidgetCategory[]; allowedRoles: Role[]; modulos: ModuloKey[] }[] = [
+// Exported for tests/page-access-consistency.test.ts, which asserts every
+// allowedRoles list here stays a subset of PAGE_ACCESS['/dashboard/owner/v2']
+// (lib/page-access.ts) — otherwise a role could be shown a tab for a page it
+// gets redirected away from.
+export const TABS: { key: TabKey; label: string; categories: WidgetCategory[]; allowedRoles: Role[]; modulos: ModuloKey[] }[] = [
   { key: 'resumen',    label: 'Resumen',    categories: ['kpi', 'alert'], allowedRoles: ['owner', 'manager', 'super_admin'], modulos: ['negocio'] },
   { key: 'operacion',  label: 'Operación',  categories: ['diagnostic'],   allowedRoles: ['owner', 'manager', 'encargado', 'super_admin', 'staff'], modulos: ['operaciones'] },
   { key: 'pnl',        label: 'P&L',        categories: ['financial'],    allowedRoles: ['owner', 'manager', 'super_admin'], modulos: ['negocio'] },
@@ -192,8 +197,10 @@ function OwnerDashboardV2Inner() {
           })}
         </div>
 
-        {/* Reconcile shortcut */}
-        {CUCINAGO_INTEGRATION_ENABLED && (
+        {/* Reconcile shortcut — WRITE_ROLES only: /dashboard/reconcile itself
+            redirects everyone else, don't show a button to a screen a role
+            can't open. */}
+        {CUCINAGO_INTEGRATION_ENABLED && role && WRITE_ROLES.includes(role) && (
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px' }}>
             <Link href="/dashboard/reconcile" style={{
               fontFamily: FONT_MONO, fontSize: '0.58rem', letterSpacing: '0.14em',

@@ -2,6 +2,8 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient }       from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import type { Role } from '@/types/auth'
+import { rolesForPath } from '@/lib/page-access'
 
 const PUBLIC_ROUTES      = ['/login', '/forgot-password', '/reset-password']
 const PUBLIC_API_PREFIXES = ['/api/health']
@@ -55,17 +57,12 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  const DASHBOARD_ROLES = new Set(['owner', 'manager', 'encargado', 'super_admin', 'staff'])
-
-  const requiredRoles = (pathname.startsWith('/dashboard/owner') || pathname.startsWith('/dashboard/manager'))
-    ? DASHBOARD_ROLES
-    : null
-
-  if (requiredRoles) {
+  if (pathname.startsWith('/dashboard/')) {
+    const allowedRoles = rolesForPath(pathname)
     const cookieRole = request.cookies.get('faro_role')?.value
 
     // Fast path: missing cookie or role not allowed on this path — no DB call needed
-    if (!cookieRole || !requiredRoles.has(cookieRole)) {
+    if (!cookieRole || !allowedRoles.includes(cookieRole as Role)) {
       return NextResponse.redirect(new URL('/role-select', request.url))
     }
 
@@ -92,13 +89,6 @@ export async function proxy(request: NextRequest) {
     }
     // memErr → fail-open: requireMembership() in API handlers is the real gate;
     // a transient PostgREST issue shouldn't lock out a legitimate user from navigation.
-  } else if (pathname.startsWith('/dashboard/')) {
-    // Fallback: /dashboard/* path not matched by owner or manager above.
-    // Roles without a mapped dashboard (e.g. an unknown/invalid role) must not roam freely.
-    const cookieRole = request.cookies.get('faro_role')?.value
-    if (!cookieRole || !DASHBOARD_ROLES.has(cookieRole)) {
-      return NextResponse.redirect(new URL('/role-select', request.url))
-    }
   }
 
   return supabaseResponse
