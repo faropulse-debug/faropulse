@@ -22,9 +22,10 @@ export const ALL_DASHBOARD_ROLES: readonly Role[] = ['owner', 'manager', 'encarg
  * tests/page-access-consistency.test.ts enforces TABS and canAccessModule
  * stay a subset of this table so the two never drift apart in silence.
  *
- * /dashboard/pnl and /dashboard/reconcile use WRITE_ROLES: loading either
- * page is itself a write-adjacent or financial-audit action, matching the
- * criterion already used to gate /api/pnl.
+ * /dashboard/pnl, /dashboard/reconcile, and /dashboard/upload use WRITE_ROLES:
+ * loading any of these pages is itself a write-adjacent or financial-audit
+ * action, matching the criterion already used to gate /api/pnl and every
+ * /api/upload/* route (all call requireMembership(..., { roles: WRITE_ROLES })).
  */
 export const PAGE_ACCESS: readonly { prefix: string; roles: readonly Role[] }[] = [
   { prefix: '/dashboard/owner/v2',  roles: ALL_DASHBOARD_ROLES },
@@ -32,6 +33,7 @@ export const PAGE_ACCESS: readonly { prefix: string; roles: readonly Role[] }[] 
   { prefix: '/dashboard/manager',   roles: ALL_DASHBOARD_ROLES },
   { prefix: '/dashboard/pnl',       roles: WRITE_ROLES },
   { prefix: '/dashboard/reconcile', roles: WRITE_ROLES },
+  { prefix: '/dashboard/upload',    roles: WRITE_ROLES },
 ]
 
 export function rolesForPath(pathname: string): readonly Role[] {
