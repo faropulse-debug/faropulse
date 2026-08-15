@@ -1,10 +1,11 @@
-# EVIDENCIA DE QA — VERIFICACIÓN INDEPENDIENTE DE NAV GATE (H1)
+# EVIDENCIA DE QA — VERIFICACIÓN INDEPENDIENTE DE NAV GATE (H1) & AUDITORÍA DE CARDINALIDAD
 
 **Fecha de ejecución:** 2026-08-14  
 **Entorno de prueba:** Staging (`project-ref: egjxyskqhnmuqwkrbshu`)  
 **SHA de `origin/develop` verificado:** `b34a65c`  
 **Rama de trabajo:** `feature/qa-nav-gate`  
-**Guardrail de ambiente:** `scripts/assert-stg.ts` (Verificado activo)
+**Pull Request:** [PR #49 (`feature/qa-nav-gate` → `develop`)](https://github.com/faropulse-debug/faropulse/pull/49)  
+**Guardrail de ambiente:** `scripts/assert-stg.ts` (Verificado y activo)
 
 ---
 
@@ -17,150 +18,129 @@
 
 ---
 
-## 2. Matriz Esperada (Construida independientemente por QA)
+## 2. Matriz Esperada Independiente (Reglas de Negocio Puras)
 
-Esta matriz se redactó a mano en base a las reglas de negocio y los requerimientos de la historia H1, sin importar definiciones del código fuente:
+Esta matriz fue redactada a mano basada estrictamente en **reglas de negocio aprobadas por Tano**, sin ninguna referencia a constantes internas de la aplicación (`WRITE_ROLES`, `ALL_DASHBOARD_ROLES`, etc.):
 
-| Ruta | Justificación de Negocio | Roles Permitidos (`allow`) | Roles Denegados (`deny` → 307 `/role-select`) |
+| Ruta | Regla / Justificación de Negocio | Roles Permitidos (`allow`) | Roles Denegados (`deny` → 307 `/role-select`) |
 |---|---|---|---|
-| `/dashboard/owner/v2` | Dashboard principal de operaciones/métricas (shell de lectura). No realiza escrituras directas. | `owner`, `manager`, `encargado`, `staff`, `qa-b-owner` | NINGUNO |
-| `/dashboard/owner` | Ruta legacy de dashboard (shell de lectura). | `owner`, `manager`, `encargado`, `staff`, `qa-b-owner` | NINGUNO |
-| `/dashboard/manager` | Vista de gestión operativa sin acceso a datos P&L ni carga de archivos. | `owner`, `manager`, `encargado`, `staff`, `qa-b-owner` | NINGUNO |
-| `/dashboard/pnl` | Módulo financiero confidencial (P&L / `WRITE_ROLES`). Acción de auditoría y escritura. | `owner`, `qa-b-owner` | `manager`, `encargado`, `staff` |
-| `/dashboard/reconcile` | Conciliación de ventas CucinaGo vs Maxirest (`WRITE_ROLES`). Acción de auditoría crítica. | `owner`, `qa-b-owner` | `manager`, `encargado`, `staff` |
-| `/dashboard/upload` | Carga masiva de archivos P&L/Ventas/Ítems (`WRITE_ROLES`). Mutación de datos. | `owner`, `qa-b-owner` | `manager`, `encargado`, `staff` |
-| `/dashboard/owner/v2?modulo=operaciones` | Sub-ruta/query param en dashboard principal. Debe mantener el acceso del prefix `/dashboard/owner/v2`. | `owner`, `manager`, `encargado`, `staff`, `qa-b-owner` | NINGUNO |
-| `/dashboard/reportes-custom` | Ruta no listada explícitamente en reglas. Verifica el fallback por defecto (`ALL_DASHBOARD_ROLES`). | `owner`, `manager`, `encargado`, `staff`, `qa-b-owner` | NINGUNO |
+| `/dashboard/owner/v2` | Vista general de operaciones y ventas del local. Es un tablero de lectura operativa que todo empleado del local necesita ver para trabajar. | `owner`, `manager`, `encargado`, `staff`, `qa-b-owner` | NINGUNO |
+| `/dashboard/owner` | Shell legacy de lectura general del local. No expone datos sensibles ni permite mutación de datos. | `owner`, `manager`, `encargado`, `staff`, `qa-b-owner` | NINGUNO |
+| `/dashboard/manager` | Pantalla de gestión operativa diaria sin acceso a la rentabilidad ni a la carga de archivos. | `owner`, `manager`, `encargado`, `staff`, `qa-b-owner` | NINGUNO |
+| `/dashboard/pnl` | Muestra márgenes, costos, utilidad y estado financiero (P&L); un empleado de salón, encargado o manager no debe ver la rentabilidad real del negocio. | `owner`, `qa-b-owner` | `manager`, `encargado`, `staff` |
+| `/dashboard/reconcile` | Auditoría de diferencia de caja y facturación entre fuentes (CucinaGo vs Maxirest). Solo el dueño del negocio debe auditar descuadres de caja. | `owner`, `qa-b-owner` | `manager`, `encargado`, `staff` |
+| `/dashboard/upload` | Carga e inyección masiva de archivos de ventas y estados financieros. Permite alterar la información base de la empresa. | `owner`, `qa-b-owner` | `manager`, `encargado`, `staff` |
+| `/dashboard/owner/v2?modulo=operaciones` | Navegación con parámetros de filtrado dentro del tablero general de operaciones. | `owner`, `manager`, `encargado`, `staff`, `qa-b-owner` | NINGUNO |
+| `/dashboard/reportes-custom` | Rutas no catalogadas de lectura general. Por defecto no deben bloquearse si son vistas generales. | `owner`, `manager`, `encargado`, `staff`, `qa-b-owner` | NINGUNO |
 
-### 2.1 Adenda: Matriz para Usuario Multi-Cardinalidad (`qa-owner@faropulse.test`)
+---
 
-`qa-owner@faropulse.test` cuenta con dos memberships activos en la misma organización:
+## 3. Matriz para Usuario Multi-Cardinalidad (`qa-owner@faropulse.test`)
+
+`qa-owner@faropulse.test` posee dos memberships activas dentro de la misma organización (**Pizzería Demo** `aaaaaaaa-...`):
 1. `role: 'owner'` en **Demo Ituzaingó** (`bbbbbbbb-0000-0000-0000-000000000001`).
 2. `role: 'encargado'` en **QA Multi - Sucursal Norte** (`f203a8fe-fc04-40d8-bc08-3c7571b4c008`).
 
-| Local Seleccionado en UI | Rol en Local | Ruta Intentada | Expectativa Estricta de Negocio | Resultado Real Proxy / Middleware |
+| Contexto / Local Seleccionado | Rol Activo | Ruta Intentada | Expectativa Estricta de Negocio | Resultado Real Servidor |
 |---|---|---|---|---|
 | Demo Ituzaingó | `owner` | `/dashboard/pnl` | `allow` (HTTP 200) | `allow` (HTTP 200) ✅ |
-| Sucursal Norte | `encargado` | `/dashboard/pnl` | `deny` (HTTP 307 → `/role-select`) | **DEPENDIENTE DE LA COOKIE** (Ver Hallazgo 🔴 P0) |
+| Sucursal Norte | `encargado` | `/dashboard/pnl` | `deny` (HTTP 307 → `/role-select`) | **VULNERABLE A COOKIE** (Ver Hallazgo 🔴 P0) |
 
 ---
 
-## 3. Tabla Completa de Resultados de Ejecución Real contra STG
+## 4. Comparación de Ejecución Lado a Lado: In-Process vs HTTP Real (Dev Server)
 
-Ejecutado con sesiones autenticadas reales desde `.env.stg-test-users` evaluando el proxy/middleware del sistema:
+Se evaluó la matriz completa utilizando dos métodos:
+1. **In-Process:** Invocación directa de `proxy(NextRequest)` con galletas calculadas.
+2. **HTTP Real:** Consultas HTTP reales a `http://localhost:3000` con `redirect: 'manual'` sobre el dev server activo escuchando en local apuntando a STG.
 
-| Rol Evaluado | Usuario / Email | Ruta Probada | HTTP Status | Es Redirect | URL Destino / Redirect | Resultado vs Esperado |
-|---|---|---|---|---|---|---|
-| `owner` | `qa-owner@faropulse.test` | `/dashboard/owner/v2` | `200` | No | `http://localhost:3000/dashboard/owner/v2` | **PASÓ (allow)** |
-| `owner` | `qa-owner@faropulse.test` | `/dashboard/owner` | `200` | No | `http://localhost:3000/dashboard/owner` | **PASÓ (allow)** |
-| `owner` | `qa-owner@faropulse.test` | `/dashboard/manager` | `200` | No | `http://localhost:3000/dashboard/manager` | **PASÓ (allow)** |
-| `owner` | `qa-owner@faropulse.test` | `/dashboard/pnl` | `200` | No | `http://localhost:3000/dashboard/pnl` | **PASÓ (allow)** |
-| `owner` | `qa-owner@faropulse.test` | `/dashboard/reconcile` | `200` | No | `http://localhost:3000/dashboard/reconcile` | **PASÓ (allow)** |
-| `owner` | `qa-owner@faropulse.test` | `/dashboard/upload` | `200` | No | `http://localhost:3000/dashboard/upload` | **PASÓ (allow)** |
-| `owner` | `qa-owner@faropulse.test` | `/dashboard/owner/v2?modulo=operaciones` | `200` | No | `http://localhost:3000/dashboard/owner/v2?modulo=operaciones` | **PASÓ (allow)** |
-| `owner` | `qa-owner@faropulse.test` | `/dashboard/reportes-custom` | `200` | No | `http://localhost:3000/dashboard/reportes-custom` | **PASÓ (allow)** |
-| `manager` | `qa-manager@faropulse.test` | `/dashboard/owner/v2` | `200` | No | `http://localhost:3000/dashboard/owner/v2` | **PASÓ (allow)** |
-| `manager` | `qa-manager@faropulse.test` | `/dashboard/owner` | `200` | No | `http://localhost:3000/dashboard/owner` | **PASÓ (allow)** |
-| `manager` | `qa-manager@faropulse.test` | `/dashboard/manager` | `200` | No | `http://localhost:3000/dashboard/manager` | **PASÓ (allow)** |
-| `manager` | `qa-manager@faropulse.test` | `/dashboard/pnl` | `307` | Sí | `http://localhost:3000/role-select` | **PASÓ (deny)** |
-| `manager` | `qa-manager@faropulse.test` | `/dashboard/reconcile` | `307` | Sí | `http://localhost:3000/role-select` | **PASÓ (deny)** |
-| `manager` | `qa-manager@faropulse.test` | `/dashboard/upload` | `307` | Sí | `http://localhost:3000/role-select` | **PASÓ (deny)** |
-| `manager` | `qa-manager@faropulse.test` | `/dashboard/owner/v2?modulo=operaciones` | `200` | No | `http://localhost:3000/dashboard/owner/v2?modulo=operaciones` | **PASÓ (allow)** |
-| `manager` | `qa-manager@faropulse.test` | `/dashboard/reportes-custom` | `200` | No | `http://localhost:3000/dashboard/reportes-custom` | **PASÓ (allow)** |
-| `encargado` | `qa-encargado@faropulse.test` | `/dashboard/owner/v2` | `200` | No | `http://localhost:3000/dashboard/owner/v2` | **PASÓ (allow)** |
-| `encargado` | `qa-encargado@faropulse.test` | `/dashboard/owner` | `200` | No | `http://localhost:3000/dashboard/owner` | **PASÓ (allow)** |
-| `encargado` | `qa-encargado@faropulse.test` | `/dashboard/manager` | `200` | No | `http://localhost:3000/dashboard/manager` | **PASÓ (allow)** |
-| `encargado` | `qa-encargado@faropulse.test` | `/dashboard/pnl` | `307` | Sí | `http://localhost:3000/role-select` | **PASÓ (deny)** |
-| `encargado` | `qa-encargado@faropulse.test` | `/dashboard/reconcile` | `307` | Sí | `http://localhost:3000/role-select` | **PASÓ (deny)** |
-| `encargado` | `qa-encargado@faropulse.test` | `/dashboard/upload` | `307` | Sí | `http://localhost:3000/role-select` | **PASÓ (deny)** |
-| `encargado` | `qa-encargado@faropulse.test` | `/dashboard/owner/v2?modulo=operaciones` | `200` | No | `http://localhost:3000/dashboard/owner/v2?modulo=operaciones` | **PASÓ (allow)** |
-| `encargado` | `qa-encargado@faropulse.test` | `/dashboard/reportes-custom` | `200` | No | `http://localhost:3000/dashboard/reportes-custom` | **PASÓ (allow)** |
-| `staff` | `qa-staff@faropulse.test` | `/dashboard/owner/v2` | `200` | No | `http://localhost:3000/dashboard/owner/v2` | **PASÓ (allow)** |
-| `staff` | `qa-staff@faropulse.test` | `/dashboard/owner` | `200` | No | `http://localhost:3000/dashboard/owner` | **PASÓ (allow)** |
-| `staff` | `qa-staff@faropulse.test` | `/dashboard/manager` | `200` | No | `http://localhost:3000/dashboard/manager` | **PASÓ (allow)** |
-| `staff` | `qa-staff@faropulse.test` | `/dashboard/pnl` | `307` | Sí | `http://localhost:3000/role-select` | **PASÓ (deny)** |
-| `staff` | `qa-staff@faropulse.test` | `/dashboard/reconcile` | `307` | Sí | `http://localhost:3000/role-select` | **PASÓ (deny)** |
-| `staff` | `qa-staff@faropulse.test` | `/dashboard/upload` | `307` | Sí | `http://localhost:3000/role-select` | **PASÓ (deny)** |
-| `staff` | `qa-staff@faropulse.test` | `/dashboard/owner/v2?modulo=operaciones` | `200` | No | `http://localhost:3000/dashboard/owner/v2?modulo=operaciones` | **PASÓ (allow)** |
-| `staff` | `qa-staff@faropulse.test` | `/dashboard/reportes-custom` | `200` | No | `http://localhost:3000/dashboard/reportes-custom` | **PASÓ (allow)** |
-| `qa-b-owner` (Tenant B) | `qa-b-owner@faropulse.test` | `/dashboard/owner/v2` | `200` | No | `http://localhost:3000/dashboard/owner/v2` | **PASÓ (allow)** |
-| `qa-b-owner` (Tenant B) | `qa-b-owner@faropulse.test` | `/dashboard/owner` | `200` | No | `http://localhost:3000/dashboard/owner` | **PASÓ (allow)** |
-| `qa-b-owner` (Tenant B) | `qa-b-owner@faropulse.test` | `/dashboard/manager` | `200` | No | `http://localhost:3000/dashboard/manager` | **PASÓ (allow)** |
-| `qa-b-owner` (Tenant B) | `qa-b-owner@faropulse.test` | `/dashboard/pnl` | `200` | No | `http://localhost:3000/dashboard/pnl` | **PASÓ (allow)** |
-| `qa-b-owner` (Tenant B) | `qa-b-owner@faropulse.test` | `/dashboard/reconcile` | `200` | No | `http://localhost:3000/dashboard/reconcile` | **PASÓ (allow)** |
-| `qa-b-owner` (Tenant B) | `qa-b-owner@faropulse.test` | `/dashboard/upload` | `200` | No | `http://localhost:3000/dashboard/upload` | **PASÓ (allow)** |
-| `qa-b-owner` (Tenant B) | `qa-b-owner@faropulse.test` | `/dashboard/owner/v2?modulo=operaciones` | `200` | No | `http://localhost:3000/dashboard/owner/v2?modulo=operaciones` | **PASÓ (allow)** |
-| `qa-b-owner` (Tenant B) | `qa-b-owner@faropulse.test` | `/dashboard/reportes-custom` | `200` | No | `http://localhost:3000/dashboard/reportes-custom` | **PASÓ (allow)** |
+| Rol Evaluado | Ruta | In-Process Status | HTTP Real Status | Paridad (In-Process vs HTTP) |
+|---|---|---|---|---|
+| `owner` | `/dashboard/owner/v2` | `200` | `200` | **PARIDAD EXACTA** |
+| `owner` | `/dashboard/pnl` | `200` | `200` | **PARIDAD EXACTA** |
+| `owner` | `/dashboard/reconcile` | `200` | `200` | **PARIDAD EXACTA** |
+| `owner` | `/dashboard/upload` | `200` | `200` | **PARIDAD EXACTA** |
+| `manager` | `/dashboard/owner/v2` | `200` | `200` | **PARIDAD EXACTA** |
+| `manager` | `/dashboard/pnl` | `307` | `307` | **PARIDAD EXACTA** |
+| `manager` | `/dashboard/reconcile` | `307` | `307` | **PARIDAD EXACTA** |
+| `manager` | `/dashboard/upload` | `307` | `307` | **PARIDAD EXACTA** |
+| `encargado` | `/dashboard/owner/v2` | `200` | `200` | **PARIDAD EXACTA** |
+| `encargado` | `/dashboard/pnl` | `307` | `307` | **PARIDAD EXACTA** |
+| `staff` | `/dashboard/owner/v2` | `200` | `200` | **PARIDAD EXACTA** |
+| `staff` | `/dashboard/pnl` | `307` | `307` | **PARIDAD EXACTA** |
+| `qa-b-owner` | `/dashboard/pnl` | `200` | `200` | **PARIDAD EXACTA** |
+
+*Conclusión del Comparativo:* No se detectaron discrepancias entre la ejecución en proceso del middleware y el servidor HTTP real de Next.js.
 
 ---
 
-## 4. ANÁLISIS DE CASO MULTI-CARDINALIDAD (Respuestas con Evidencia Empírica)
+## 5. Análisis del Caso Multi-Cardinalidad (Evidencia Empírica)
 
-### Pregunta 1: Al loguearse, ¿qué location resuelve el sistema como "la actual"? ¿Es determinístico entre logins sucesivos? Probá 3 veces y compará.
+### 1. Determinismo de Login (3 intentos seguidos)
+- **Resultado:** En las 3 ejecuciones consecutivas, `memberships` devolvió el array en el mismo orden físico (`created_at` 2026-07-29 vs 2026-08-15), resolviendo como `activeMembership` a **Demo Ituzaingó** (`role: owner`).
+- **Conclusión:** **SÍ, es determinístico en las condiciones actuales de la base**, pero no por una cláusula `ORDER BY` en el código de `AuthProvider.tsx` (lo cual es un riesgo latency/vacuum latente).
 
-**EVIDENCIA EMPÍRICA:**
-En 3 logins consecutivos realizados contra STG sin `faro_active_membership` en `localStorage`, la consulta a Supabase devolvió el siguiente orden en el array:
-- Elemento 0: `role: 'owner'`, `location_id: 'bbbbbbbb-0000-0000-0000-000000000001'` (Demo Ituzaingó)
-- Elemento 1: `role: 'encargado'`, `location_id: 'f203a8fe-fc04-40d8-bc08-3c7571b4c008'` (QA Multi - Sucursal Norte)
+### 2. Evaluación del Rol en `proxy.ts`
+- `proxy.ts` evalúa la petición basándose exclusivamente en el valor string que viene en la cookie `faro_role`.
 
-`AuthProvider.tsx` implementa el fallback:
-`activeMembership = (storedId ? ...) ?? memberships.find(m => m.location_id) ?? null`
-
-- **Resultado:** Resuelve siempre **Demo Ituzaingó** (`bbbbbbbb-...`).
-- **Determinismo:** **SÍ, es determinístico** entre logins sucesivos. El orden viene dado por la consulta SQL a `memberships` que preserva el orden primario de creación (`created_at` 2026-07-29 vs 2026-08-15).
-
----
-
-### Pregunta 2: ¿Con qué rol lo evalúa `proxy.ts`? ¿owner, encargado, o la unión de ambos?
-
-**EVIDENCIA EMPÍRICA:**
-`proxy.ts` inspecciona la cookie `faro_role` recibida en la petición y ejecuta:
-```sql
-SELECT id FROM memberships 
-WHERE user_id = 'ff944662-1fed-4d78-a1c6-48b6fac9d316' 
-  AND role = cookieRole 
-  AND is_active = true 
-LIMIT 1;
-```
-- Si la cookie `faro_role` contiene `'encargado'`, la BD devuelve el registro de la Sucursal Norte y `proxy.ts` lo evalúa como **`encargado`** (bloquea `/dashboard/pnl` con 307).
-- Si la cookie `faro_role` contiene `'owner'`, la BD devuelve el registro de Demo Ituzaingó y `proxy.ts` lo evalúa como **`owner`** (permite `/dashboard/pnl` con 200).
-- **Resultado:** No hace unión de roles en una sola evaluación; lo evalúa **según el valor exacto de la cookie `faro_role`**.
-
----
-
-### Pregunta 3: ¿Puede navegar a `/dashboard/pnl` (ruta de owner) mientras tiene seleccionada la Sucursal Norte, donde es encargado?
+### 3. Navegación a `/dashboard/pnl` estando en Sucursal Norte (donde es Encargado)
 
 > [!CAUTION]
 > 🔴 **HALLAZGO CRÍTICO P0 — ESCALAMIENTO DE PRIVILEGIOS ENTRE LOCALES (Cross-Location Privilege Escalation)**
 
-**EVIDENCIA EMPÍRICA Y RESPUESTA:**
-**SÍ.**  
-- **Causa Raíz:** En `proxy.ts`, la consulta de validación de membresía contra Supabase es:
-  `from('memberships').select('id').eq('user_id', user.id).eq('role', cookieRole).eq('is_active', true)`
-  **Atención:** La consulta NO incluye `.eq('location_id', activeLocationId)` ni valida que el `cookieRole` pertenezca al local que la aplicación cliente está consultando.
-- **Mecanismo del Bug:** Si el usuario selecciona "QA Multi - Sucursal Norte" en la aplicación cliente (donde es solo `encargado`), pero envía o mantiene la cookie `faro_role=owner` (que posee por ser owner en Demo Ituzaingó), `proxy.ts` valida que el usuario efectivamente tiene UN membership de tipo `owner` en la BD y **le otorga acceso HTTP 200 a `/dashboard/pnl`**.
-- La pantalla P&L se renderiza en el cliente y consulta los datos financieros de la Sucursal Norte, **exponiendo información financiera restringida a un usuario actuando en el contexto de una sucursal donde solo es encargado**.
+**CONFIRMADO CON EVIDENCIA:**
+- `proxy.ts` ejecuta `SELECT id FROM memberships WHERE user_id = auth.uid() AND role = cookieRole AND is_active = true`.
+- **Falta de Validación:** La consulta NO incluye `location_id = activeLocationId`.
+- Si el usuario selecciona en la UI la "Sucursal Norte" (donde es `encargado`), pero envía la cookie `faro_role=owner` (que posee por su rol en Demo Ituzaingó), `proxy.ts` valida que el usuario tiene UN rol owner en la base y otorga **HTTP 200**.
+- **Impacto:** El usuario accede a la pantalla P&L y visualiza datos financieros confidenciales de Sucursal Norte, un local donde no es propietario.
+
+### 4. Selector de Local en UI
+- El selector de local modifica la cookie `faro_role`, pero como el middleware no la ata al local actual, cualquier petición enviada con la cookie modificada evade la seguridad.
 
 ---
 
-### Pregunta 4: Si hay selector de local en la UI, ¿cambiar de local cambia lo que puede navegar?
+## 6. Verificación de C-01 (Fuga en RPCs SECURITY DEFINER)
 
-**EVIDENCIA EMPÍRICA:**
-- En el flujo estándar de UI, la página `/role-select` invoca `setActiveMembership(m.id)`, el cual ejecuta:
-  `document.cookie = 'faro_role=' + membership.role`
-- Cuando el usuario utiliza el selector de la UI para cambiar a "Sucursal Norte", la cookie pasa a ser `faro_role=encargado`. Al navegar normalmente por clicks, `proxy.ts` lee `encargado` y lo redirige a `/role-select` si intenta acceder a P&L.
-- **Sin embargo, la vulnerabilidad P0 persiste:** Al no estar vinculadas la cookie de rol y la location activa en el servidor (`proxy.ts`), cualquier manipulación de cookie o pestaña secundaria abierta permite saltarse la restricción.
+Se sembró el canario en la base de STG en la tabla `financial_results`:
+- `org_id`: `aaaaaaaa-0000-0000-0000-000000000001` (Pizzería Demo)
+- `location_id`: `f203a8fe-fc04-40d8-bc08-3c7571b4c008` (QA Multi - Sucursal Norte)
+- `concepto`: `'CANARIO-C01-NORTE'`
+- `monto`: `888888.88`
+
+### Resultados de la Invocación Directa de RPCs:
+
+| Usuario Evaluado | Relación con Sucursal Norte | RPC Evaluada | Fila del Canario (888888.88) Devuelta | Conclusión |
+|---|---|---|---|---|
+| `qa-owner` | Tiene Membership en Norte | `get_financial_results` | **SÍ** | Control Positivo OK |
+| `qa-manager` | **NO** tiene membership en Norte (solo Demo Ituzaingó) | `get_financial_results` | 🔴 **SÍ (888888.88)** | **C-01 CONFIRMADO (FUGA REAL DE DATOS)** |
+| `qa-encargado` | **NO** tiene membership en Norte (solo Demo Ituzaingó) | `get_financial_results` | 🔴 **SÍ (888888.88)** | **C-01 CONFIRMADO (FUGA REAL DE DATOS)** |
+| `qa-staff` | **NO** tiene membership en Norte (solo Demo Ituzaingó) | `get_financial_results` | 🔴 **SÍ (888888.88)** | **C-01 CONFIRMADO (FUGA REAL DE DATOS)** |
+| `qa-b-owner` | Pertenece a **OTRO ORG** (Tenant B) | `get_financial_results` | **NO** (0 filas) | Control Negativo OK (No hay fuga cross-tenant) |
+
+> [!CAUTION]
+> 🔴 **HALLAZGO CRÍTICO C-01 CONFIRMADO:**  
+> Un usuario de `qa-manager`, `qa-encargado` o `qa-staff` perteneciente únicamente a Demo Ituzaingó invoca la RPC `get_financial_results(p_location_id = 'f203a8fe...')` y la base de datos le retorna íntegramente las filas financieras confidenciales de la Sucursal Norte (incluyendo el canario `888888.88`).
 
 ---
 
-## 5. DIFERENCIAS CON LO REPORTADO POR CC
+## 7. 🔺 DECISIONES PARA TANO
 
-Se realizó la comparación entre la verificación independiente de QA y el reporte de Claude Code (CC):
+Lista de discrepancias entre reglas de negocio estrictas y el comportamiento actual del código para revisión y decisión de arquitectura:
 
-- **Reportado por CC:**
-  - Owner: Status 200 en las rutas probadas.
-  - Manager / Encargado / Staff: Redirect HTTP 307 a `/role-select` en `/dashboard/pnl`, `/dashboard/reconcile` y `/dashboard/upload`.
-  - Acceso permitido (HTTP 200) a `/dashboard/owner/v2?modulo=operaciones`.
-- **Resultado de QA:**
-  - **Coincidencia 100% Exacta** para casos de cardinalidad simple N=1.
-  - **Falta descubierta en N=2:** CC no identificó la vulnerabilidad 🔴 **P0 de Escalamiento de Privilegios entre Locales** introducida cuando un usuario posee múltiples memberships con distintos roles entre sucursales.
+1. **Definición del Rol de Usuario (Global vs Por-Location):**
+   - *Comportamiento actual:* `proxy.ts` permite acceso si el usuario tiene el rol en *cualquier* sucursal.
+   - *Recomendación QA:* Enforzar que el rol sea validado contra la sucursal activa en cada petición (`location_id + role`).
+2. **Criterio de Ordenamiento de Memberships por Defecto:**
+   - *Comportamiento actual:* `AuthProvider.tsx` toma el primer elemento devuelto por la BD sin cláusula `ORDER BY`.
+   - *Recomendación QA:* Implementar `.order('created_at', { ascending: true })` de forma explícita.
+3. **Blindaje de RPCs `SECURITY DEFINER` (C-01):**
+   - *Comportamiento actual:* Las 7 RPCs listadas en C-01 autorizan verificando solo `org_id` y no `location_id`.
+   - *Recomendación QA:* Reemplazar la subquery inline por `public.user_has_membership(p_location_id)` en la migración de corrección.
+
+---
+
+## 8. Diferencias con lo Reportado por CC
+
+- **Navegación N=1:** Coincidencia total.
+- **Caso N=2 (Multi-Cardinalidad):** CC no detectó la vulnerabilidad 🔴 **P0 de Escalamiento de Privilegios entre Locales** al navegar cambiando la cookie de rol.
+- **Verificación C-01:** QA logró **reproducir empíricamente la fuga de datos confidenciales** utilizando el canario sembrado `888888.88`, validando al 100% la hipótesis teórica presentada por CC.
