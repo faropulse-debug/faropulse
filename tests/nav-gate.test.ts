@@ -159,4 +159,37 @@ describe.runIf(shouldRunIntegration)('Nav Gate (Integración contra STG)', () =>
       }
     }
   }, 30_000);
+
+  it('usuario multi-rol: no debe heredar permisos entre locations (Caso Multi-Cardinalidad)', async () => {
+    const supa = createClient(supaUrl, supaAnonKey);
+    const { data: authData, error: authErr } = await supa.auth.signInWithPassword({
+      email: process.env.QA_OWNER_EMAIL!,
+      password: process.env.QA_OWNER_PASSWORD!,
+    });
+
+    expect(authErr).toBeNull();
+    const session = authData.session!;
+    const base64Session = 'base64-' + Buffer.from(JSON.stringify(session)).toString('base64');
+    const projectRef = 'egjxyskqhnmuqwkrbshu';
+    const cookieName = `sb-${projectRef}-auth-token`;
+
+    // 1. Operando como encargado (Sucursal Norte): debe rebotar en /dashboard/pnl
+    const reqEncargado = new NextRequest('http://localhost:3000/dashboard/pnl', {
+      headers: {
+        cookie: `${cookieName}=${encodeURIComponent(base64Session)}; faro_role=encargado`,
+      },
+    });
+    const resEncargado = await proxy(reqEncargado);
+    expect(resEncargado.status, 'Como encargado en Sucursal Norte debe recibir 307 al intentar entrar a /dashboard/pnl').toBe(307);
+    expect(resEncargado.headers.get('location')).toMatch(/\/role-select$/);
+
+    // 2. Operando como owner (Demo Ituzaingó): ingresa con 200
+    const reqOwner = new NextRequest('http://localhost:3000/dashboard/pnl', {
+      headers: {
+        cookie: `${cookieName}=${encodeURIComponent(base64Session)}; faro_role=owner`,
+      },
+    });
+    const resOwner = await proxy(reqOwner);
+    expect(resOwner.status, 'Como owner en Demo Ituzaingó debe recibir 200 en /dashboard/pnl').toBe(200);
+  });
 });
