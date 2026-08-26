@@ -33,6 +33,9 @@ jobs:
       - name: Lint
         run: npx eslint src/ app/
 
+      - name: Lint Assertions (Brittle Test Check)
+        run: npx tsx scripts/audit-assertions.ts --mode=ci
+
       - name: Tests
         run: npx vitest run
 
