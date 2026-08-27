@@ -82,7 +82,9 @@ el resto de las convenciones de escala.
   valida tipo jsonb + rango numérico básico por unit.
 - **RLS**: `user_has_membership()` para SELECT (cualquier rol con membership
   activa). `user_has_write_role()` — función nueva, espejo SQL de
-  `lib/authz.ts WRITE_ROLES` — para INSERT/UPDATE.
+  `lib/authz.ts WRITE_ROLES` — para INSERT/UPDATE/DELETE (DELETE agregado
+  2026-08-27, `20260827000001_location_business_config_delete.sql`, misma
+  función, sin duplicar).
 - **App**: `/api/business-config` usa `requireMembership(..., { roles: WRITE_ROLES })`
   antes de escribir vía `service_role`, más validación de forma completa
   (`lib/business-config.ts`, rango real por unidad).
@@ -132,6 +134,32 @@ una entrada del batch es inválida, no se escribe ninguna.
 y unidades en `BUSINESS_CONFIG_KEYS` (`lib/business-config.ts`) — es la fuente
 de verdad, no hardcodear los rangos de nuevo en un componente.
 
+**Borrado** (2026-08-27) — `DELETE /api/business-config?location_id=<uuid>`,
+body `{ keys: [<string>, ...] }`. Única forma de volver una clave a "no
+configurado" (fila ausente). **No existe ningún atajo que lo infiera**: no hay
+PATCH con `value: null`, y escribir `0` vía POST NO es "borrar" — es configurar
+la clave con el valor 0, algo completamente distinto de "no configurado". Si
+necesitás que la UI ofrezca "quitar este valor", andá por acá, no por un POST
+con un valor mágico.
+
+Mismo gate que POST (`requireMembership(..., { roles: WRITE_ROLES })` — un
+`manager`/`encargado`/`staff` recibe 403) y mismo criterio todo-o-nada: si una
+key del batch es desconocida, no se borra ninguna.
+
+| Situación | Status | Body de respuesta |
+|---|---|---|
+| Éxito (incluida una key sin fila previa — DELETE es idempotente) | `200` | `{ success: true, deleted: [<keys pedidas>] }` |
+| Falta `location_id` (query param) | `400` | `{ error: '...' }` |
+| Body inválido / falta `keys` / `keys` vacío | `400` | `{ error: '...' }` |
+| Alguna key del batch no existe en `BUSINESS_CONFIG_KEYS` | `400` | `{ error: '...' }` — no se borra ninguna |
+| Sin sesión válida | `401` | `{ error: 'Unauthorized' }` |
+| Sin membership activa en `location_id`, o rol fuera de `WRITE_ROLES` | `403` | `{ error: '...' }` |
+| Falla el DELETE en Postgres/PostgREST | `500` | `{ error: '...' }` |
+
+`deleted` en la respuesta 200 son las keys que se **pidió** borrar, no las que
+tenían fila — pedir borrar una key ya ausente es un no-op válido, no un error
+("no configurado" borrado de nuevo sigue siendo "no configurado").
+
 ## Verificación en STG — sesión autenticada real
 
 ⚠️ **No se usó `service_role` para verificar.** Con el gate
@@ -173,6 +201,37 @@ Verificación H3 Parte A — location_business_config — STG
 Dato de prueba (`benchmark_laboral_pct=32` en Demo Ituzaingó) borrado después
 de verificar, para no interferir con el testing de Codex en Parte B — STG
 quedó en 0 filas en `location_business_config`.
+
+## Verificación en STG — DELETE (2026-08-27)
+
+Migración `20260827000001_location_business_config_delete.sql` aplicada a STG
+antes de verificar (policy + GRANT DELETE nuevos, nada existente tocado).
+Mismo criterio que Parte A: sesión real, nunca `service_role`
+(`scripts/verify-business-config-delete-stg.ts`).
+
+```
+Verificación DELETE /api/business-config — STG
+  ✓  login qa-owner
+  ✓  login qa-manager
+  ✓  Precondición — sin config previa para benchmark_laboral_pct
+  ✓  Caso 1a — qa-owner escribe benchmark_laboral_pct=45
+  ✓  Caso 1b — confirmado: la lectura ve el valor recién escrito
+  ✓  Caso 1c — qa-owner borra benchmark_laboral_pct (clave EXISTENTE) → 200
+  ✓  Caso 1d — confirmado: tras el DELETE, la RPC vuelve a devolver 0 filas (no configurado, no value=0)
+  ✓  Caso 2 — qa-owner borra mc_objetivo_pct (clave que NUNCA existió acá) → 200, no-op
+  ✓  Caso 3 — qa-manager NO puede borrar (rol fuera de WRITE_ROLES) → 403
+  ✓  Limpieza — borrar cv_umbral_saludable_pct que quedó del Caso 3 y confirmar 0 filas
+
+10/10 passed
+```
+
+Escrito y borrado durante la verificación: `benchmark_laboral_pct=45` (Caso 1,
+escrito y borrado en el mismo test) y `cv_umbral_saludable_pct=37` (Caso 3,
+escrito para que el manager tuviera algo real que intentar borrar, borrado en
+la limpieza final). `mc_objetivo_pct` en el Caso 2 nunca llegó a tener fila —
+es el caso "borrar una clave que no existe". Confirmado por query directa
+(`SELECT count(*) FROM location_business_config`) que STG terminó en 0 filas,
+igual que al empezar.
 
 ## Nota de proceso — worktree aislado
 
