@@ -1,8 +1,15 @@
 'use client'
 
-import { useMemo }                        from 'react'
+import { useEffect, useMemo, useState }   from 'react'
 import { SectionLabel }                  from '@/components/dashboard/SectionLabel'
 import { fmtPct, fmtMillones } from '@/lib/format'
+import {
+  toBusinessConfigLookup,
+  type BusinessConfigLookup,
+  type BusinessConfigRow,
+} from '@/lib/business-config'
+import { logger }                        from '@/lib/logger'
+import { getSupabase }                   from '@/lib/supabase'
 import { useDashboardDataCtx }           from '@/providers/DashboardDataProvider'
 import { type VentaDiaSemana }           from '@/src/lib/dia-semana-helpers'
 
@@ -19,6 +26,14 @@ interface Insight {
   title:  string
   body:   string
   action: string
+}
+
+type ConfigLoadStatus = 'loading' | 'ready' | 'error'
+
+interface BusinessConfigState {
+  locationId: string
+  lookup:     BusinessConfigLookup
+  status:     ConfigLoadStatus
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -46,6 +61,17 @@ function buildPivot(rows: FinancialRow[]): FinPivot {
 
 function avg(nums: number[]): number {
   return nums.length ? nums.reduce((s, n) => s + n, 0) / nums.length : 0
+}
+
+function configNumber(config: BusinessConfigLookup, key: keyof BusinessConfigLookup): number | undefined {
+  const value = config[key]?.value
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function missingConfigText(labels: string[]): string {
+  return labels.length === 1
+    ? `Falta configurar ${labels[0]}.`
+    : `Falta configurar ${labels.join(' y ')}.`
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -105,7 +131,12 @@ function IconTrend({ color }: { color: string }) {
 
 // ─── Compute insights ─────────────────────────────────────────────────────────
 
-function computeInsights(pivot: FinPivot, diaSemana: VentaDiaSemana[]): Insight[] {
+function computeInsights(
+  pivot: FinPivot,
+  diaSemana: VentaDiaSemana[],
+  businessConfig: BusinessConfigLookup,
+  configStatus: ConfigLoadStatus,
+): Insight[] {
   const periods = Array.from(pivot.keys()).sort()
   if (periods.length === 0) return []
 
@@ -189,17 +220,49 @@ function computeInsights(pivot: FinPivot, diaSemana: VentaDiaSemana[]): Insight[
         })
         .filter(x => x > 0)
     )
-    const color = lastCV < 37 ? '#22c55e' : lastCV < 40 ? '#f59e0b' : '#ef4444'
-    const bg    = lastCV < 37 ? 'rgba(34,197,94,0.05)' : lastCV < 40 ? 'rgba(245,158,11,0.05)' : 'rgba(239,68,68,0.05)'
-    const status = lastCV < 37 ? 'saludable' : lastCV < 40 ? 'en zona de atención' : 'elevado'
+    const healthyThreshold = configNumber(businessConfig, 'cv_umbral_saludable_pct')
+    const elevatedThreshold = configNumber(businessConfig, 'cv_umbral_elevado_pct')
+
+    if (configStatus === 'error') {
+      const color = '#f59e0b'
+      return {
+        color,
+        bg: 'rgba(245,158,11,0.05)',
+        icon: <IconPercent color={color} />,
+        title: 'COSTO DE VENTAS',
+        body: `CV% actual: ${fmtPct(lastCV)} (${fmtPeriodo(lastP)}). No pudimos cargar los umbrales configurados para este local.`,
+        action: 'No clasificamos este valor para evitar mostrar una conclusión sin respaldo. Recargá la página para reintentar.',
+      } satisfies Insight
+    }
+
+    const missingThresholds = [
+      healthyThreshold === undefined ? 'el umbral saludable' : null,
+      elevatedThreshold === undefined ? 'el umbral elevado' : null,
+    ].filter((label): label is string => label !== null)
+
+    if (healthyThreshold === undefined || elevatedThreshold === undefined) {
+      const color = '#f59e0b'
+      return {
+        color,
+        bg: 'rgba(245,158,11,0.05)',
+        icon: <IconPercent color={color} />,
+        title: 'COSTO DE VENTAS',
+        body: `CV% actual: ${fmtPct(lastCV)} (${fmtPeriodo(lastP)}) vs promedio histórico ${fmtPct(histCV)}. ${missingConfigText(missingThresholds)}`,
+        action: 'Configurá los umbrales de costo de ventas para que FARO pueda evaluar este indicador.',
+      } satisfies Insight
+    }
+
+    const color = lastCV < healthyThreshold ? '#22c55e' : lastCV < elevatedThreshold ? '#f59e0b' : '#ef4444'
+    const bg    = lastCV < healthyThreshold ? 'rgba(34,197,94,0.05)' : lastCV < elevatedThreshold ? 'rgba(245,158,11,0.05)' : 'rgba(239,68,68,0.05)'
+    const status = lastCV < healthyThreshold ? 'saludable' : lastCV < elevatedThreshold ? 'en zona de atención' : 'elevado'
     return {
       color, bg,
       icon: <IconPercent color={color} />,
       title: 'COSTO DE VENTAS',
       body: `CV% actual: ${fmtPct(lastCV)} (${fmtPeriodo(lastP)}) vs promedio histórico ${fmtPct(histCV)}. Nivel ${status}.`,
-      action: lastCV < 37
+      action: lastCV < healthyThreshold
         ? `Aprovechá el margen para negociar volumen con proveedores y asegurar el precio.`
-        : lastCV < 40
+        : lastCV < elevatedThreshold
         ? `Revisá las recetas con mayor desvío de costo y ajustá porciones o proveedores.`
         : `Auditá el menú completo: priorizá platos con MC > 60% y evaluá eliminar los deficitarios.`,
     } satisfies Insight
@@ -212,14 +275,40 @@ function computeInsights(pivot: FinPivot, diaSemana: VentaDiaSemana[]): Insight[
     const lastCL = lastV > 0
       ? ((get(lastP, 'SUELDOS_CARGAS') + get(lastP, 'LIQ_FINAL')) / lastV) * 100
       : 0
-    const isBad  = lastCL > 30
+    const benchmark = configNumber(businessConfig, 'benchmark_laboral_pct')
+
+    if (configStatus === 'error') {
+      const color = '#f59e0b'
+      return {
+        color,
+        bg: 'rgba(245,158,11,0.05)',
+        icon: <IconUsers color={color} />,
+        title: 'COSTO LABORAL',
+        body: `${fmtPct(lastCL)} sobre ventas en ${fmtPeriodo(lastP)}. No pudimos cargar el benchmark configurado para este local.`,
+        action: 'No evaluamos el costo laboral para evitar mostrar una conclusión sin respaldo. Recargá la página para reintentar.',
+      } satisfies Insight
+    }
+
+    if (benchmark === undefined) {
+      const color = '#f59e0b'
+      return {
+        color,
+        bg: 'rgba(245,158,11,0.05)',
+        icon: <IconUsers color={color} />,
+        title: 'COSTO LABORAL',
+        body: `${fmtPct(lastCL)} sobre ventas en ${fmtPeriodo(lastP)}. El benchmark laboral no está configurado para este local.`,
+        action: 'Configurá el benchmark laboral para que FARO pueda indicar si este costo está dentro del rango esperado.',
+      } satisfies Insight
+    }
+
+    const isBad  = lastCL > benchmark
     const color  = isBad ? '#ef4444' : '#22c55e'
     const bg     = isBad ? 'rgba(239,68,68,0.05)' : 'rgba(34,197,94,0.05)'
     return {
       color, bg,
       icon: <IconUsers color={color} />,
       title: 'COSTO LABORAL',
-      body: `${fmtPct(lastCL)} sobre ventas en ${fmtPeriodo(lastP)}. Benchmark del sector: 30%. Incluye sueldos, cargas y liquidaciones.`,
+      body: `${fmtPct(lastCL)} sobre ventas en ${fmtPeriodo(lastP)}. Benchmark configurado: ${fmtPct(benchmark)}. Incluye sueldos, cargas y liquidaciones.`,
       action: isBad
         ? `Analizá la dotación por turno vs demanda real. Evaluá reducir horas extras o redistribuir carga.`
         : `Eficiencia dentro del rango óptimo. Documentá la estructura para escalarla a nuevas aperturas.`,
@@ -250,11 +339,36 @@ function computeInsights(pivot: FinPivot, diaSemana: VentaDiaSemana[]): Insight[
 
   // ── 6. RECUPERO ───────────────────────────────────────────────────────────
   const recupero = (() => {
-    const INVERSION    = 210_000_000
     const rnTotal      = periods.reduce((s, p) => s + get(p, 'RESULTADO_NETO'), 0)
-    const recuperoPct  = (rnTotal / INVERSION) * 100
-    const faltante     = INVERSION - rnTotal
     const avgMensual   = periods.length > 0 ? rnTotal / periods.length : 0
+    const inversion    = configNumber(businessConfig, 'inversion_ars')
+
+    if (configStatus === 'error') {
+      const color = '#f59e0b'
+      return {
+        color,
+        bg: 'rgba(245,158,11,0.05)',
+        icon: <IconTrend color={color} />,
+        title: 'RECUPERO INVERSIÓN',
+        body: `Resultado neto acumulado: ${fmtMillones(rnTotal)}. No pudimos cargar la inversión configurada para este local.`,
+        action: 'No calculamos el recupero para evitar mostrar una estimación sin respaldo. Recargá la página para reintentar.',
+      } satisfies Insight
+    }
+
+    if (inversion === undefined) {
+      const color = '#f59e0b'
+      return {
+        color,
+        bg: 'rgba(245,158,11,0.05)',
+        icon: <IconTrend color={color} />,
+        title: 'RECUPERO INVERSIÓN',
+        body: `Resultado neto acumulado: ${fmtMillones(rnTotal)}. La inversión total no está configurada para este local.`,
+        action: 'Configurá la inversión total para que FARO pueda calcular el porcentaje y el plazo estimado de recupero.',
+      } satisfies Insight
+    }
+
+    const recuperoPct  = (rnTotal / inversion) * 100
+    const faltante     = inversion - rnTotal
     const mesesRest    = avgMensual > 0 && faltante > 0 ? Math.ceil(faltante / avgMensual) : null
     const color = '#22c55e'
     return {
@@ -262,10 +376,10 @@ function computeInsights(pivot: FinPivot, diaSemana: VentaDiaSemana[]): Insight[
       bg: 'rgba(34,197,94,0.05)',
       icon: <IconTrend color={color} />,
       title: 'RECUPERO INVERSIÓN',
-      body: `${fmtPct(recuperoPct)} recuperado de los $210M invertidos (${fmtMillones(rnTotal)} acumulado). Promedio mensual: ${fmtMillones(avgMensual)}.`,
+      body: `${fmtPct(recuperoPct)} recuperado de ${fmtMillones(inversion)} invertidos (${fmtMillones(rnTotal)} acumulado). Promedio mensual: ${fmtMillones(avgMensual)}.`,
       action: mesesRest && mesesRest > 0
         ? `Al ritmo actual, el recupero completo se alcanza en ~${mesesRest} meses. Priorizá meses de alta demanda para acortar el plazo.`
-        : rnTotal >= INVERSION
+        : rnTotal >= inversion
         ? `¡Inversión recuperada! El negocio opera en ganancia neta pura. Reinvertí los excedentes estratégicamente.`
         : `Acelerá el recupero incrementando el resultado neto mensual por encima del promedio histórico.`,
     } satisfies Insight
@@ -354,14 +468,62 @@ function SkeletonCard() {
 
 interface Props { locationId: string }
 
-export function AlertasSection({ locationId: _locationId }: Props) {
+export function AlertasSection({ locationId }: Props) {
   const { data, isLoading, isRefreshing } = useDashboardDataCtx()
+  const [configState, setConfigState] = useState<BusinessConfigState>({
+    locationId,
+    lookup: {},
+    status: 'loading',
+  })
+
+  useEffect(() => {
+    let cancelled = false
+
+    setConfigState({ locationId, lookup: {}, status: 'loading' })
+
+    async function loadBusinessConfig() {
+      const { data: rows, error } = await getSupabase().rpc('get_location_business_config', {
+        p_location_id: locationId,
+      })
+
+      if (cancelled) return
+
+      if (error) {
+        logger.error('[AlertasSection] get_location_business_config failed:', error.message)
+        setConfigState({ locationId, lookup: {}, status: 'error' })
+        return
+      }
+
+      setConfigState({
+        locationId,
+        lookup: toBusinessConfigLookup((rows ?? []) as BusinessConfigRow[]),
+        status: 'ready',
+      })
+    }
+
+    loadBusinessConfig().catch((error: unknown) => {
+      if (cancelled) return
+      logger.error(
+        '[AlertasSection] get_location_business_config unexpected error:',
+        error instanceof Error ? error.message : String(error),
+      )
+      setConfigState({ locationId, lookup: {}, status: 'error' })
+    })
+
+    return () => { cancelled = true }
+  }, [locationId])
 
   const financial = useMemo(() => data?.financialResults  ?? [], [data?.financialResults])
   const diaSemana = useMemo(() => data?.ventasPorDiaSemana ?? [], [data?.ventasPorDiaSemana])
 
+  const businessConfig = configState.locationId === locationId ? configState.lookup : {}
+  const configStatus = configState.locationId === locationId ? configState.status : 'loading'
   const pivot    = useMemo(() => buildPivot(financial), [financial])
-  const insights = useMemo(() => computeInsights(pivot, diaSemana), [pivot, diaSemana])
+  const insights = useMemo(
+    () => computeInsights(pivot, diaSemana, businessConfig, configStatus),
+    [pivot, diaSemana, businessConfig, configStatus],
+  )
+  const showSkeletons = isLoading || configStatus === 'loading'
 
   return (
     <div style={{ marginBottom: '52px' }}>
@@ -374,7 +536,7 @@ export function AlertasSection({ locationId: _locationId }: Props) {
         opacity: isRefreshing ? 0.6 : 1,
         transition: 'opacity 0.3s',
       }}>
-        {isLoading
+        {showSkeletons
           ? Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)
           : insights.map((ins, i) => <InsightCard key={i} insight={ins} />)
         }
