@@ -160,7 +160,7 @@ describe.runIf(shouldRunIntegration)('Nav Gate (Integración contra STG)', () =>
     }
   }, 30_000);
 
-  it('usuario multi-rol: no debe heredar permisos entre locations (Caso Multi-Cardinalidad)', async () => {
+  it('usuario multi-rol: respeta rol encargado cuando opera explícitamente con esa cookie', async () => {
     const supa = createClient(supaUrl, supaAnonKey);
     const { data: authData, error: authErr } = await supa.auth.signInWithPassword({
       email: process.env.QA_OWNER_EMAIL!,
@@ -173,7 +173,7 @@ describe.runIf(shouldRunIntegration)('Nav Gate (Integración contra STG)', () =>
     const projectRef = 'egjxyskqhnmuqwkrbshu';
     const cookieName = `sb-${projectRef}-auth-token`;
 
-    // 1. Operando como encargado (Sucursal Norte): debe rebotar en /dashboard/pnl
+    // 1. Operando explícitamente con cookie encargado: debe rebotar en /dashboard/pnl (307)
     const reqEncargado = new NextRequest('http://localhost:3000/dashboard/pnl', {
       headers: {
         cookie: `${cookieName}=${encodeURIComponent(base64Session)}; faro_role=encargado`,
@@ -183,7 +183,7 @@ describe.runIf(shouldRunIntegration)('Nav Gate (Integración contra STG)', () =>
     expect(resEncargado.status, 'Como encargado en Sucursal Norte debe recibir 307 al intentar entrar a /dashboard/pnl').toBe(307);
     expect(resEncargado.headers.get('location')).toMatch(/\/role-select$/);
 
-    // 2. Operando como owner (Demo Ituzaingó): ingresa con 200
+    // 2. Operando explícitamente con cookie owner: ingresa con 200
     const reqOwner = new NextRequest('http://localhost:3000/dashboard/pnl', {
       headers: {
         cookie: `${cookieName}=${encodeURIComponent(base64Session)}; faro_role=owner`,
@@ -192,4 +192,37 @@ describe.runIf(shouldRunIntegration)('Nav Gate (Integración contra STG)', () =>
     const resOwner = await proxy(reqOwner);
     expect(resOwner.status, 'Como owner en Demo Ituzaingó debe recibir 200 en /dashboard/pnl').toBe(200);
   });
+
+  // 🔴 P0-B confirmado 14/ago — pasa a it() cuando se arregle proxy.ts (Sprint 2)
+  it.fails('usuario multi-rol: no debe heredar permisos de owner en locations donde solo es encargado (🔴 P0-B)', async () => {
+    const supa = createClient(supaUrl, supaAnonKey);
+    const { data: authData, error: authErr } = await supa.auth.signInWithPassword({
+      email: process.env.QA_OWNER_EMAIL!,
+      password: process.env.QA_OWNER_PASSWORD!,
+    });
+
+    expect(authErr).toBeNull();
+    const session = authData.session!;
+    const base64Session = 'base64-' + Buffer.from(JSON.stringify(session)).toString('base64');
+    const projectRef = 'egjxyskqhnmuqwkrbshu';
+    const cookieName = `sb-${projectRef}-auth-token`;
+    const norteLocationId = 'f203a8fe-fc04-40d8-bc08-3c7571b4c008';
+
+    // El usuario intenta acceder al P&L de Sucursal Norte (donde es ENCARGADO) enviando cookie faro_role=owner
+    // El sistema DEBERÍA rechazarlo con 307 porque en Norte no tiene membresía owner.
+    // Actualmente proxy.ts NO valida location_id y retorna 200 (🔴 Falla esperada por P0-B).
+    const req = new NextRequest(`http://localhost:3000/dashboard/pnl?location_id=${norteLocationId}`, {
+      headers: {
+        cookie: `${cookieName}=${encodeURIComponent(base64Session)}; faro_role=owner`,
+      },
+    });
+
+    const res = await proxy(req);
+    expect(
+      res.status,
+      '🔴 P0-B: Un usuario que es solo encargado en Sucursal Norte no debe acceder a /dashboard/pnl enviando cookie owner de otra sucursal'
+    ).toBe(307);
+    expect(res.headers.get('location')).toMatch(/\/role-select$/);
+  });
 });
+
