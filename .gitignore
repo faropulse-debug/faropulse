@@ -70,3 +70,8 @@ supabase/.branches/
 
 # Sentry Config File
 .env.sentry-build-plugin
+
+# Git Worktrees
+.worktrees/
+faro-app-worktrees/
+

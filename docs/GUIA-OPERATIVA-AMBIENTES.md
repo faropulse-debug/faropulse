@@ -1,4 +1,4 @@
-﻿# Guía Operativa de Ambientes (DEV / STG / PROD)
+# Guía Operativa de Ambientes (DEV / STG / PROD)
 
 Objetivo: operar FARO-APP con separación real de ambientes para trabajar rápido, seguro y sin contaminar datos de clientes.
 
@@ -264,3 +264,31 @@ Si seguís esta guía, FARO-APP queda con:
 - releases controlados,
 - menor riesgo operativo,
 - base sólida para clientes y crecimiento.
+
+---
+
+## 11) Aislamiento de Agentes y Desarrolladores (Git Worktrees)
+
+Para evitar colisiones entre agentes concurrentes o tareas simultáneas sobre el directorio compartido, cada agente o tarea debe operar en su propio **Git Worktree** aislado.
+
+### Comando al arrancar cualquier agente o tarea:
+
+```bash
+# En Linux / macOS / Bash:
+./scripts/setup-worktree.sh feature/mi-tarea origin/develop
+
+# En Windows / PowerShell:
+.\scripts\setup-worktree.ps1 -Branch feature/mi-tarea -BaseRef origin/develop
+```
+
+El script:
+1. Crea un directorio de trabajo aislado en `../faro-app-worktrees/<nombre-de-rama>`.
+2. Asocia y checkoutea la rama de forma limpia contra `origin/develop`.
+3. Copia automáticamente los archivos `.env` necesarios (`.env.staging`, `.env.stg-test-users`, `.env.local`).
+4. Imprime la ruta para comenzar a trabajar de inmediato con `cd <path>`.
+
+Antes de cada commit, verificar siempre la rama activa con:
+```bash
+git branch --show-current
+```
+
