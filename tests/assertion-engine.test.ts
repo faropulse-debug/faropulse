@@ -3,15 +3,15 @@ import {
   analyzeAssertions,
   isAllowedNumericLiteral,
   isLiveIntegrationTest,
-  ALLOWED_HTTP_STATUS_CODES,
-  ALLOWED_INVARIANT_CONSTANTS,
-  ALLOWED_SYNTHETIC_MARKERS,
 } from '../scripts/lib/assertion-engine'
+import { QA_CANARIO_C01_MONTO, QA_TENANT_B_SYNTHETIC_SUM } from './helpers/synthetic-markers'
 
-describe('Assertion Linter Engine (Motor Puro)', () => {
+describe('Assertion Linter Engine (Motor Puro & Selector)', () => {
   describe('Allowlist de Literales Numéricos Seguros', () => {
     it('permite todos los códigos de estado HTTP estándar', () => {
       expect(isAllowedNumericLiteral(200)).toBe(true)
+      expect(isAllowedNumericLiteral(201)).toBe(true)
+      expect(isAllowedNumericLiteral(204)).toBe(true)
       expect(isAllowedNumericLiteral(307)).toBe(true)
       expect(isAllowedNumericLiteral(401)).toBe(true)
       expect(isAllowedNumericLiteral(403)).toBe(true)
@@ -20,35 +20,28 @@ describe('Assertion Linter Engine (Motor Puro)', () => {
       expect(isAllowedNumericLiteral(500)).toBe(true)
     })
 
-    it('permite constantes estructurales e invariantes (0, 1, -1)', () => {
+    it('permite constantes estructurales e invariantes de signo/presencia (0, 1, -1)', () => {
       expect(isAllowedNumericLiteral(0)).toBe(true)
       expect(isAllowedNumericLiteral(1)).toBe(true)
       expect(isAllowedNumericLiteral(-1)).toBe(true)
     })
 
-    it('permite marcadores sintéticos deliberados (QA Tenant B y Canario C-01)', () => {
-      expect(isAllowedNumericLiteral(555555.55)).toBe(true)
-      expect(isAllowedNumericLiteral(666666.66)).toBe(true)
-      expect(isAllowedNumericLiteral(777777.77)).toBe(true)
-      expect(isAllowedNumericLiteral(888888.88)).toBe(true)
-      expect(isAllowedNumericLiteral(1999999.98)).toBe(true)
-    })
-
-    it('rechaza números mágicos dependientes de datos vivos', () => {
+    it('rechaza números mágicos crudos en tests vivos (incluyendo totales sintéticos no nombrados)', () => {
       expect(isAllowedNumericLiteral(410)).toBe(false)
       expect(isAllowedNumericLiteral(363.5)).toBe(false)
       expect(isAllowedNumericLiteral(1045)).toBe(false)
-      expect(isAllowedNumericLiteral(42)).toBe(false)
+      expect(isAllowedNumericLiteral(1999999.98)).toBe(false)
+      expect(isAllowedNumericLiteral(888888.88)).toBe(false)
     })
   })
 
-  describe('Detección de Tests de Integración vs Unitarios Puros', () => {
+  describe('Detección del Selector (isLiveIntegrationTest)', () => {
     it('identifica test con RUN_INTEGRATION_TESTS como integración', () => {
       const code = `const shouldRun = process.env.RUN_INTEGRATION_TESTS === 'true'; describe.runIf(shouldRun)('test', () => {});`
       expect(isLiveIntegrationTest(code, 'tests/sample.test.ts')).toBe(true)
     })
 
-    it('identifica script con createClient como integración', () => {
+    it('identifica script que consulta Supabase como integración', () => {
       const code = `import { createClient } from '@supabase/supabase-js'; const s = createClient('url', 'key');`
       expect(isLiveIntegrationTest(code, 'scripts/sample.ts')).toBe(true)
     })
@@ -64,7 +57,7 @@ describe('Assertion Linter Engine (Motor Puro)', () => {
     })
   })
 
-  describe('analyzeAssertions (Detección de Aserciones Frágiles)', () => {
+  describe('analyzeAssertions (Detección de Aserciones Frágiles y Canarios)', () => {
     const integrationHeader = `const run = process.env.RUN_INTEGRATION_TESTS === 'true';\n`
 
     it('detecta expect(data.length).toBe(410) en test de integración', () => {
@@ -98,6 +91,23 @@ describe('Assertion Linter Engine (Motor Puro)', () => {
       expect(findings[0].expression).toBe('rows.length')
     })
 
+    it('detecta literales sintéticos crudos y sugiere importar la constante nombrada', () => {
+      const code = `${integrationHeader}expect(row.monto).toBe(888888.88);`
+      const findings = analyzeAssertions(code, 'tests/example.test.ts')
+      expect(findings).toHaveLength(1)
+      expect(findings[0].literal).toBe(888888.88)
+      expect(findings[0].suggestion).toContain('tests/helpers/synthetic-markers.ts')
+    })
+
+    it('permite referencias a constantes nombradas de marcadores sintéticos', () => {
+      const code = `${integrationHeader}
+        import { QA_CANARIO_C01_MONTO } from './helpers/synthetic-markers';
+        expect(row.monto).toBe(QA_CANARIO_C01_MONTO);
+      `
+      const findings = analyzeAssertions(code, 'tests/example.test.ts')
+      expect(findings).toHaveLength(0)
+    })
+
     it('ignora status HTTP permitidos (toBe(200), toBe(307), toBe(403))', () => {
       const code = `${integrationHeader}
         expect(res.status).toBe(200);
@@ -113,15 +123,6 @@ describe('Assertion Linter Engine (Motor Puro)', () => {
         expect(data?.length).toBe(0);
         expect(documento_peso('Comanda', 100)).toBe(1);
         expect(documento_peso('NC', 100)).toBe(-1);
-      `
-      const findings = analyzeAssertions(code, 'tests/example.test.ts')
-      expect(findings).toHaveLength(0)
-    })
-
-    it('ignora marcadores sintéticos deliberados (888888.88, 555555.55)', () => {
-      const code = `${integrationHeader}
-        expect(row.monto).toBe(888888.88);
-        expect(tenantB.total).toBe(555555.55);
       `
       const findings = analyzeAssertions(code, 'tests/example.test.ts')
       expect(findings).toHaveLength(0)
@@ -144,15 +145,43 @@ describe('Assertion Linter Engine (Motor Puro)', () => {
       const findings = analyzeAssertions(code, 'tests/example.test.ts')
       expect(findings).toHaveLength(0)
     })
+  })
 
-    it('ignora archivos unitarios puros sin llamadas a BD viva', () => {
-      const code = `
-        const MAY26 = [{ pedidos: 100, ventas: 5000 }];
-        expect(MAY26.length).toBe(1);
-        expect(MAY26[0].pedidos).toBe(100);
+  describe('Pruebas Históricas de Regresión (Snippets Reales de Deuda Pasada)', () => {
+    it('detecta los 3 casos de toBe(410) del commit 9f9aeca en tests/documento-peso.test.ts', () => {
+      const historicalSnippet = `
+        const shouldRunIntegration = process.env.RUN_INTEGRATION_TESTS === 'true';
+        describe.runIf(shouldRunIntegration)('Documento Peso', () => {
+          it('neto de Julio', async () => {
+            const supabase = createClient('url', 'key');
+            const dataJulio = { tickets: 410 };
+            expect(dataJulio.tickets).toBe(410);
+            const totalDaily = 410;
+            expect(totalDaily).toBe(410);
+            const totalTickets = 410;
+            expect(totalTickets).toBe(410);
+          });
+        });
       `
-      const findings = analyzeAssertions(code, 'tests/pure-unit.test.ts')
-      expect(findings).toHaveLength(0)
+      const findings = analyzeAssertions(historicalSnippet, 'tests/documento-peso.test.ts')
+      expect(findings).toHaveLength(3)
+      expect(findings.every(f => f.literal === 410)).toBe(true)
+    })
+
+    it('detecta assert(n === 363) del commit 586488c~1 en scripts/regression-test.ts', () => {
+      const historicalSnippet = `
+        import { createClient } from '@supabase/supabase-js';
+        async function run() {
+          const rows = await sql('SELECT count(*) as n FROM financial_results');
+          const n = rows[0].n;
+          assert(n === 363, 'count = 363');
+        }
+      `
+      const findings = analyzeAssertions(historicalSnippet, 'scripts/regression-test.ts')
+      expect(findings).toHaveLength(1)
+      expect(findings[0].literal).toBe(363)
+      expect(findings[0].matcher).toBe('===')
+      expect(findings[0].expression).toBe('n')
     })
   })
 })

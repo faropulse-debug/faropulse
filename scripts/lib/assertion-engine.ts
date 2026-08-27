@@ -32,24 +32,14 @@ export const ALLOWED_HTTP_STATUS_CODES: ReadonlySet<number> = new Set([
 ])
 
 /**
- * Structural and boundary invariant constants (e.g. empty counts, unit signs).
+ * Structural and boundary invariant constants.
+ * 0: Authorization absence (cross-tenant 0 rows returned), null-hash counts (0 invalid rows), delta is 0.
+ * 1 / -1: Sign indicators (e.g. documento_peso returning 1 or -1) or single ID lookups.
  */
 export const ALLOWED_INVARIANT_CONSTANTS: ReadonlySet<number> = new Set([
-  0,   // Empty array length, zero diff, zero count
-  1,   // Single item, boolean flag mapped to 1, documento_peso positive
-  -1,  // documento_peso negative, not found index
-])
-
-/**
- * Deliberate synthetic test markers (stable fixture tokens planted in STG/DB for verification).
- * These are deliberate canary/synthetic values that do not change when normal live data accumulates.
- */
-export const ALLOWED_SYNTHETIC_MARKERS: ReadonlySet<number> = new Set([
-  555555.55,  // QA Tenant B synthetic total 1
-  666666.66,  // QA Tenant B synthetic total 2
-  777777.77,  // QA Tenant B synthetic total 3
-  888888.88,  // Canario C-01 (financial_results Norte)
-  1999999.98, // QA Tenant B aggregate sum (555555.55 + 666666.66 + 777777.77)
+  0,
+  1,
+  -1,
 ])
 
 /**
@@ -71,7 +61,7 @@ export function isLiveIntegrationTest(sourceCode: string, fileName: string): boo
     return true
   }
 
-  // Scripts that run live database verification (e.g. regression-test.ts, verify-*.ts)
+  // Scripts that run live database verification (e.g. regression-test.ts, verify-*.ts, state scripts)
   if (fileName.includes('scripts/') || fileName.includes('scripts\\')) {
     if (sourceCode.includes('supabase.com') || sourceCode.includes('createClient') || sourceCode.includes('sql(') || sourceCode.includes('rpc(')) {
       return true
@@ -92,12 +82,13 @@ export function isLiveIntegrationTest(sourceCode: string, fileName: string): boo
 }
 
 /**
- * Checks if a numeric literal is allowed (HTTP status, invariant 0/1/-1, or synthetic marker).
+ * Checks if a numeric literal is allowed (HTTP status or invariant 0/1/-1).
+ * Note: Synthetic test markers MUST be referenced via named constants (e.g. QA_CANARIO_C01_MONTO)
+ * rather than hardcoded magic literals in test files.
  */
 export function isAllowedNumericLiteral(num: number): boolean {
   if (ALLOWED_HTTP_STATUS_CODES.has(num)) return true
   if (ALLOWED_INVARIANT_CONSTANTS.has(num)) return true
-  if (ALLOWED_SYNTHETIC_MARKERS.has(num)) return true
   return false
 }
 
@@ -132,7 +123,7 @@ export function analyzeAssertions(
         if (EQUALITY_MATCHERS.has(methodName) && node.arguments.length >= 1) {
           const expectedArg = node.arguments[0]
 
-          // Check if expectedArg is a numeric literal or unary numeric literal (e.g. -1, 410, 363.5)
+          // Check if expectedArg is a numeric literal (e.g. 410, 363.5, 1999999.98)
           const numValue = extractNumericValue(expectedArg)
           if (numValue !== null) {
             if (!isAllowedNumericLiteral(numValue)) {
@@ -154,7 +145,7 @@ export function analyzeAssertions(
                 expression: targetExprStr,
                 rule: 'NO_BRITTLE_NUMERIC_ASSERTION',
                 message: `Comparación frágil contra el literal numérico fijo (${numValue}) sobre datos vivos.`,
-                suggestion: `Reemplazá la comparación fija por un invariante relacional (ej. toBeGreaterThan(0), o compará contra el resultado de otra query en el mismo test).`
+                suggestion: `Reemplazá la comparación fija por un invariante relacional (ej. toBeGreaterThan(0), o compará contra otra query). Si es un marcador sintético deliberado, importá la constante nombrada desde tests/helpers/synthetic-markers.ts en lugar de usar un literal numérico crudo.`
               })
             }
           }
@@ -186,7 +177,7 @@ export function analyzeAssertions(
                   expression: targetExprStr,
                   rule: 'NO_BRITTLE_NUMERIC_ASSERTION',
                   message: `Comparación frágil (assert === ${numValue}) sobre datos vivos.`,
-                  suggestion: `Reemplazá la comparación fija por un invariante relacional (ej. assert(${targetExprStr} > 0) o validación contra otra query).`
+                  suggestion: `Reemplazá la comparación fija por un invariante relacional (ej. assert(${targetExprStr} > 0) o validación contra otra query). Si es un marcador sintético, usá la constante nombrada de tests/helpers/synthetic-markers.ts.`
                 })
               }
             }

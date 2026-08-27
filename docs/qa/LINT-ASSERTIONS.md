@@ -44,17 +44,18 @@ El linter incluye una allowlist inteligente para evitar falsos positivos en veri
    - *Ejemplo:* `expect(res.status).toBe(403);`
 
 2. **Constantes Estructurales e Invariantes Básicos (0, 1, -1):**
-   - Comprobación de colecciones vacías o diferencias nulas: `toBe(0)`, `toHaveLength(0)`.
-   - Signos y multiplicadores de dominio: `documento_peso` devuelve `1` o `-1`.
-   - *Ejemplo:* `expect(emptyList.length).toBe(0);`
-   - *Ejemplo:* `expect(documento_peso('Nota de Crédito', 100)).toBe(-1);`
+   - **Invariante de autorización o integridad:** Comprobación de que un usuario no autorizado recibe 0 filas (`expect(data.length).toBe(0)`), que no existen hashes nulos (`assert(n === 0)`), o que no hay descuadre (`diff === 0`).
+   - **Signos y multiplicadores de dominio:** `documento_peso` devuelve `1` o `-1`.
+   - *Nota:* Conteo de tablas vivas que se espera que tengan datos **NO** debe usar `toBe(0)`/`toBe(N)` sino invariantes de cota (`toBeGreaterThan(0)`).
 
-3. **Marcadores Sintéticos Deliberados (Canarios y Fixtures de QA):**
-   - Valores sintéticos explícitamente sembrados en la base de datos para pruebas que nunca cambian con el tráfico de usuarios reales:
-     - `555555.55`, `666666.66`, `777777.77` (QA Tenant B)
-     - `888888.88` (Canario C-01 de P&L)
-     - `1999999.98` (Total sintético de Tenant B)
-   - *Ejemplo:* `expect(canarioRow.monto).toBe(888888.88);`
+3. **Marcadores Sintéticos Deliberados (Regla: "Una Definición, Un Lugar"):**
+   - Los valores sintéticos sembrados en la base de datos (QA Tenant B, canarios de P&L) **deben declararse como constantes exportadas** en `tests/helpers/synthetic-markers.ts` e importarse por nombre:
+     - `QA_TENANT_B_SYNTHETIC_1` (`555555.55`)
+     - `QA_TENANT_B_SYNTHETIC_2` (`666666.66`)
+     - `QA_TENANT_B_SYNTHETIC_3` (`777777.77`)
+     - `QA_TENANT_B_SYNTHETIC_SUM` (`1999999.98`)
+     - `QA_CANARIO_C01_MONTO` (`888888.88`)
+   - El linter **permite referencias a identificadores nombrados** (`expect(row.monto).toBe(QA_CANARIO_C01_MONTO)`) y **marca cualquier número mágico crudo**, garantizando que no existan contradicciones de intención en el código.
 
 4. **Invariantes Relacionales entre Variables:**
    - *Ejemplo:* `expect(totalDaily).toBe(netoMensual);`
