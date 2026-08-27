@@ -1,5 +1,5 @@
-import '../scripts/assert-stg';
-import { describe, it, expect } from 'vitest';
+import { assertStagingEnvironment } from '../scripts/assert-stg';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 import { rolesForPath, ALL_DASHBOARD_ROLES } from '@/lib/page-access';
 import { WRITE_ROLES } from '@/lib/authz';
@@ -100,6 +100,10 @@ describe('Nav Gate (Motor Puro / Evaluador de Matriz)', () => {
 const shouldRunIntegration = process.env.RUN_INTEGRATION_TESTS === 'true';
 
 describe.runIf(shouldRunIntegration)('Nav Gate (Integración contra STG)', () => {
+  beforeAll(() => {
+    assertStagingEnvironment();
+  });
+
   const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const supaAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 

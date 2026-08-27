@@ -13,4 +13,7 @@ export function assertStagingEnvironment(): void {
   console.log(`[GUARDRAIL OK] Staging environment verified (project-ref: ${projectRef}).`)
 }
 
-assertStagingEnvironment()
+// Auto-run only if executed directly via CLI
+if (typeof require !== 'undefined' && require.main === module) {
+  assertStagingEnvironment()
+}
