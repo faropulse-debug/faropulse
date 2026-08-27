@@ -58,8 +58,10 @@ jobs:
           QA_ENCARGADO_PASSWORD: ${{ secrets.QA_ENCARGADO_PASSWORD }}
           QA_STAFF_EMAIL: ${{ secrets.QA_STAFF_EMAIL }}
           QA_STAFF_PASSWORD: ${{ secrets.QA_STAFF_PASSWORD }}
+          QA_B_OWNER_EMAIL: ${{ secrets.QA_B_OWNER_EMAIL }}
+          QA_B_OWNER_PASSWORD: ${{ secrets.QA_B_OWNER_PASSWORD }}
           QA_TENANT_B_LOCATION_ID: ${{ secrets.QA_TENANT_B_LOCATION_ID }}
-        run: npx vitest run tests/cross-tenant.test.ts tests/role-gating.test.ts tests/documento-peso.test.ts
+        run: npx vitest run tests/cross-tenant.test.ts tests/role-gating.test.ts tests/documento-peso.test.ts tests/nav-gate.test.ts
 
   # Nombre de check nuevo, nunca agregado a required checks en branch
   # protection — no bloquea el merge por diseño (defensa en profundidad).
