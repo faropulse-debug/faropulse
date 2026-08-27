@@ -140,3 +140,115 @@ describe('POST /api/business-config', () => {
     expect(res.status).toBe(500)
   })
 })
+
+function makeDeleteReq(locationId: string | null, body: unknown) {
+  const url = locationId
+    ? `http://localhost/api/business-config?location_id=${locationId}`
+    : 'http://localhost/api/business-config'
+  return new NextRequest(url, {
+    method: 'DELETE',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+describe('DELETE /api/business-config', () => {
+  it('400 — falta location_id', async () => {
+    const { DELETE } = await import('@/app/api/business-config/route')
+    const res = await DELETE(makeDeleteReq(null, { keys: ['benchmark_laboral_pct'] }))
+    expect(res.status).toBe(400)
+    expect(mockRequireMembership).not.toHaveBeenCalled()
+  })
+
+  it('delega el gate de rol a requireMembership con opts.roles = WRITE_ROLES', async () => {
+    const { WRITE_ROLES } = await import('@/lib/authz')
+    const { DELETE } = await import('@/app/api/business-config/route')
+    await DELETE(makeDeleteReq('loc-1', { keys: ['benchmark_laboral_pct'] }))
+
+    expect(mockRequireMembership).toHaveBeenCalledWith(
+      expect.anything(),
+      'loc-1',
+      { roles: WRITE_ROLES },
+    )
+  })
+
+  it('propaga el rechazo de requireMembership (403 — manager fuera de WRITE_ROLES) sin llegar a borrar', async () => {
+    mockRequireMembership.mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 }),
+    )
+    const { DELETE } = await import('@/app/api/business-config/route')
+    const res = await DELETE(makeDeleteReq('loc-1', { keys: ['benchmark_laboral_pct'] }))
+
+    expect(res.status).toBe(403)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('400 — keys vacío o ausente', async () => {
+    const { DELETE } = await import('@/app/api/business-config/route')
+    const res = await DELETE(makeDeleteReq('loc-1', {}))
+    expect(res.status).toBe(400)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('400 — key desconocida, no borra nada', async () => {
+    const { DELETE } = await import('@/app/api/business-config/route')
+    const res = await DELETE(makeDeleteReq('loc-1', { keys: ['no_existe'] }))
+    expect(res.status).toBe(400)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('400 — un batch con UNA key desconocida no borra NINGUNA (todo o nada)', async () => {
+    const { DELETE } = await import('@/app/api/business-config/route')
+    const res = await DELETE(makeDeleteReq('loc-1', { keys: ['benchmark_laboral_pct', 'no_existe'] }))
+    expect(res.status).toBe(400)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('200 — borra una clave existente vía service_role con location_id=eq. y key=in.(...)', async () => {
+    const { DELETE } = await import('@/app/api/business-config/route')
+    const res = await DELETE(makeDeleteReq('loc-1', { keys: ['benchmark_laboral_pct'] }))
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+    expect(body.deleted).toEqual(['benchmark_laboral_pct'])
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    const [url, init] = mockFetch.mock.calls[0]
+    expect(String(url)).toContain('/rest/v1/location_business_config')
+    expect(String(url)).toContain('location_id=eq.loc-1')
+    expect(String(url)).toContain('key=in.')
+    expect(String(url)).toContain('benchmark_laboral_pct')
+    expect(init.method).toBe('DELETE')
+  })
+
+  it('200 — borrar una clave sin fila previa es un no-op válido, no un error (DELETE es idempotente)', async () => {
+    // El mock de fetch simula el mismo 200 que devuelve PostgREST cuando el
+    // filtro no matchea ninguna fila — DELETE no distingue "borré 1" de
+    // "borré 0", ninguno de los dos es un error.
+    mockFetch.mockResolvedValue(new Response(null, { status: 200 }))
+    const { DELETE } = await import('@/app/api/business-config/route')
+    const res = await DELETE(makeDeleteReq('loc-1', { keys: ['mc_objetivo_pct'] }))
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+    expect(body.deleted).toEqual(['mc_objetivo_pct'])
+  })
+
+  it('200 — batch de varias keys en un solo DELETE', async () => {
+    const { DELETE } = await import('@/app/api/business-config/route')
+    const res = await DELETE(makeDeleteReq('loc-1', { keys: ['benchmark_laboral_pct', 'mc_objetivo_pct'] }))
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.deleted).toEqual(['benchmark_laboral_pct', 'mc_objetivo_pct'])
+  })
+
+  it('500 — el DELETE falla en Postgres/PostgREST', async () => {
+    mockFetch.mockResolvedValue(new Response('db error', { status: 500 }))
+    const { DELETE } = await import('@/app/api/business-config/route')
+    const res = await DELETE(makeDeleteReq('loc-1', { keys: ['benchmark_laboral_pct'] }))
+    expect(res.status).toBe(500)
+  })
+})
