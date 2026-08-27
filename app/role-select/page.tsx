@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
+import type { Role } from '@/types/auth'
 
 // BACKGROUND
 
@@ -371,7 +372,63 @@ function RoleCard({ icon, title, description, accentColor, accentGlow, onClick, 
 
 // MAIN PAGE
 
-type ModuleKey = 'business' | 'operations' | 'upload'
+export type ModuleKey = 'business' | 'operations' | 'upload'
+
+export interface ModuleDef {
+  key: ModuleKey
+  icon: ReactNode
+  title: string
+  description: string
+  href: string
+  accentColor: string
+  accentGlow: string
+}
+
+export const MODULES: ModuleDef[] = [
+  {
+    key: 'business',
+    icon: <CompassIcon size={42} />,
+    title: 'Datos de Negocio',
+    description: 'Rentabilidad, P&L, inversión y descuentos',
+    href: '/dashboard/owner/v2?modulo=negocio',
+    accentColor: '#f5820a',
+    accentGlow: 'rgba(245,130,10,0.16)',
+  },
+  {
+    key: 'operations',
+    icon: <PanelIcon size={42} />,
+    title: 'Datos Operativos',
+    description: 'Operación del día, ventas y mix de canales',
+    href: '/dashboard/owner/v2?modulo=operaciones',
+    accentColor: '#64a0f0',
+    accentGlow: 'rgba(100,160,240,0.16)',
+  },
+  {
+    key: 'upload',
+    icon: <UploadIcon size={42} />,
+    title: 'Carga de Información',
+    description: 'Subir datos de ventas y P&L',
+    href: '/dashboard/upload',
+    accentColor: '#f5820a',
+    accentGlow: 'rgba(245,130,10,0.16)',
+  },
+]
+
+// UI-only visibility check for module tiles — answers what a role SEES, not
+// what it's allowed to DO. See lib/page-access.ts for the server-side gate
+// each module's target route (href above) enforces;
+// tests/page-access-consistency.test.ts asserts this stays a subset of that
+// gate, so a role is never shown an enabled tile for a page it gets bounced
+// from.
+export function canAccessModule(role: Role | undefined, module: ModuleKey): boolean {
+  if (!role) return false
+
+  if (role === 'owner' || role === 'super_admin') return true
+  if (role === 'manager') return module !== 'upload'
+  if (role === 'encargado' || role === 'staff') return module === 'operations'
+
+  return false
+}
 
 export default function RoleSelectPage() {
   const router = useRouter()
@@ -381,44 +438,7 @@ export default function RoleSelectPage() {
   const memberships = user?.memberships ?? []
   const selectedMembership = memberships.find(m => m.id === selectedMembershipId) ?? null
   const selectedLocalName = selectedMembership?.organization?.name ?? 'este local'
-
-  const modules: Array<{
-    key: ModuleKey
-    icon: ReactNode
-    title: string
-    description: string
-    href: string
-    accentColor: string
-    accentGlow: string
-  }> = [
-    {
-      key: 'business',
-      icon: <CompassIcon size={42} />,
-      title: 'Datos de Negocio',
-      description: 'Rentabilidad, P&L, inversión y descuentos',
-      href: '/dashboard/owner/v2?modulo=negocio',
-      accentColor: '#f5820a',
-      accentGlow: 'rgba(245,130,10,0.16)',
-    },
-    {
-      key: 'operations',
-      icon: <PanelIcon size={42} />,
-      title: 'Datos Operativos',
-      description: 'Operación del día, ventas y mix de canales',
-      href: '/dashboard/owner/v2?modulo=operaciones',
-      accentColor: '#64a0f0',
-      accentGlow: 'rgba(100,160,240,0.16)',
-    },
-    {
-      key: 'upload',
-      icon: <UploadIcon size={42} />,
-      title: 'Carga de Información',
-      description: 'Subir datos de ventas y P&L',
-      href: '/dashboard/upload',
-      accentColor: '#f5820a',
-      accentGlow: 'rgba(245,130,10,0.16)',
-    },
-  ]
+  const modules = MODULES
 
   function handleSelectMembership(membershipId: string) {
     setActiveMembership(membershipId)
@@ -427,18 +447,6 @@ export default function RoleSelectPage() {
 
   function handleSelectModule(href: string) {
     router.push(href)
-  }
-
-  function canAccessModule(module: ModuleKey) {
-    if (!selectedMembership) return false
-
-    const { role } = selectedMembership
-
-    if (role === 'owner' || role === 'super_admin') return true
-    if (role === 'manager') return module !== 'upload'
-    if (role === 'encargado' || role === 'staff') return module === 'operations'
-
-    return false
   }
 
   async function handleSignOut() {
@@ -539,7 +547,7 @@ export default function RoleSelectPage() {
               width: '100%',
             }}>
               {modules.map(module => {
-                const hasAccess = canAccessModule(module.key)
+                const hasAccess = canAccessModule(selectedMembership?.role, module.key)
 
                 return (
                   <RoleCard
