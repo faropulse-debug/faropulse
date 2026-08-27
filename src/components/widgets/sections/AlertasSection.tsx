@@ -36,6 +36,8 @@ interface BusinessConfigState {
   status:     ConfigLoadStatus
 }
 
+const EMPTY_BUSINESS_CONFIG: BusinessConfigLookup = {}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const MONTH_LABELS: Record<string, string> = {
@@ -472,14 +474,12 @@ export function AlertasSection({ locationId }: Props) {
   const { data, isLoading, isRefreshing } = useDashboardDataCtx()
   const [configState, setConfigState] = useState<BusinessConfigState>({
     locationId,
-    lookup: {},
+    lookup: EMPTY_BUSINESS_CONFIG,
     status: 'loading',
   })
 
   useEffect(() => {
     let cancelled = false
-
-    setConfigState({ locationId, lookup: {}, status: 'loading' })
 
     async function loadBusinessConfig() {
       const { data: rows, error } = await getSupabase().rpc('get_location_business_config', {
@@ -490,7 +490,7 @@ export function AlertasSection({ locationId }: Props) {
 
       if (error) {
         logger.error('[AlertasSection] get_location_business_config failed:', error.message)
-        setConfigState({ locationId, lookup: {}, status: 'error' })
+        setConfigState({ locationId, lookup: EMPTY_BUSINESS_CONFIG, status: 'error' })
         return
       }
 
@@ -507,7 +507,7 @@ export function AlertasSection({ locationId }: Props) {
         '[AlertasSection] get_location_business_config unexpected error:',
         error instanceof Error ? error.message : String(error),
       )
-      setConfigState({ locationId, lookup: {}, status: 'error' })
+      setConfigState({ locationId, lookup: EMPTY_BUSINESS_CONFIG, status: 'error' })
     })
 
     return () => { cancelled = true }
@@ -516,7 +516,7 @@ export function AlertasSection({ locationId }: Props) {
   const financial = useMemo(() => data?.financialResults  ?? [], [data?.financialResults])
   const diaSemana = useMemo(() => data?.ventasPorDiaSemana ?? [], [data?.ventasPorDiaSemana])
 
-  const businessConfig = configState.locationId === locationId ? configState.lookup : {}
+  const businessConfig = configState.locationId === locationId ? configState.lookup : EMPTY_BUSINESS_CONFIG
   const configStatus = configState.locationId === locationId ? configState.status : 'loading'
   const pivot    = useMemo(() => buildPivot(financial), [financial])
   const insights = useMemo(
