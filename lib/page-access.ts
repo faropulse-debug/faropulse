@@ -34,6 +34,7 @@ export const PAGE_ACCESS: readonly { prefix: string; roles: readonly Role[] }[] 
   { prefix: '/dashboard/pnl',       roles: WRITE_ROLES },
   { prefix: '/dashboard/reconcile', roles: WRITE_ROLES },
   { prefix: '/dashboard/upload',    roles: WRITE_ROLES },
+  { prefix: '/dashboard/business-config', roles: WRITE_ROLES },
 ]
 
 export function rolesForPath(pathname: string): readonly Role[] {
