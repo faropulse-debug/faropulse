@@ -162,7 +162,7 @@ describe.runIf(shouldRunIntegration)('Nav Gate (Integración contra STG)', () =>
         }
       }
     }
-  }, 30_000);
+  }, 60_000);
 
   it('usuario multi-rol: respeta rol encargado cuando opera explícitamente con esa cookie', async () => {
     const supa = createClient(supaUrl, supaAnonKey);

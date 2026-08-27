@@ -36,6 +36,11 @@ jobs:
       - name: Lint Assertions (Brittle Test Check)
         run: npx tsx scripts/audit-assertions.ts --mode=ci
 
+      - name: Audit Secrets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx tsx scripts/audit-secrets.ts
+
       - name: Tests
         run: npx vitest run
 

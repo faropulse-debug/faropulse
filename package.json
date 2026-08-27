@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "lint": "eslint app lib hooks types components",
     "lint:assertions": "npx tsx scripts/audit-assertions.ts",
+    "audit:secrets": "npx tsx scripts/audit-secrets.ts",
     "typecheck": "tsc --noEmit",
     "smoke": "node --env-file=.env.local scripts/smoke/smoke-upload.mjs",
     "audit:rls": "node --env-file=.env.local.prod --import tsx scripts/audit-rls.ts",
