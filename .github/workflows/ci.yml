@@ -53,7 +53,6 @@ jobs:
           QA_B_OWNER_EMAIL: ${{ secrets.QA_B_OWNER_EMAIL }}
           QA_B_OWNER_PASSWORD: ${{ secrets.QA_B_OWNER_PASSWORD }}
           QA_TENANT_B_LOCATION_ID: ${{ secrets.QA_TENANT_B_LOCATION_ID }}
-          SECRET_QUE_NO_EXISTE: ${{ secrets.SECRET_QUE_NO_EXISTE }}
         run: npx tsx scripts/audit-secrets.ts
 
       - name: Tests
