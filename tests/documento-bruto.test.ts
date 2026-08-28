@@ -186,10 +186,26 @@ describe.runIf(shouldRunIntegration)('get_descuentos_top_tickets / get_descuento
 describe.runIf(shouldRunIntegration)('get_descuentos_resumen — tasa_efectiva por canal (agosto 2026 STG)', () => {
   // La RPC no filtra ni excluye ningún canal por nombre (decisión de Tano:
   // esa exclusión vive en la UI). Estos tests verifican el SIGNO de
-  // tasa_efectiva para 3 canales conocidos, no el valor exacto -- si mañana
-  // cambia la ingesta o se corrige un dato, el test sigue vigente mientras
-  // el fenómeno de fondo (recargo de delivery en APLICACIONES) siga siendo
-  // real. No se ata a -0,4% ni a ningún monto en pesos.
+  // tasa_efectiva para 3 canales conocidos, no el valor exacto.
+  //
+  // CORRECCIÓN 2026-08-28: la versión anterior de este test esperaba
+  // APLICACIONES negativa ("recargo de delivery mezclado con descuento").
+  // Esa lectura era incorrecta -- lo que hacía ver a APLICACIONES negativa
+  // era un bug real en get_descuentos_resumen (sumaba plata_perdida también
+  // sobre tickets con descuento=0, contaminando la cuenta con ruido de
+  // reconciliación de ingresos ajeno al descuento). Corregido: la RPC ahora
+  // agrega plata_perdida/bruto_total/tasa_efectiva solo sobre descuento>0.
+  // APLICACIONES vuelve a dar positivo, igual que la fórmula vieja
+  // ($192.082,53) -- nunca fue comisión mezclada con descuento real.
+  //
+  // CORRECCIÓN 2026-08-28 (2): al filtrar descuento>0, el denominador de
+  // tasa_efectiva (bruto_total) pasó a ser solo el bruto de tickets con
+  // descuento -- eso la convirtió en "intensidad del descuento cuando se
+  // aplica" en vez de "impacto sobre la facturación del canal", que es lo
+  // que mide el KPI. Se agregó bruto_total_canal (bruto de TODOS los
+  // documentos, no solo los descontados) como denominador de tasa_efectiva.
+  // bruto_total NO se renombra -- sigue siendo el bruto solo de tickets con
+  // descuento, ya en el contrato que lee la UI de Codex.
   let supabase: SupabaseClient
   let agosto: Array<{ tipo_zona: string; tasa_efectiva: number | null }>
   const LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001'
@@ -208,10 +224,10 @@ describe.runIf(shouldRunIntegration)('get_descuentos_resumen — tasa_efectiva p
     expect(agosto.length).toBeGreaterThan(0)
   })
 
-  it('APLICACIONES: tasa_efectiva negativa (recargo neto, no descuento)', () => {
+  it('APLICACIONES: tasa_efectiva positiva (descuento real, no recargo)', () => {
     const row = agosto.find(r => r.tipo_zona === 'APLICACIONES')
     expect(row).toBeDefined()
-    expect(row!.tasa_efectiva).toBeLessThan(0)
+    expect(row!.tasa_efectiva).toBeGreaterThan(0)
   })
 
   it('SALON: tasa_efectiva positiva', () => {
@@ -225,6 +241,106 @@ describe.runIf(shouldRunIntegration)('get_descuentos_resumen — tasa_efectiva p
     expect(row).toBeDefined()
     expect(row!.tasa_efectiva).toBeGreaterThan(0)
   })
+})
+
+describe.runIf(shouldRunIntegration)('get_descuentos_resumen — tasa_efectiva usa el bruto del canal ENTERO como denominador', () => {
+  // Invariante matemática, no valor absoluto: un denominador más grande
+  // (bruto_total_canal, TODOS los documentos) no puede dar una tasa mayor
+  // que el mismo numerador sobre un denominador más chico (bruto_total,
+  // solo los documentos con descuento -- es un subconjunto). Se corre sobre
+  // TODO el histórico que devuelva la RPC, no un mes puntual: si algún mes
+  // futuro viola esto, es señal de que alguno de los dos denominadores dejó
+  // de ser un superset del otro.
+  let supabase: SupabaseClient
+  const LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001'
+
+  beforeAll(async () => {
+    supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+    const { error } = await supabase.auth.signInWithPassword({
+      email: process.env.QA_OWNER_EMAIL!,
+      password: process.env.QA_OWNER_PASSWORD!,
+    })
+    expect(error).toBeNull()
+  })
+
+  it('tasa_efectiva <= plata_perdida / bruto_total (denominador filtrado a solo-con-descuento), para todo mes/canal', async () => {
+    const { data, error } = await supabase.rpc('get_descuentos_resumen', { p_location_id: LOCATION_ID })
+    expect(error).toBeNull()
+
+    type Row = { plata_perdida: number; bruto_total: number; bruto_total_canal: number; tasa_efectiva: number | null }
+    const rows = (data ?? []) as Row[]
+    const comparable = rows.filter(r => r.bruto_total > 0)
+    expect(comparable.length).toBeGreaterThan(0)
+
+    for (const r of comparable) {
+      expect(r.tasa_efectiva).not.toBeNull()
+      const tasaConDenominadorFiltrado = r.plata_perdida / r.bruto_total
+      // Tolerancia mínima de punto flotante, no una ventana para dejar
+      // pasar una violación real de la desigualdad.
+      expect(r.tasa_efectiva!).toBeLessThanOrEqual(tasaConDenominadorFiltrado + 1e-9)
+      // bruto_total_canal es superset de bruto_total por construcción
+      // (todos los documentos incluye a los que tienen descuento > 0).
+      expect(r.bruto_total_canal).toBeGreaterThanOrEqual(r.bruto_total)
+    }
+  }, 20_000)
+})
+
+describe.runIf(shouldRunIntegration)('Invariante: SUM(plata_perdida) de get_descuentos_resumen == SUM(plata_perdida) de get_descuentos_top_tickets', () => {
+  // Este es el test que habría agarrado el bug de "plata perdida fantasma"
+  // solo: get_descuentos_top_tickets siempre filtró descuento>0, así que
+  // nunca tuvo el ruido de tickets sin descuento. get_descuentos_resumen sí
+  // lo tenía (antes de este fix), así que las dos sumas divergían -- una
+  // fuente de verdad y su agregado no pueden decir cosas distintas del
+  // mismo período.
+  //
+  // Invariante, no valor absoluto: no se ata a agosto 2026 ni a ningún monto
+  // en pesos -- elige el mes más reciente con al menos un ticket con
+  // descuento, sea cual sea, y compara las dos RPCs entre sí sobre ese
+  // período. Sigue vigente con cualquier corte de datos futuro.
+  let supabase: SupabaseClient
+  const LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001'
+
+  beforeAll(async () => {
+    supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+    const { error } = await supabase.auth.signInWithPassword({
+      email: process.env.QA_OWNER_EMAIL!,
+      password: process.env.QA_OWNER_PASSWORD!,
+    })
+    expect(error).toBeNull()
+  })
+
+  it('coinciden para el mes más reciente con tickets con descuento', async () => {
+    const { data: resumen, error: e1 } = await supabase.rpc('get_descuentos_resumen', { p_location_id: LOCATION_ID })
+    expect(e1).toBeNull()
+    expect(resumen).not.toBeNull()
+
+    type ResumenRow = { mes_inicio: string; tickets_con_descuento: number; plata_perdida: number }
+    const rows = (resumen ?? []) as ResumenRow[]
+    const mesesConDescuento = [...new Set(rows.filter(r => r.tickets_con_descuento > 0).map(r => r.mes_inicio))].sort()
+    expect(mesesConDescuento.length).toBeGreaterThan(0)
+    const mes = mesesConDescuento[mesesConDescuento.length - 1]
+
+    const sumaResumen = rows
+      .filter(r => r.mes_inicio === mes)
+      .reduce((s, r) => s + (r.plata_perdida ?? 0), 0)
+
+    // Aritmética en UTC puro, igual que el helper de DescuentosSection.tsx
+    // (no se importa desde ahí a propósito -- este test no depende de la UI).
+    const [y, m] = mes.slice(0, 7).split('-').map(Number)
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+    const hasta = `${mes.slice(0, 7)}-${String(lastDay).padStart(2, '0')}`
+
+    const { data: top, error: e2 } = await supabase.rpc('get_descuentos_top_tickets', {
+      p_location_id: LOCATION_ID, p_desde: mes, p_hasta: hasta,
+    })
+    expect(e2).toBeNull()
+    type TopRow = { plata_perdida: number | null }
+    const sumaTop = ((top ?? []) as TopRow[]).reduce((s, r) => s + (r.plata_perdida ?? 0), 0)
+
+    // Tolerancia de redondeo (2 decimales acumulados sobre N filas), no una
+    // ventana para dejar pasar una divergencia real.
+    expect(Math.abs(sumaResumen - sumaTop)).toBeLessThan(1)
+  }, 20_000)
 })
 
 describe('tasa_efectiva = (bruto_total - neto_total) / NULLIF(bruto_total, 0) — motor puro', () => {
