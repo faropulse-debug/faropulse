@@ -182,3 +182,68 @@ describe.runIf(shouldRunIntegration)('get_descuentos_top_tickets / get_descuento
     expect(resumen?.length).toBe(0)
   }, 15_000)
 })
+
+describe.runIf(shouldRunIntegration)('get_descuentos_resumen — tasa_efectiva por canal (agosto 2026 STG)', () => {
+  // La RPC no filtra ni excluye ningún canal por nombre (decisión de Tano:
+  // esa exclusión vive en la UI). Estos tests verifican el SIGNO de
+  // tasa_efectiva para 3 canales conocidos, no el valor exacto -- si mañana
+  // cambia la ingesta o se corrige un dato, el test sigue vigente mientras
+  // el fenómeno de fondo (recargo de delivery en APLICACIONES) siga siendo
+  // real. No se ata a -0,4% ni a ningún monto en pesos.
+  let supabase: SupabaseClient
+  let agosto: Array<{ tipo_zona: string; tasa_efectiva: number | null }>
+  const LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001'
+
+  beforeAll(async () => {
+    supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+    const { error: authErr } = await supabase.auth.signInWithPassword({
+      email: process.env.QA_OWNER_EMAIL!,
+      password: process.env.QA_OWNER_PASSWORD!,
+    })
+    expect(authErr).toBeNull()
+
+    const { data, error } = await supabase.rpc('get_descuentos_resumen', { p_location_id: LOCATION_ID })
+    expect(error).toBeNull()
+    agosto = (data ?? []).filter((r: { mes_inicio: string }) => r.mes_inicio === '2026-08-01')
+    expect(agosto.length).toBeGreaterThan(0)
+  })
+
+  it('APLICACIONES: tasa_efectiva negativa (recargo neto, no descuento)', () => {
+    const row = agosto.find(r => r.tipo_zona === 'APLICACIONES')
+    expect(row).toBeDefined()
+    expect(row!.tasa_efectiva).toBeLessThan(0)
+  })
+
+  it('SALON: tasa_efectiva positiva', () => {
+    const row = agosto.find(r => r.tipo_zona === 'SALON')
+    expect(row).toBeDefined()
+    expect(row!.tasa_efectiva).toBeGreaterThan(0)
+  })
+
+  it('MOSTRADOR: tasa_efectiva positiva', () => {
+    const row = agosto.find(r => r.tipo_zona === 'MOSTRADOR')
+    expect(row).toBeDefined()
+    expect(row!.tasa_efectiva).toBeGreaterThan(0)
+  })
+})
+
+describe('tasa_efectiva = (bruto_total - neto_total) / NULLIF(bruto_total, 0) — motor puro', () => {
+  // No es una llamada viva a propósito: NULLIF(x, 0) y la división por NULL
+  // son semántica estándar de SQL, no comportamiento propio de esta RPC, y
+  // no depende de que exista un canal con bruto_total=0 en datos reales de
+  // STG (implicaría un mes/canal sin ninguna venta ni cortesía -- no hay
+  // ninguno hoy). Réplica fiel de la expresión, mismo patrón que
+  // documento-peso.test.ts para documento_peso/documento_es_reverso.
+  function tasaEfectiva(brutoTotal: number, netoTotal: number): number | null {
+    if (brutoTotal === 0) return null
+    return (brutoTotal - netoTotal) / brutoTotal
+  }
+
+  it('bruto_total = 0 → NULL, no error ni división por cero', () => {
+    expect(tasaEfectiva(0, 0)).toBeNull()
+  })
+
+  it('bruto_total > 0 con neto_total = bruto_total → 0 (sin descuento ni recargo)', () => {
+    expect(tasaEfectiva(100000, 100000)).toBe(0)
+  })
+})
