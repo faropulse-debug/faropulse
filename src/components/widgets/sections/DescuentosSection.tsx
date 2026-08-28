@@ -17,6 +17,7 @@ export type RawDescuentosRow = {
   tipo_zona:             string
   plata_perdida:         number
   bruto_total:           number | null
+  bruto_total_canal:     number | null
   tickets:               number
   tickets_con_descuento: number
   avg_descuento_pct:     number
@@ -478,8 +479,8 @@ export function DescuentosSection({ locationId }: Props) {
     const ticketsTotal   = monthRows.reduce((s, r) => s + r.tickets, 0)
     const ticketsConDesc = monthRows.reduce((s, r) => s + r.tickets_con_descuento, 0)
     const pctTickets     = ticketsTotal > 0 ? (ticketsConDesc / ticketsTotal) * 100 : 0
-    const brutoTotal     = includedMonthRows.reduce((s, r) => s + (r.bruto_total ?? 0), 0)
-    const hasUnknownBruto = includedMonthRows.some(r => r.bruto_total == null)
+    const brutoTotal     = includedMonthRows.reduce((s, r) => s + (r.bruto_total_canal ?? 0), 0)
+    const hasUnknownBruto = includedMonthRows.some(r => r.bruto_total_canal == null)
     const effectiveRate = !hasUnknownBruto && brutoTotal > 0 ? plataTotal / brutoTotal : null
     return { plataTotal, ticketsTotal, ticketsConDesc, pctTickets, effectiveRate }
   }, [includedMonthRows, monthRows])
