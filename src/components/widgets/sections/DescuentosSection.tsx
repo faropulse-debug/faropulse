@@ -5,6 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip,
   ResponsiveContainer, Cell,
 } from 'recharts'
+import { AlertTriangle, Download } from 'lucide-react'
 import { getSupabase }            from '@/lib/supabase'
 import { fmtMillones, fmtPct }   from '@/lib/format'
 import { SectionLabel }           from '@/components/dashboard/SectionLabel'
@@ -15,18 +16,23 @@ export type RawDescuentosRow = {
   mes_inicio:            string
   tipo_zona:             string
   plata_perdida:         number
+  bruto_total:           number | null
   tickets:               number
   tickets_con_descuento: number
   avg_descuento_pct:     number
+  tasa_efectiva:         number | null
 }
 
 export type TopTicketRow = {
+  external_id:   string
   fecha_caja:    string
   tipo_zona:     string
   comensales:    number | null
+  unidades:      number | null
+  bruto:         number | null
   total:         number
   descuento:     number
-  plata_perdida: number
+  plata_perdida: number | null
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -36,6 +42,11 @@ const MONTH_LABELS: Record<string, string> = {
   '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Ago',
   '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dic',
 }
+const MONTH_NAMES: Record<string, string> = {
+  '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril',
+  '05': 'Mayo', '06': 'Junio', '07': 'Julio', '08': 'Agosto',
+  '09': 'Septiembre', '10': 'Octubre', '11': 'Noviembre', '12': 'Diciembre',
+}
 const CANAL_LABELS: Record<string, string> = {
   SALON: 'Salón', APLICACIONES: 'Apps', MOSTRADOR: 'Mostrador',
 }
@@ -43,6 +54,33 @@ const CANAL_LABELS: Record<string, string> = {
 function fmtMonth(iso: string): string {
   const [y, m] = iso.slice(0, 7).split('-')
   return `${MONTH_LABELS[m] ?? m} ${y.slice(2)}`
+}
+
+function fmtMonthLong(iso: string): string {
+  const [y, m] = iso.slice(0, 7).split('-')
+  return `${MONTH_NAMES[m] ?? m} ${y}`
+}
+
+function fmtCurrency(value: number | null | undefined): string {
+  if (value == null) return '—'
+  return '$' + value.toLocaleString('es-AR', { maximumFractionDigits: 0 })
+}
+
+function fmtUnits(value: number | null): string {
+  if (value == null) return '—'
+  return value.toLocaleString('es-AR', { maximumFractionDigits: 2 })
+}
+
+function fmtEffectiveRate(value: number | null): string {
+  if (value == null) return '—'
+  return `${(value * 100).toLocaleString('es-AR', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`
+}
+
+function isPendingReview(row: RawDescuentosRow): boolean {
+  return row.tasa_efectiva != null && row.tasa_efectiva < 0
 }
 
 export function firstDayOfMonth(iso: string): string {
@@ -158,7 +196,48 @@ function CanalBreakdown({ rows }: { rows: RawDescuentosRow[] }) {
   )
 }
 
-// ─── Top Tickets Table ────────────────────────────────────────────────────────
+// ─── Pending review ───────────────────────────────────────────────────────────
+
+function PendingReviewChannels({ rows }: { rows: RawDescuentosRow[] }) {
+  return (
+    <div style={{
+      background: 'rgba(245,158,11,0.055)',
+      border: '1px solid rgba(245,158,11,0.2)',
+      borderRadius: 12, padding: '18px 20px', marginBottom: 16,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <AlertTriangle size={18} strokeWidth={1.8} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
+        <div style={{ minWidth: 0 }}>
+          <p style={{
+            margin: 0, fontFamily: 'var(--font-body)', fontSize: '0.78rem',
+            lineHeight: 1.55, color: 'rgba(255,255,255,0.66)',
+          }}>
+            <strong style={{ color: '#f59e0b' }}>Pendiente de revisión</strong> — el descuento de este canal
+            parece ser comisión de la plataforma, no plata regalada. No suma al total.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+            {rows.map(row => (
+              <div key={row.tipo_zona} style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '7px 10px', borderRadius: 6,
+                background: 'rgba(15,23,42,0.55)',
+                border: '1px solid rgba(245,158,11,0.14)',
+                fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.61rem',
+              }}>
+                <span style={{ color: 'rgba(255,255,255,0.62)' }}>
+                  {CANAL_LABELS[row.tipo_zona] ?? row.tipo_zona}
+                </span>
+                <span style={{ color: '#f59e0b' }}>{fmtEffectiveRate(row.tasa_efectiva)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Tickets Table ────────────────────────────────────────────────────────────
 
 function TopTicketsTable({ rows }: { rows: TopTicketRow[] }) {
   if (rows.length === 0) {
@@ -172,39 +251,90 @@ function TopTicketsTable({ rows }: { rows: TopTicketRow[] }) {
       </div>
     )
   }
-  const headers = ['Fecha', 'Canal', 'Comensales', 'Total', 'Desc %', 'Perdido']
+  const headers = [
+    { label: 'Número', align: 'left' as const },
+    { label: 'Fecha', align: 'left' as const },
+    { label: 'Canal', align: 'left' as const },
+    { label: 'Comensales', align: 'right' as const },
+    { label: 'Ítems', align: 'right' as const },
+    { label: 'Bruto', align: 'right' as const },
+    { label: 'Cobrado', align: 'right' as const },
+    { label: 'Desc %', align: 'right' as const },
+    { label: 'Perdido', align: 'right' as const },
+  ]
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.63rem' }}>
+    <div style={{ maxHeight: 400, overflow: 'auto', scrollbarGutter: 'stable' }}>
+      <table style={{
+        width: '100%', minWidth: 1060, borderCollapse: 'separate', borderSpacing: 0,
+        fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.63rem',
+      }}>
         <thead>
-          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <tr>
             {headers.map(h => (
-              <th key={h} style={{
-                padding: '7px 10px', textAlign: h === 'Fecha' || h === 'Canal' ? 'left' : 'right',
+              <th key={h.label} style={{
+                position: 'sticky', top: 0, zIndex: 1,
+                padding: '9px 10px', textAlign: h.align,
                 color: 'rgba(255,255,255,0.28)', fontWeight: 400,
                 letterSpacing: '0.12em', textTransform: 'uppercase', fontSize: '0.52rem',
-              }}>{h}</th>
+                background: '#101722', borderBottom: '1px solid rgba(255,255,255,0.09)',
+                whiteSpace: 'nowrap',
+              }}>{h.label}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-              <td style={{ padding: '7px 10px', color: 'rgba(255,255,255,0.5)' }}>{r.fecha_caja}</td>
-              <td style={{ padding: '7px 10px', color: 'rgba(255,255,255,0.4)' }}>
+          {rows.map(r => (
+            <tr key={`${r.external_id}-${r.fecha_caja}`}>
+              <td style={{
+                padding: '8px 10px', color: 'rgba(255,255,255,0.68)',
+                borderBottom: '1px solid rgba(255,255,255,0.04)', whiteSpace: 'nowrap',
+              }}>{r.external_id}</td>
+              <td style={{
+                padding: '8px 10px', color: 'rgba(255,255,255,0.5)',
+                borderBottom: '1px solid rgba(255,255,255,0.04)', whiteSpace: 'nowrap',
+              }}>{r.fecha_caja}</td>
+              <td style={{
+                padding: '8px 10px', color: 'rgba(255,255,255,0.4)',
+                borderBottom: '1px solid rgba(255,255,255,0.04)', whiteSpace: 'nowrap',
+              }}>
                 {CANAL_LABELS[r.tipo_zona] ?? r.tipo_zona}
               </td>
-              <td style={{ padding: '7px 10px', color: 'rgba(255,255,255,0.5)', textAlign: 'right' }}>
+              <td style={{
+                padding: '8px 10px', color: 'rgba(255,255,255,0.5)', textAlign: 'right',
+                borderBottom: '1px solid rgba(255,255,255,0.04)',
+              }}>
                 {r.comensales ?? '—'}
               </td>
-              <td style={{ padding: '7px 10px', color: 'rgba(255,255,255,0.5)', textAlign: 'right' }}>
-                {fmtMillones(r.total)}
+              <td style={{
+                padding: '8px 10px', color: 'rgba(255,255,255,0.5)', textAlign: 'right',
+                borderBottom: '1px solid rgba(255,255,255,0.04)',
+              }}>
+                {fmtUnits(r.unidades)}
               </td>
-              <td style={{ padding: '7px 10px', color: '#f59e0b', fontWeight: 600, textAlign: 'right' }}>
+              <td style={{
+                padding: '8px 10px', color: 'rgba(255,255,255,0.56)', textAlign: 'right',
+                borderBottom: '1px solid rgba(255,255,255,0.04)', whiteSpace: 'nowrap',
+              }}>
+                {fmtCurrency(r.bruto)}
+              </td>
+              <td style={{
+                padding: '8px 10px', color: 'rgba(255,255,255,0.56)', textAlign: 'right',
+                borderBottom: '1px solid rgba(255,255,255,0.04)', whiteSpace: 'nowrap',
+              }}>
+                {fmtCurrency(r.total)}
+              </td>
+              <td style={{
+                padding: '8px 10px', color: '#f59e0b', fontWeight: 600, textAlign: 'right',
+                borderBottom: '1px solid rgba(255,255,255,0.04)', whiteSpace: 'nowrap',
+              }}>
                 {fmtPct(r.descuento)}
               </td>
-              <td style={{ padding: '7px 10px', color: '#ef4444', fontWeight: 600, textAlign: 'right' }}>
-                {fmtMillones(r.plata_perdida)}
+              <td style={{
+                padding: '8px 10px', color: r.bruto == null ? 'rgba(255,255,255,0.35)' : '#ef4444',
+                fontWeight: 600, textAlign: 'right',
+                borderBottom: '1px solid rgba(255,255,255,0.04)', whiteSpace: 'nowrap',
+              }}>
+                {r.bruto == null ? '—' : fmtCurrency(r.plata_perdida)}
               </td>
             </tr>
           ))}
@@ -212,6 +342,43 @@ function TopTicketsTable({ rows }: { rows: TopTicketRow[] }) {
       </table>
     </div>
   )
+}
+
+async function exportTicketsXlsx(rows: TopTicketRow[], locationId: string, month: string) {
+  const XLSX = await import('xlsx')
+  const exportRows = rows.map(row => ({
+    'NÚMERO':     row.external_id,
+    'FECHA':      row.fecha_caja,
+    'CANAL':      CANAL_LABELS[row.tipo_zona] ?? row.tipo_zona,
+    'COMENSALES': row.comensales ?? '—',
+    'ÍTEMS':      row.unidades ?? '—',
+    'BRUTO':      row.bruto ?? '—',
+    'COBRADO':    row.total,
+    'DESC %':     row.descuento / 100,
+    'PERDIDO':    row.bruto == null || row.plata_perdida == null ? '—' : row.plata_perdida,
+  }))
+  const sheet = XLSX.utils.json_to_sheet(exportRows)
+  sheet['!cols'] = [
+    { wch: 22 }, { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 10 },
+    { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 16 },
+  ]
+
+  if (sheet['!ref']) {
+    const range = XLSX.utils.decode_range(sheet['!ref'])
+    for (let row = 1; row <= range.e.r; row += 1) {
+      for (const col of [5, 6, 8]) {
+        const cell = sheet[XLSX.utils.encode_cell({ r: row, c: col })]
+        if (cell?.t === 'n') cell.z = '$#,##0.00'
+      }
+      const percentCell = sheet[XLSX.utils.encode_cell({ r: row, c: 7 })]
+      if (percentCell?.t === 'n') percentCell.z = '0.0%'
+    }
+  }
+
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Descuentos')
+  const safeLocation = locationId.replace(/[^a-zA-Z0-9_-]/g, '-')
+  XLSX.writeFile(workbook, `descuentos-${safeLocation}-${month.slice(0, 7)}.xlsx`, { compression: true })
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
@@ -236,7 +403,11 @@ export function DescuentosSection({ locationId }: Props) {
   const [topTickets, setTopTickets] = useState<TopTicketRow[]>([])
   const [isLoading,    setIsLoading]    = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isTicketsLoading, setIsTicketsLoading] = useState(true)
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const hasDataRef = useRef(false)
+  const ticketRequestRef = useRef(0)
 
   const loadResumen = useCallback(async () => {
     if (hasDataRef.current) setIsRefreshing(true)
@@ -252,21 +423,22 @@ export function DescuentosSection({ locationId }: Props) {
     setIsRefreshing(false)
   }, [locationId])
 
-  const loadTopTickets = useCallback(async () => {
+  const loadTopTickets = useCallback(async (month: string) => {
+    const requestId = ++ticketRequestRef.current
+    setIsTicketsLoading(true)
     const { data, error } = await getSupabase().rpc('get_descuentos_top_tickets', {
       p_location_id: locationId,
-      p_desde:       firstDayOfMonth(selectedMonth),
-      p_hasta:       lastDayOfMonth(selectedMonth),
+      p_desde:       firstDayOfMonth(month),
+      p_hasta:       lastDayOfMonth(month),
     })
+    if (requestId !== ticketRequestRef.current) return
     if (!error && Array.isArray(data)) {
       setTopTickets(data as TopTicketRow[])
     }
-  }, [locationId, selectedMonth])
+    setIsTicketsLoading(false)
+  }, [locationId])
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadResumen() }, [loadResumen])
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadTopTickets() }, [loadTopTickets])
 
   // ── Derived ──────────────────────────────────────────────────────────────────
 
@@ -282,24 +454,39 @@ export function DescuentosSection({ locationId }: Props) {
       : availableMonths[availableMonths.length - 1]
   }, [availableMonths, selectedMonth])
 
+  // The effective month can differ from the initial selection while the
+  // summary loads. Querying from this value keeps the title and rows aligned.
+  useEffect(() => { if (!isLoading) loadTopTickets(effectiveMonth) }, [effectiveMonth, isLoading, loadTopTickets])
+
   const monthRows = useMemo(
     () => resumen.filter(r => r.mes_inicio === effectiveMonth),
     [resumen, effectiveMonth]
   )
 
+  const includedMonthRows = useMemo(
+    () => monthRows.filter(row => !isPendingReview(row)),
+    [monthRows]
+  )
+
+  const pendingReviewRows = useMemo(
+    () => monthRows.filter(isPendingReview).sort((a, b) => a.tasa_efectiva! - b.tasa_efectiva!),
+    [monthRows]
+  )
+
   const kpis = useMemo(() => {
-    const plataTotal     = monthRows.reduce((s, r) => s + r.plata_perdida, 0)
+    const plataTotal     = includedMonthRows.reduce((s, r) => s + r.plata_perdida, 0)
     const ticketsTotal   = monthRows.reduce((s, r) => s + r.tickets, 0)
     const ticketsConDesc = monthRows.reduce((s, r) => s + r.tickets_con_descuento, 0)
     const pctTickets     = ticketsTotal > 0 ? (ticketsConDesc / ticketsTotal) * 100 : 0
-    const sumWeighted    = monthRows.reduce((s, r) => s + r.avg_descuento_pct * r.tickets_con_descuento, 0)
-    const avgDescPct     = ticketsConDesc > 0 ? sumWeighted / ticketsConDesc : 0
-    return { plataTotal, ticketsTotal, ticketsConDesc, pctTickets, avgDescPct }
-  }, [monthRows])
+    const brutoTotal     = includedMonthRows.reduce((s, r) => s + (r.bruto_total ?? 0), 0)
+    const hasUnknownBruto = includedMonthRows.some(r => r.bruto_total == null)
+    const effectiveRate = !hasUnknownBruto && brutoTotal > 0 ? plataTotal / brutoTotal : null
+    return { plataTotal, ticketsTotal, ticketsConDesc, pctTickets, effectiveRate }
+  }, [includedMonthRows, monthRows])
 
   const barData = useMemo(() => {
     const byMonth: Record<string, number> = {}
-    for (const r of resumen) {
+    for (const r of resumen.filter(row => !isPendingReview(row))) {
       byMonth[r.mes_inicio] = (byMonth[r.mes_inicio] ?? 0) + r.plata_perdida
     }
     return Object.entries(byMonth)
@@ -312,9 +499,26 @@ export function DescuentosSection({ locationId }: Props) {
   }, [resumen, effectiveMonth])
 
   const canalRows = useMemo(
-    () => [...monthRows].sort((a, b) => b.plata_perdida - a.plata_perdida),
-    [monthRows]
+    () => [...includedMonthRows].sort((a, b) => b.plata_perdida - a.plata_perdida),
+    [includedMonthRows]
   )
+
+  const visibleTickets = useMemo(
+    () => [...topTickets].sort((a, b) => (b.plata_perdida ?? -Infinity) - (a.plata_perdida ?? -Infinity)),
+    [topTickets]
+  )
+
+  const handleExport = useCallback(async () => {
+    setIsExporting(true)
+    setExportError(null)
+    try {
+      await exportTicketsXlsx(visibleTickets, locationId, effectiveMonth)
+    } catch {
+      setExportError('No pudimos generar el archivo. Probá de nuevo.')
+    } finally {
+      setIsExporting(false)
+    }
+  }, [effectiveMonth, locationId, visibleTickets])
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -367,7 +571,7 @@ export function DescuentosSection({ locationId }: Props) {
             <KpiCard label="Plata perdida"          value={fmtMillones(kpis.plataTotal)}    sub={fmtMonth(effectiveMonth)} color="#ef4444" />
             <KpiCard label="Tickets c/ descuento"   value={String(kpis.ticketsConDesc)}      sub={`de ${kpis.ticketsTotal} totales`} />
             <KpiCard label="% Tickets c/ descuento" value={fmtPct(kpis.pctTickets)} />
-            <KpiCard label="Descuento promedio"      value={fmtPct(kpis.avgDescPct)}          sub="en tickets con desc." />
+            <KpiCard label="Tasa efectiva"           value={fmtEffectiveRate(kpis.effectiveRate)} sub="de cada $100 de lista, cuánto no cobré" />
           </>
         )}
       </div>
@@ -424,19 +628,66 @@ export function DescuentosSection({ locationId }: Props) {
         </div>
       )}
 
-      {/* Top tickets */}
+      {/* Channels whose header discount behaves like a platform fee */}
+      {!isLoading && pendingReviewRows.length > 0 && (
+        <PendingReviewChannels rows={pendingReviewRows} />
+      )}
+
+      {/* Discounted tickets */}
       <div style={{
         background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
         borderRadius: 12, padding: '20px', marginBottom: 16,
       }}>
         <div style={{
-          fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.58rem',
-          letterSpacing: '0.14em', textTransform: 'uppercase',
-          color: 'rgba(255,255,255,0.28)', marginBottom: 16,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 12, flexWrap: 'wrap', marginBottom: 16,
         }}>
-          Top 10 tickets con mayor pérdida — {isLoading ? '…' : fmtMonth(effectiveMonth)}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{
+              fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.58rem',
+              letterSpacing: '0.14em', textTransform: 'uppercase',
+              color: 'rgba(255,255,255,0.38)',
+            }}>
+              Tickets con descuento — {isLoading ? '…' : fmtMonthLong(effectiveMonth)}
+            </span>
+            {!isLoading && !isTicketsLoading && (
+              <span style={{
+                padding: '3px 7px', borderRadius: 4,
+                background: 'rgba(245,130,10,0.1)', color: '#f5820a',
+                fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.56rem',
+                letterSpacing: '0.08em', whiteSpace: 'nowrap',
+              }}>
+                {visibleTickets.length} {visibleTickets.length === 1 ? 'ticket' : 'tickets'}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={isLoading || isTicketsLoading || isExporting || visibleTickets.length === 0}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 7,
+              minHeight: 32, padding: '6px 10px', borderRadius: 6,
+              border: '1px solid rgba(245,130,10,0.3)',
+              background: 'rgba(245,130,10,0.08)', color: '#f5820a',
+              fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.6rem',
+              letterSpacing: '0.06em', cursor: isLoading || isTicketsLoading || isExporting || visibleTickets.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: isLoading || isTicketsLoading || isExporting || visibleTickets.length === 0 ? 0.45 : 1,
+            }}
+          >
+            <Download size={14} strokeWidth={1.8} />
+            {isExporting ? 'Exportando…' : 'Exportar'}
+          </button>
         </div>
-        {isLoading ? <Skel h={120} /> : <TopTicketsTable rows={topTickets} />}
+        {exportError && (
+          <p role="alert" style={{
+            margin: '0 0 12px', color: '#fca5a5',
+            fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.62rem',
+          }}>
+            {exportError}
+          </p>
+        )}
+        {isLoading || isTicketsLoading ? <Skel h={180} /> : <TopTicketsTable rows={visibleTickets} />}
       </div>
 
       {/* Auto insight */}
@@ -456,8 +707,8 @@ export function DescuentosSection({ locationId }: Props) {
             En <strong style={{ color: '#f5820a' }}>{fmtMonth(effectiveMonth)}</strong> perdiste{' '}
             <strong style={{ color: '#ef4444' }}>{fmtMillones(kpis.plataTotal)}</strong> en descuentos —{' '}
             <strong style={{ color: '#f5820a' }}>{fmtPct(kpis.pctTickets)}</strong> de tus tickets
-            tuvieron algún tipo de descuento, con un promedio de{' '}
-            <strong style={{ color: '#f5820a' }}>{fmtPct(kpis.avgDescPct)}</strong> por ticket.{' '}
+            tuvieron algún tipo de descuento. La tasa efectiva fue{' '}
+            <strong style={{ color: '#f5820a' }}>{fmtEffectiveRate(kpis.effectiveRate)}</strong> sobre el precio de lista.{' '}
             {kpis.pctTickets > 20
               ? 'El nivel de descuentos es alto — revisá si están generando retorno real en volumen.'
               : 'El nivel es moderado — controlá que se estén aplicando con criterio.'}
