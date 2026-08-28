@@ -45,15 +45,17 @@ function fmtMonth(iso: string): string {
   return `${MONTH_LABELS[m] ?? m} ${y.slice(2)}`
 }
 
-function firstDayOfMonth(iso: string): string {
+export function firstDayOfMonth(iso: string): string {
   return iso.slice(0, 7) + '-01'
 }
 
-function lastDayOfMonth(iso: string): string {
-  const d = new Date(firstDayOfMonth(iso))
-  d.setMonth(d.getMonth() + 1)
-  d.setDate(0)
-  return d.toISOString().slice(0, 10)
+// Aritmética en UTC puro — nunca pasar por new Date(isoString) + getters/setters
+// locales: en timezones negativos (UTC-3, Uruguay/Argentina) eso corrompe el
+// mes calculado y "hasta" termina apuntando al día 1 en vez del último día.
+export function lastDayOfMonth(iso: string): string {
+  const [y, m] = iso.slice(0, 7).split('-').map(Number)
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  return `${iso.slice(0, 7)}-${String(lastDay).padStart(2, '0')}`
 }
 
 function currentMonthISO(): string {
