@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip,
   ResponsiveContainer, Cell,
 } from 'recharts'
-import { AlertTriangle, Download } from 'lucide-react'
+import { AlertTriangle, Download, Gift } from 'lucide-react'
 import { getSupabase }            from '@/lib/supabase'
 import { fmtMillones, fmtPct }   from '@/lib/format'
 import { SectionLabel }           from '@/components/dashboard/SectionLabel'
@@ -20,7 +20,7 @@ export type RawDescuentosRow = {
   bruto_total_canal:     number | null
   tickets:               number
   tickets_con_descuento: number
-  avg_descuento_pct:     number
+  avg_descuento_pct:     number | null
   tasa_efectiva:         number | null
 }
 
@@ -35,6 +35,22 @@ export type TopTicketRow = {
   descuento:     number
   plata_perdida: number | null
 }
+
+type CanalSummaryRow = Pick<RawDescuentosRow, 'tipo_zona' | 'plata_perdida'>
+type TicketSortKey = keyof Pick<
+  TopTicketRow,
+  | 'external_id'
+  | 'fecha_caja'
+  | 'tipo_zona'
+  | 'comensales'
+  | 'unidades'
+  | 'bruto'
+  | 'total'
+  | 'descuento'
+  | 'plata_perdida'
+>
+type SortDirection = 'asc' | 'desc'
+type TicketSort = { key: TicketSortKey; direction: SortDirection }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -51,6 +67,18 @@ const MONTH_NAMES: Record<string, string> = {
 const CANAL_LABELS: Record<string, string> = {
   SALON: 'Salón', APLICACIONES: 'Apps', MOSTRADOR: 'Mostrador',
 }
+const DEFAULT_TICKET_SORT: TicketSort = { key: 'plata_perdida', direction: 'desc' }
+const TICKET_COLUMNS: Array<{ key: TicketSortKey; label: string; align: 'left' | 'right' }> = [
+  { key: 'external_id', label: 'Número',     align: 'left' },
+  { key: 'fecha_caja',  label: 'Fecha',      align: 'left' },
+  { key: 'tipo_zona',   label: 'Canal',      align: 'left' },
+  { key: 'comensales',  label: 'Comensales', align: 'right' },
+  { key: 'unidades',    label: 'Ítems',      align: 'right' },
+  { key: 'bruto',       label: 'Bruto',      align: 'right' },
+  { key: 'total',       label: 'Cobrado',    align: 'right' },
+  { key: 'descuento',   label: 'Desc %',     align: 'right' },
+  { key: 'plata_perdida', label: 'Perdido',  align: 'right' },
+]
 
 function fmtMonth(iso: string): string {
   const [y, m] = iso.slice(0, 7).split('-')
@@ -82,6 +110,21 @@ function fmtEffectiveRate(value: number | null): string {
 
 function isPendingReview(row: RawDescuentosRow): boolean {
   return row.tasa_efectiva != null && row.tasa_efectiva < 0
+}
+
+function sortTickets(rows: TopTicketRow[], sort: TicketSort): TopTicketRow[] {
+  return [...rows].sort((a, b) => {
+    const aValue = a[sort.key]
+    const bValue = b[sort.key]
+    if (aValue == null && bValue == null) return 0
+    if (aValue == null) return 1
+    if (bValue == null) return -1
+
+    const comparison = typeof aValue === 'number' && typeof bValue === 'number'
+      ? aValue - bValue
+      : String(aValue).localeCompare(String(bValue), 'es', { numeric: true })
+    return sort.direction === 'asc' ? comparison : -comparison
+  })
 }
 
 export function firstDayOfMonth(iso: string): string {
@@ -131,7 +174,7 @@ function KpiCard({ label, value, sub, color = '#f5820a' }: {
       background: 'rgba(255,255,255,0.02)',
       border: '1px solid rgba(255,255,255,0.06)',
       borderRadius: 12, padding: '18px 20px',
-      display: 'flex', flexDirection: 'column', gap: 6,
+      display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0,
     }}>
       <span style={{
         fontFamily: 'var(--font-dm-mono), monospace',
@@ -145,7 +188,8 @@ function KpiCard({ label, value, sub, color = '#f5820a' }: {
       {sub && (
         <span style={{
           fontFamily: 'var(--font-dm-mono), monospace',
-          fontSize: '0.6rem', color: 'rgba(255,255,255,0.28)',
+          fontSize: '0.6rem', lineHeight: 1.45, overflowWrap: 'anywhere',
+          color: 'rgba(255,255,255,0.28)',
         }}>{sub}</span>
       )}
     </div>
@@ -154,7 +198,7 @@ function KpiCard({ label, value, sub, color = '#f5820a' }: {
 
 // ─── Canal Breakdown ──────────────────────────────────────────────────────────
 
-function CanalBreakdown({ rows }: { rows: RawDescuentosRow[] }) {
+function CanalBreakdown({ rows }: { rows: CanalSummaryRow[] }) {
   const totalLost = rows.reduce((s, r) => s + r.plata_perdida, 0)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -240,7 +284,11 @@ function PendingReviewChannels({ rows }: { rows: RawDescuentosRow[] }) {
 
 // ─── Tickets Table ────────────────────────────────────────────────────────────
 
-function TopTicketsTable({ rows }: { rows: TopTicketRow[] }) {
+function TopTicketsTable({ rows, sort, onSort }: {
+  rows: TopTicketRow[]
+  sort: TicketSort
+  onSort: (key: TicketSortKey) => void
+}) {
   if (rows.length === 0) {
     return (
       <div style={{
@@ -252,17 +300,6 @@ function TopTicketsTable({ rows }: { rows: TopTicketRow[] }) {
       </div>
     )
   }
-  const headers = [
-    { label: 'Número', align: 'left' as const },
-    { label: 'Fecha', align: 'left' as const },
-    { label: 'Canal', align: 'left' as const },
-    { label: 'Comensales', align: 'right' as const },
-    { label: 'Ítems', align: 'right' as const },
-    { label: 'Bruto', align: 'right' as const },
-    { label: 'Cobrado', align: 'right' as const },
-    { label: 'Desc %', align: 'right' as const },
-    { label: 'Perdido', align: 'right' as const },
-  ]
   return (
     <div style={{ maxHeight: 400, overflow: 'auto', scrollbarGutter: 'stable' }}>
       <table style={{
@@ -271,16 +308,40 @@ function TopTicketsTable({ rows }: { rows: TopTicketRow[] }) {
       }}>
         <thead>
           <tr>
-            {headers.map(h => (
-              <th key={h.label} style={{
+            {TICKET_COLUMNS.map(column => {
+              const isActive = sort.key === column.key
+              return (
+              <th
+                key={column.key}
+                aria-sort={isActive ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+                style={{
                 position: 'sticky', top: 0, zIndex: 1,
-                padding: '9px 10px', textAlign: h.align,
+                padding: 0, textAlign: column.align,
                 color: 'rgba(255,255,255,0.28)', fontWeight: 400,
                 letterSpacing: '0.12em', textTransform: 'uppercase', fontSize: '0.52rem',
                 background: '#101722', borderBottom: '1px solid rgba(255,255,255,0.09)',
                 whiteSpace: 'nowrap',
-              }}>{h.label}</th>
-            ))}
+              }}>
+                <button
+                  type="button"
+                  onClick={() => onSort(column.key)}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center',
+                    justifyContent: column.align === 'right' ? 'flex-end' : 'flex-start',
+                    gap: 5, padding: '9px 10px', border: 0, background: 'transparent',
+                    color: isActive ? 'rgba(255,255,255,0.62)' : 'rgba(255,255,255,0.28)',
+                    font: 'inherit', letterSpacing: 'inherit', textTransform: 'inherit',
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span>{column.label}</span>
+                  <span aria-hidden="true" style={{ width: 9, color: '#f5820a' }}>
+                    {isActive ? (sort.direction === 'asc' ? '▲' : '▼') : ''}
+                  </span>
+                </button>
+              </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody>
@@ -345,6 +406,187 @@ function TopTicketsTable({ rows }: { rows: TopTicketRow[] }) {
   )
 }
 
+function HistoricalSummary({ firstMonth, lastMonth, total, canalRows }: {
+  firstMonth: string
+  lastMonth: string
+  total: number
+  canalRows: CanalSummaryRow[]
+}) {
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+      borderRadius: 12, padding: 20, marginBottom: 16,
+    }}>
+      <div style={{
+        fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.58rem',
+        letterSpacing: '0.14em', textTransform: 'uppercase',
+        color: 'rgba(255,255,255,0.38)', marginBottom: 18,
+      }}>
+        Acumulado — {fmtMonth(firstMonth)} a {fmtMonth(lastMonth)}
+      </div>
+      <div className="discount-history-grid" style={{ display: 'grid', gap: 24, alignItems: 'center' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{
+            fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.55rem',
+            letterSpacing: '0.14em', textTransform: 'uppercase',
+            color: 'rgba(255,255,255,0.3)', marginBottom: 8,
+          }}>
+            Plata perdida en el período
+          </div>
+          <div style={{
+            fontFamily: "'Syne', sans-serif", fontSize: '1.75rem',
+            fontWeight: 700, lineHeight: 1, color: '#ef4444',
+          }}>
+            {fmtMillones(total)}
+          </div>
+        </div>
+        <CanalBreakdown rows={canalRows} />
+      </div>
+    </div>
+  )
+}
+
+function CourtesyTable({ rows, excludedCount }: { rows: TopTicketRow[]; excludedCount: number }) {
+  if (rows.length === 0) {
+    return (
+      <div style={{
+        padding: '24px 0 8px', textAlign: 'center',
+        fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.64rem',
+        letterSpacing: '0.08em', color: 'rgba(255,255,255,0.28)',
+      }}>
+        sin cortesías este mes
+      </div>
+    )
+  }
+
+  const headers = [
+    { label: 'Número', align: 'left' as const },
+    { label: 'Fecha', align: 'left' as const },
+    { label: 'Canal', align: 'left' as const },
+    { label: 'Comensales', align: 'right' as const },
+    { label: 'Ítems', align: 'right' as const },
+    { label: 'Regalado', align: 'right' as const },
+  ]
+
+  return (
+    <>
+      <div style={{ maxHeight: 300, overflow: 'auto', scrollbarGutter: 'stable' }}>
+        <table style={{
+          width: '100%', minWidth: 760, borderCollapse: 'separate', borderSpacing: 0,
+          fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.63rem',
+        }}>
+          <thead>
+            <tr>
+              {headers.map(header => (
+                <th key={header.label} style={{
+                  position: 'sticky', top: 0, zIndex: 1,
+                  padding: '9px 10px', textAlign: header.align,
+                  background: '#101722', borderBottom: '1px solid rgba(255,255,255,0.09)',
+                  color: 'rgba(255,255,255,0.28)', fontWeight: 400,
+                  letterSpacing: '0.12em', textTransform: 'uppercase', fontSize: '0.52rem',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {header.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={`${row.external_id}-${row.fecha_caja}-${index}`}>
+                <td style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.68)', whiteSpace: 'nowrap' }}>{row.external_id}</td>
+                <td style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>{row.fecha_caja}</td>
+                <td style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap' }}>{CANAL_LABELS[row.tipo_zona] ?? row.tipo_zona}</td>
+                <td style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.5)', textAlign: 'right' }}>{row.comensales ?? '—'}</td>
+                <td style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.5)', textAlign: 'right' }}>{fmtUnits(row.unidades)}</td>
+                <td style={{
+                  padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  color: row.bruto == null ? 'rgba(255,255,255,0.35)' : '#ef4444',
+                  fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap',
+                }}>
+                  {fmtCurrency(row.bruto)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {excludedCount > 0 && (
+        <p style={{
+          margin: '10px 0 0', fontFamily: 'var(--font-dm-mono), monospace',
+          fontSize: '0.58rem', color: 'rgba(255,255,255,0.32)', lineHeight: 1.5,
+        }}>
+          {excludedCount} {excludedCount === 1 ? 'ticket quedó' : 'tickets quedaron'} fuera del total porque no tiene bruto cargado; se muestra con “—”.
+        </p>
+      )}
+    </>
+  )
+}
+
+function CourtesyWidget({ historicalRows, monthRows, month }: {
+  historicalRows: TopTicketRow[]
+  monthRows: TopTicketRow[]
+  month: string
+}) {
+  const historicalKnown = historicalRows.filter(row => row.bruto != null)
+  const monthKnown = monthRows.filter(row => row.bruto != null)
+  const historicalExcluded = historicalRows.length - historicalKnown.length
+  const monthExcluded = monthRows.length - monthKnown.length
+  const historicalTotal = historicalKnown.reduce((sum, row) => sum + row.bruto!, 0)
+  const monthTotal = monthKnown.reduce((sum, row) => sum + row.bruto!, 0)
+  const historicalValue = historicalRows.length > 0 && historicalKnown.length === 0 ? '—' : fmtMillones(historicalTotal)
+  const monthValue = monthRows.length > 0 && monthKnown.length === 0 ? '—' : fmtMillones(monthTotal)
+
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+      borderRadius: 12, padding: 20, marginBottom: 16,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
+        <Gift size={18} strokeWidth={1.8} color="#f5820a" style={{ flexShrink: 0 }} />
+        <div>
+          <div style={{
+            fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.58rem',
+            letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.42)',
+          }}>
+            Cortesías — corte del total de descuentos
+          </div>
+          <p style={{
+            margin: '6px 0 0', fontFamily: 'var(--font-body)', fontSize: '0.76rem',
+            lineHeight: 1.45, color: 'rgba(255,255,255,0.52)',
+          }}>
+            ¿A quién le regalamos la cena sin cobrar un peso?
+          </p>
+        </div>
+      </div>
+      <p style={{
+        margin: '0 0 18px 28px', fontFamily: 'var(--font-dm-mono), monospace',
+        fontSize: '0.58rem', lineHeight: 1.5, color: 'rgba(255,255,255,0.3)',
+      }}>
+        Estos montos ya están incluidos en “Plata perdida”; son un corte para entenderla, no un total adicional.
+      </p>
+
+      <div className="discount-courtesy-grid" style={{ display: 'grid', gap: 12, marginBottom: 18 }}>
+        <div style={{ padding: '14px 16px', borderLeft: '2px solid rgba(245,130,10,0.5)', background: 'rgba(245,130,10,0.035)' }}>
+          <div style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.54rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.32)', marginBottom: 7 }}>Acumulado histórico regalado al 100%</div>
+          <div style={{ fontFamily: "'Syne', sans-serif", fontSize: '1.35rem', fontWeight: 700, color: '#ef4444' }}>{historicalValue}</div>
+          {historicalExcluded > 0 && (
+            <div style={{ marginTop: 6, fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.56rem', color: 'rgba(255,255,255,0.28)' }}>
+              {historicalExcluded} sin bruto, fuera del total
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '14px 16px', borderLeft: '2px solid rgba(239,68,68,0.5)', background: 'rgba(239,68,68,0.035)' }}>
+          <div style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.54rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.32)', marginBottom: 7 }}>{fmtMonthLong(month)} · regalado al 100%</div>
+          <div style={{ fontFamily: "'Syne', sans-serif", fontSize: '1.35rem', fontWeight: 700, color: '#ef4444' }}>{monthValue}</div>
+        </div>
+      </div>
+
+      <CourtesyTable rows={monthRows} excludedCount={monthExcluded} />
+    </div>
+  )
+}
+
 async function exportTicketsXlsx(rows: TopTicketRow[], locationId: string, month: string) {
   const XLSX = await import('xlsx')
   const exportRows = rows.map(row => ({
@@ -400,8 +642,9 @@ interface Props { locationId: string }
 
 export function DescuentosSection({ locationId }: Props) {
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthISO)
-  const [resumen,    setResumen]    = useState<RawDescuentosRow[]>([])
-  const [topTickets, setTopTickets] = useState<TopTicketRow[]>([])
+  const [resumen,   setResumen]   = useState<RawDescuentosRow[]>([])
+  const [allTickets, setAllTickets] = useState<TopTicketRow[]>([])
+  const [ticketSort, setTicketSort] = useState<TicketSort>({ ...DEFAULT_TICKET_SORT })
   const [isLoading,    setIsLoading]    = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isTicketsLoading, setIsTicketsLoading] = useState(true)
@@ -424,22 +667,24 @@ export function DescuentosSection({ locationId }: Props) {
     setIsRefreshing(false)
   }, [locationId])
 
-  const loadTopTickets = useCallback(async (month: string) => {
+  const loadTopTickets = useCallback(async () => {
     const requestId = ++ticketRequestRef.current
     setIsTicketsLoading(true)
+    setAllTickets([])
     const { data, error } = await getSupabase().rpc('get_descuentos_top_tickets', {
       p_location_id: locationId,
-      p_desde:       firstDayOfMonth(month),
-      p_hasta:       lastDayOfMonth(month),
+      p_desde:       null,
+      p_hasta:       null,
     })
     if (requestId !== ticketRequestRef.current) return
     if (!error && Array.isArray(data)) {
-      setTopTickets(data as TopTicketRow[])
+      setAllTickets(data as TopTicketRow[])
     }
     setIsTicketsLoading(false)
   }, [locationId])
 
   useEffect(() => { loadResumen() }, [loadResumen])
+  useEffect(() => { loadTopTickets() }, [loadTopTickets])
 
   // ── Derived ──────────────────────────────────────────────────────────────────
 
@@ -454,10 +699,6 @@ export function DescuentosSection({ locationId }: Props) {
       ? selectedMonth
       : availableMonths[availableMonths.length - 1]
   }, [availableMonths, selectedMonth])
-
-  // The effective month can differ from the initial selection while the
-  // summary loads. Querying from this value keeps the title and rows aligned.
-  useEffect(() => { if (!isLoading) loadTopTickets(effectiveMonth) }, [effectiveMonth, isLoading, loadTopTickets])
 
   const monthRows = useMemo(
     () => resumen.filter(r => r.mes_inicio === effectiveMonth),
@@ -482,7 +723,15 @@ export function DescuentosSection({ locationId }: Props) {
     const brutoTotal     = includedMonthRows.reduce((s, r) => s + (r.bruto_total_canal ?? 0), 0)
     const hasUnknownBruto = includedMonthRows.some(r => r.bruto_total_canal == null)
     const effectiveRate = !hasUnknownBruto && brutoTotal > 0 ? plataTotal / brutoTotal : null
-    return { plataTotal, ticketsTotal, ticketsConDesc, pctTickets, effectiveRate }
+    const hasUnknownAverage = monthRows.some(r => r.tickets_con_descuento > 0 && r.avg_descuento_pct == null)
+    const weightedDiscount = monthRows.reduce(
+      (sum, row) => sum + (row.avg_descuento_pct ?? 0) * row.tickets_con_descuento,
+      0,
+    )
+    const avgDiscount = !hasUnknownAverage && ticketsConDesc > 0
+      ? weightedDiscount / ticketsConDesc
+      : null
+    return { plataTotal, ticketsTotal, ticketsConDesc, pctTickets, effectiveRate, avgDiscount }
   }, [includedMonthRows, monthRows])
 
   const barData = useMemo(() => {
@@ -504,10 +753,60 @@ export function DescuentosSection({ locationId }: Props) {
     [includedMonthRows]
   )
 
-  const visibleTickets = useMemo(
-    () => [...topTickets].sort((a, b) => (b.plata_perdida ?? -Infinity) - (a.plata_perdida ?? -Infinity)),
-    [topTickets]
+  const historicalIncludedRows = useMemo(
+    () => resumen.filter(row => !isPendingReview(row)),
+    [resumen]
   )
+
+  const historicalTotal = useMemo(
+    () => historicalIncludedRows.reduce((sum, row) => sum + row.plata_perdida, 0),
+    [historicalIncludedRows]
+  )
+
+  const historicalCanalRows = useMemo(() => {
+    const byChannel = new Map<string, number>()
+    for (const row of historicalIncludedRows) {
+      byChannel.set(row.tipo_zona, (byChannel.get(row.tipo_zona) ?? 0) + row.plata_perdida)
+    }
+    return [...byChannel.entries()]
+      .map(([tipo_zona, plata_perdida]) => ({ tipo_zona, plata_perdida }))
+      .sort((a, b) => b.plata_perdida - a.plata_perdida)
+  }, [historicalIncludedRows])
+
+  const monthTickets = useMemo(
+    () => allTickets.filter(row => row.fecha_caja.slice(0, 7) === effectiveMonth.slice(0, 7)),
+    [allTickets, effectiveMonth]
+  )
+
+  const visibleTickets = useMemo(
+    () => sortTickets(monthTickets, ticketSort),
+    [monthTickets, ticketSort]
+  )
+
+  const historicalCourtesyRows = useMemo(
+    () => allTickets.filter(row => row.descuento >= 100),
+    [allTickets]
+  )
+
+  const monthCourtesyRows = useMemo(
+    () => sortTickets(
+      historicalCourtesyRows.filter(row => row.fecha_caja.slice(0, 7) === effectiveMonth.slice(0, 7)),
+      { key: 'bruto', direction: 'desc' },
+    ),
+    [effectiveMonth, historicalCourtesyRows]
+  )
+
+  const handleMonthSelect = useCallback((month: string) => {
+    setSelectedMonth(month)
+    setTicketSort({ ...DEFAULT_TICKET_SORT })
+  }, [])
+
+  const handleTicketSort = useCallback((key: TicketSortKey) => {
+    setTicketSort(previous => previous.key === key
+      ? { key, direction: previous.direction === 'asc' ? 'desc' : 'asc' }
+      : { key, direction: 'asc' }
+    )
+  }, [])
 
   const handleExport = useCallback(async () => {
     setIsExporting(true)
@@ -525,7 +824,23 @@ export function DescuentosSection({ locationId }: Props) {
 
   return (
     <div style={{ marginBottom: '52px', opacity: isRefreshing ? 0.6 : 1, transition: 'opacity 0.3s' }}>
-      <style>{`@keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:.9} }`}</style>
+      <style>{`
+        @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:.9} }
+        .discount-kpi-grid,
+        .discount-history-grid,
+        .discount-courtesy-grid { grid-template-columns: minmax(0, 1fr); }
+        @media (min-width: 520px) {
+          .discount-kpi-grid,
+          .discount-courtesy-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (min-width: 768px) {
+          .discount-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+          .discount-history-grid { grid-template-columns: minmax(180px, .7fr) minmax(280px, 1.3fr); }
+        }
+        @media (min-width: 1280px) {
+          .discount-kpi-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+        }
+      `}</style>
       <SectionLabel>Análisis de Descuentos</SectionLabel>
 
       {/* Month selector */}
@@ -536,7 +851,7 @@ export function DescuentosSection({ locationId }: Props) {
             return (
               <button
                 key={m}
-                onClick={() => setSelectedMonth(m)}
+                onClick={() => handleMonthSelect(m)}
                 style={{
                   padding: '5px 12px', borderRadius: 6, cursor: 'pointer',
                   fontFamily: 'var(--font-dm-mono), monospace',
@@ -556,13 +871,9 @@ export function DescuentosSection({ locationId }: Props) {
       )}
 
       {/* KPI cards */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-        gap: 12, marginBottom: 24,
-      }}>
+      <div className="discount-kpi-grid" style={{ display: 'grid', gap: 12, marginBottom: 24 }}>
         {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => (
+          Array.from({ length: 5 }).map((_, i) => (
             <div key={i} style={{ padding: 20, background: 'rgba(255,255,255,0.02)', borderRadius: 12 }}>
               <Skel h={8} /><div style={{ height: 10 }} /><Skel h={28} />
             </div>
@@ -573,6 +884,11 @@ export function DescuentosSection({ locationId }: Props) {
             <KpiCard label="Tickets c/ descuento"   value={String(kpis.ticketsConDesc)}      sub={`de ${kpis.ticketsTotal} totales`} />
             <KpiCard label="% Tickets c/ descuento" value={fmtPct(kpis.pctTickets)} />
             <KpiCard label="Tasa efectiva"           value={fmtEffectiveRate(kpis.effectiveRate)} sub="de cada $100 de lista, cuánto no cobré" />
+            <KpiCard
+              label="Descuento promedio"
+              value={kpis.avgDiscount == null ? '—' : fmtPct(kpis.avgDiscount)}
+              sub="qué tan fuerte descuento cuando descuento"
+            />
           </>
         )}
       </div>
@@ -612,6 +928,15 @@ export function DescuentosSection({ locationId }: Props) {
         )}
       </div>
 
+      {!isLoading && availableMonths.length > 0 && (
+        <HistoricalSummary
+          firstMonth={availableMonths[0]}
+          lastMonth={availableMonths[availableMonths.length - 1]}
+          total={historicalTotal}
+          canalRows={historicalCanalRows}
+        />
+      )}
+
       {/* Canal breakdown */}
       {!isLoading && canalRows.length > 0 && (
         <div style={{
@@ -632,6 +957,22 @@ export function DescuentosSection({ locationId }: Props) {
       {/* Channels whose header discount behaves like a platform fee */}
       {!isLoading && pendingReviewRows.length > 0 && (
         <PendingReviewChannels rows={pendingReviewRows} />
+      )}
+
+      {/* Courtesy tickets are a cut of the discount total, not an additional amount. */}
+      {isLoading || isTicketsLoading ? (
+        <div style={{
+          background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: 12, padding: 20, marginBottom: 16,
+        }}>
+          <Skel h={180} />
+        </div>
+      ) : (
+        <CourtesyWidget
+          historicalRows={historicalCourtesyRows}
+          monthRows={monthCourtesyRows}
+          month={effectiveMonth}
+        />
       )}
 
       {/* Discounted tickets */}
@@ -688,7 +1029,9 @@ export function DescuentosSection({ locationId }: Props) {
             {exportError}
           </p>
         )}
-        {isLoading || isTicketsLoading ? <Skel h={180} /> : <TopTicketsTable rows={visibleTickets} />}
+        {isLoading || isTicketsLoading
+          ? <Skel h={180} />
+          : <TopTicketsTable rows={visibleTickets} sort={ticketSort} onSort={handleTicketSort} />}
       </div>
 
       {/* Auto insight */}
