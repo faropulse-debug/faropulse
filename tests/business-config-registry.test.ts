@@ -23,7 +23,11 @@ const MIGRATION_PATH = path.resolve(
 )
 
 function readMigration(): string {
-  return fs.readFileSync(MIGRATION_PATH, 'utf8')
+  // Normalizado a LF: en checkouts de Windows este archivo puede tener CRLF,
+  // y las regex de abajo usan \n literal para anclar el fin del CHECK. Sin
+  // esto, el \r sobrante corre el match y el test da falso rojo en Windows
+  // aunque el contenido sea idéntico (ver PR #58 y #62).
+  return fs.readFileSync(MIGRATION_PATH, 'utf8').replace(/\r\n/g, '\n')
 }
 
 function extractKeyUnitPairsFromCheck(sql: string): Array<{ key: string; unit: string }> {
