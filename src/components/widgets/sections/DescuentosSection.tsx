@@ -67,6 +67,7 @@ const MONTH_NAMES: Record<string, string> = {
 const CANAL_LABELS: Record<string, string> = {
   SALON: 'Salón', APLICACIONES: 'Apps', MOSTRADOR: 'Mostrador',
 }
+const POSTGREST_ROW_LIMIT = 1000
 const DEFAULT_TICKET_SORT: TicketSort = { key: 'plata_perdida', direction: 'desc' }
 const TICKET_COLUMNS: Array<{ key: TicketSortKey; label: string; align: 'left' | 'right' }> = [
   { key: 'external_id', label: 'Número',     align: 'left' },
@@ -278,6 +279,21 @@ function PendingReviewChannels({ rows }: { rows: RawDescuentosRow[] }) {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function DataLimitWarning({ children }: { children: React.ReactNode }) {
+  return (
+    <div role="status" style={{
+      display: 'flex', alignItems: 'flex-start', gap: 9,
+      marginBottom: 14, padding: '10px 12px', borderRadius: 6,
+      border: '1px solid rgba(245,158,11,0.24)', background: 'rgba(245,158,11,0.07)',
+      color: '#fbbf24', fontFamily: 'var(--font-dm-mono), monospace',
+      fontSize: '0.61rem', lineHeight: 1.5,
+    }}>
+      <AlertTriangle size={15} strokeWidth={1.8} style={{ flexShrink: 0, marginTop: 1 }} />
+      <span>{children}</span>
     </div>
   )
 }
@@ -523,10 +539,12 @@ function CourtesyTable({ rows, excludedCount }: { rows: TopTicketRow[]; excluded
   )
 }
 
-function CourtesyWidget({ historicalRows, monthRows, month }: {
+function CourtesyWidget({ historicalRows, monthRows, month, historicalIncomplete, monthIncomplete }: {
   historicalRows: TopTicketRow[]
   monthRows: TopTicketRow[]
   month: string
+  historicalIncomplete: boolean
+  monthIncomplete: boolean
 }) {
   const historicalKnown = historicalRows.filter(row => row.bruto != null)
   const monthKnown = monthRows.filter(row => row.bruto != null)
@@ -534,8 +552,12 @@ function CourtesyWidget({ historicalRows, monthRows, month }: {
   const monthExcluded = monthRows.length - monthKnown.length
   const historicalTotal = historicalKnown.reduce((sum, row) => sum + row.bruto!, 0)
   const monthTotal = monthKnown.reduce((sum, row) => sum + row.bruto!, 0)
-  const historicalValue = historicalRows.length > 0 && historicalKnown.length === 0 ? '—' : fmtMillones(historicalTotal)
-  const monthValue = monthRows.length > 0 && monthKnown.length === 0 ? '—' : fmtMillones(monthTotal)
+  const historicalValue = historicalRows.length > 0 && historicalKnown.length === 0
+    ? '—'
+    : `${historicalIncomplete ? '≥ ' : ''}${fmtMillones(historicalTotal)}`
+  const monthValue = monthRows.length > 0 && monthKnown.length === 0
+    ? '—'
+    : `${monthIncomplete ? '≥ ' : ''}${fmtMillones(monthTotal)}`
 
   return (
     <div style={{
@@ -565,6 +587,17 @@ function CourtesyWidget({ historicalRows, monthRows, month }: {
       }}>
         Estos montos ya están incluidos en “Plata perdida”; son un corte para entenderla, no un total adicional.
       </p>
+
+      {historicalIncomplete && (
+        <DataLimitWarning>
+          Acumulado histórico potencialmente incompleto: la consulta alcanzó el límite de 1.000 cortesías. El valor mostrado es un mínimo conocido.
+        </DataLimitWarning>
+      )}
+      {monthIncomplete && (
+        <DataLimitWarning>
+          Cortesías del mes potencialmente incompletas: el detalle mensual alcanzó el límite de 1.000 tickets. El valor mostrado es un mínimo conocido.
+        </DataLimitWarning>
+      )}
 
       <div className="discount-courtesy-grid" style={{ display: 'grid', gap: 12, marginBottom: 18 }}>
         <div style={{ padding: '14px 16px', borderLeft: '2px solid rgba(245,130,10,0.5)', background: 'rgba(245,130,10,0.035)' }}>
@@ -642,16 +675,23 @@ interface Props { locationId: string }
 
 export function DescuentosSection({ locationId }: Props) {
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthISO)
-  const [resumen,   setResumen]   = useState<RawDescuentosRow[]>([])
-  const [allTickets, setAllTickets] = useState<TopTicketRow[]>([])
+  const [resumen, setResumen] = useState<RawDescuentosRow[]>([])
+  const [monthTickets, setMonthTickets] = useState<TopTicketRow[]>([])
+  const [historicalCourtesyRows, setHistoricalCourtesyRows] = useState<TopTicketRow[]>([])
+  const [loadedMonthScope, setLoadedMonthScope] = useState<string | null>(null)
+  const [loadedCourtesyLocation, setLoadedCourtesyLocation] = useState<string | null>(null)
   const [ticketSort, setTicketSort] = useState<TicketSort>({ ...DEFAULT_TICKET_SORT })
   const [isLoading,    setIsLoading]    = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isTicketsLoading, setIsTicketsLoading] = useState(true)
+  const [isCourtesyLoading, setIsCourtesyLoading] = useState(true)
+  const [isMonthIncomplete, setIsMonthIncomplete] = useState(false)
+  const [isCourtesyIncomplete, setIsCourtesyIncomplete] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const hasDataRef = useRef(false)
-  const ticketRequestRef = useRef(0)
+  const monthTicketRequestRef = useRef(0)
+  const courtesyRequestRef = useRef(0)
 
   const loadResumen = useCallback(async () => {
     if (hasDataRef.current) setIsRefreshing(true)
@@ -667,24 +707,54 @@ export function DescuentosSection({ locationId }: Props) {
     setIsRefreshing(false)
   }, [locationId])
 
-  const loadTopTickets = useCallback(async () => {
-    const requestId = ++ticketRequestRef.current
+  const loadMonthTickets = useCallback(async (month: string) => {
+    const requestId = ++monthTicketRequestRef.current
     setIsTicketsLoading(true)
-    setAllTickets([])
+    setMonthTickets([])
+    setIsMonthIncomplete(false)
     const { data, error } = await getSupabase().rpc('get_descuentos_top_tickets', {
       p_location_id: locationId,
-      p_desde:       null,
-      p_hasta:       null,
+      p_desde:       firstDayOfMonth(month),
+      p_hasta:       lastDayOfMonth(month),
     })
-    if (requestId !== ticketRequestRef.current) return
+    if (requestId !== monthTicketRequestRef.current) return
     if (!error && Array.isArray(data)) {
-      setAllTickets(data as TopTicketRow[])
+      const rows = data as TopTicketRow[]
+      setMonthTickets(rows)
+      setIsMonthIncomplete(rows.length === POSTGREST_ROW_LIMIT)
     }
+    setLoadedMonthScope(`${locationId}:${month.slice(0, 7)}`)
     setIsTicketsLoading(false)
   }, [locationId])
 
+  const loadHistoricalCourtesies = useCallback(async () => {
+    const requestId = ++courtesyRequestRef.current
+    setIsCourtesyLoading(true)
+    setHistoricalCourtesyRows([])
+    setIsCourtesyIncomplete(false)
+    const { data, error } = await getSupabase()
+      .rpc('get_descuentos_top_tickets', {
+        p_location_id: locationId,
+        p_desde:       null,
+        p_hasta:       null,
+      })
+      .gte('descuento', 100)
+    if (requestId !== courtesyRequestRef.current) return
+    if (!error && Array.isArray(data)) {
+      const rows = data as TopTicketRow[]
+      setHistoricalCourtesyRows(rows.filter(row => row.descuento >= 100))
+      setIsCourtesyIncomplete(rows.length === POSTGREST_ROW_LIMIT)
+    }
+    setLoadedCourtesyLocation(locationId)
+    setIsCourtesyLoading(false)
+  }, [locationId])
+
+  // PostgREST caps function results at 1,000 rows. Exactly 1,000 is therefore
+  // treated as truncated: accepting it silently made detail exports disagree
+  // with summary KPIs. Keep month detail date-bounded, filter courtesies on the
+  // server, and preserve both guards so partial data can never look complete.
   useEffect(() => { loadResumen() }, [loadResumen])
-  useEffect(() => { loadTopTickets() }, [loadTopTickets])
+  useEffect(() => { loadHistoricalCourtesies() }, [loadHistoricalCourtesies])
 
   // ── Derived ──────────────────────────────────────────────────────────────────
 
@@ -699,6 +769,10 @@ export function DescuentosSection({ locationId }: Props) {
       ? selectedMonth
       : availableMonths[availableMonths.length - 1]
   }, [availableMonths, selectedMonth])
+
+  useEffect(() => {
+    if (!isLoading) loadMonthTickets(effectiveMonth)
+  }, [effectiveMonth, isLoading, loadMonthTickets])
 
   const monthRows = useMemo(
     () => resumen.filter(r => r.mes_inicio === effectiveMonth),
@@ -773,27 +847,17 @@ export function DescuentosSection({ locationId }: Props) {
       .sort((a, b) => b.plata_perdida - a.plata_perdida)
   }, [historicalIncludedRows])
 
-  const monthTickets = useMemo(
-    () => allTickets.filter(row => row.fecha_caja.slice(0, 7) === effectiveMonth.slice(0, 7)),
-    [allTickets, effectiveMonth]
-  )
-
   const visibleTickets = useMemo(
     () => sortTickets(monthTickets, ticketSort),
     [monthTickets, ticketSort]
   )
 
-  const historicalCourtesyRows = useMemo(
-    () => allTickets.filter(row => row.descuento >= 100),
-    [allTickets]
-  )
-
   const monthCourtesyRows = useMemo(
     () => sortTickets(
-      historicalCourtesyRows.filter(row => row.fecha_caja.slice(0, 7) === effectiveMonth.slice(0, 7)),
+      monthTickets.filter(row => row.descuento >= 100),
       { key: 'bruto', direction: 'desc' },
     ),
-    [effectiveMonth, historicalCourtesyRows]
+    [monthTickets]
   )
 
   const handleMonthSelect = useCallback((month: string) => {
@@ -809,6 +873,10 @@ export function DescuentosSection({ locationId }: Props) {
   }, [])
 
   const handleExport = useCallback(async () => {
+    if (isMonthIncomplete) {
+      setExportError('El detalle alcanzó el límite de 1.000 filas. La exportación queda deshabilitada para no generar un archivo incompleto.')
+      return
+    }
     setIsExporting(true)
     setExportError(null)
     try {
@@ -818,7 +886,18 @@ export function DescuentosSection({ locationId }: Props) {
     } finally {
       setIsExporting(false)
     }
-  }, [effectiveMonth, locationId, visibleTickets])
+  }, [effectiveMonth, isMonthIncomplete, locationId, visibleTickets])
+
+  const isMonthDetailLoading = isTicketsLoading
+    || loadedMonthScope !== `${locationId}:${effectiveMonth.slice(0, 7)}`
+  const isHistoricalCourtesyLoading = isCourtesyLoading
+    || loadedCourtesyLocation !== locationId
+
+  const isExportDisabled = isLoading
+    || isMonthDetailLoading
+    || isExporting
+    || isMonthIncomplete
+    || visibleTickets.length === 0
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -960,7 +1039,7 @@ export function DescuentosSection({ locationId }: Props) {
       )}
 
       {/* Courtesy tickets are a cut of the discount total, not an additional amount. */}
-      {isLoading || isTicketsLoading ? (
+      {isLoading || isMonthDetailLoading || isHistoricalCourtesyLoading ? (
         <div style={{
           background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
           borderRadius: 12, padding: 20, marginBottom: 16,
@@ -972,6 +1051,8 @@ export function DescuentosSection({ locationId }: Props) {
           historicalRows={historicalCourtesyRows}
           monthRows={monthCourtesyRows}
           month={effectiveMonth}
+          historicalIncomplete={isCourtesyIncomplete}
+          monthIncomplete={isMonthIncomplete}
         />
       )}
 
@@ -992,35 +1073,41 @@ export function DescuentosSection({ locationId }: Props) {
             }}>
               Tickets con descuento — {isLoading ? '…' : fmtMonthLong(effectiveMonth)}
             </span>
-            {!isLoading && !isTicketsLoading && (
+            {!isLoading && !isMonthDetailLoading && (
               <span style={{
                 padding: '3px 7px', borderRadius: 4,
                 background: 'rgba(245,130,10,0.1)', color: '#f5820a',
                 fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.56rem',
                 letterSpacing: '0.08em', whiteSpace: 'nowrap',
               }}>
-                {visibleTickets.length} {visibleTickets.length === 1 ? 'ticket' : 'tickets'}
+                {isMonthIncomplete ? `${visibleTickets.length}+` : visibleTickets.length}{' '}
+                {visibleTickets.length === 1 ? 'ticket' : 'tickets'}
               </span>
             )}
           </div>
           <button
             type="button"
             onClick={handleExport}
-            disabled={isLoading || isTicketsLoading || isExporting || visibleTickets.length === 0}
+            disabled={isExportDisabled}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 7,
               minHeight: 32, padding: '6px 10px', borderRadius: 6,
               border: '1px solid rgba(245,130,10,0.3)',
               background: 'rgba(245,130,10,0.08)', color: '#f5820a',
               fontFamily: 'var(--font-dm-mono), monospace', fontSize: '0.6rem',
-              letterSpacing: '0.06em', cursor: isLoading || isTicketsLoading || isExporting || visibleTickets.length === 0 ? 'not-allowed' : 'pointer',
-              opacity: isLoading || isTicketsLoading || isExporting || visibleTickets.length === 0 ? 0.45 : 1,
+              letterSpacing: '0.06em', cursor: isExportDisabled ? 'not-allowed' : 'pointer',
+              opacity: isExportDisabled ? 0.45 : 1,
             }}
           >
             <Download size={14} strokeWidth={1.8} />
             {isExporting ? 'Exportando…' : 'Exportar'}
           </button>
         </div>
+        {isMonthIncomplete && (
+          <DataLimitWarning>
+            Detalle potencialmente incompleto: la consulta alcanzó el límite de 1.000 filas de PostgREST. La tabla puede omitir tickets y la exportación está deshabilitada para evitar un archivo engañoso.
+          </DataLimitWarning>
+        )}
         {exportError && (
           <p role="alert" style={{
             margin: '0 0 12px', color: '#fca5a5',
@@ -1029,7 +1116,7 @@ export function DescuentosSection({ locationId }: Props) {
             {exportError}
           </p>
         )}
-        {isLoading || isTicketsLoading
+        {isLoading || isMonthDetailLoading
           ? <Skel h={180} />
           : <TopTicketsTable rows={visibleTickets} sort={ticketSort} onSort={handleTicketSort} />}
       </div>
