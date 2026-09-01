@@ -61,7 +61,12 @@ npx cross-env PROJECT_REF=lahnngwyfbejgesulafr \
 
 ## 3. Invariante STG vs PROD (Capa 6)
 
-Compara STG contra PROD: conteo de filas y rango de fechas por tabla (informativo), y documentos con la misma clave de negocio (`external_id` + `fecha_caja`) que tienen items en un ambiente y no en el otro (esto sí determina el exit code — es el patrón exacto del incidente que motivó el script: 3 cortesías con items faltantes en STG, detectadas a mano el 2026-08-30). SOLO LECTURA en los dos ambientes, siempre.
+Compara STG contra PROD: conteo de filas y rango de fechas por tabla (informativo), y dos criterios sobre documentos con la misma clave de negocio (`external_id` + `fecha_caja`) — ambos determinan el exit code:
+
+- **Presencia**: items en un ambiente y no en el otro (el patrón del incidente original: 3 cortesías con items faltantes en STG, detectadas a mano el 2026-08-30).
+- **Cantidad**: items en los dos ambientes, pero en cantidad distinta (punto ciego encontrado 2026-09 — la primera versión solo miraba presencia/ausencia y no vio 3 filas de diferencia real entre 89.723 en STG y 89.726 en PROD, todas dentro de documentos que sí tenían items en ambos lados).
+
+El output también suma el delta total de filas de `sales_items` entre ambientes, no solo el conteo de documentos divergentes. SOLO LECTURA en los dos ambientes, siempre.
 
 ```bash
 npx tsx scripts/invariante-stg-prod.ts
