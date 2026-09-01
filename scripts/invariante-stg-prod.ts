@@ -10,21 +10,32 @@
  * ingesta de $89.700 en la suma de bruto derivado. Cada verificación manual
  * que se repite se convierte en script: este es ese script.
  *
+ * 2026-09 — punto ciego encontrado y cerrado: la primera versión de este
+ * script solo comparaba presencia/ausencia de items (0 vs >0). Corrido
+ * después de que Tano recargó los Excel de junio, dio "sin divergencias"
+ * con sales_items en 89.723 (STG) vs 89.726 (PROD) — 3 filas de diferencia
+ * real que el criterio de presencia no ve porque ambos lados tenían items,
+ * solo que en cantidad distinta para al menos un documento. Mismo tipo de
+ * agujero que NULL vs cero: un verde que no verifica todo es tan engañoso
+ * como un rojo permanente. Ver (3) más abajo.
+ *
  * Qué compara, por tabla (sales_documents, sales_items), para la location
  * configurada en cada ambiente:
- *   1) Conteo de filas.
- *   2) Rango de fechas (MIN/MAX fecha_caja).
+ *   1) Conteo de filas. (2) Rango de fechas (MIN/MAX fecha_caja).
  *   3) Documentos cuya clave de negocio (external_id, fecha_caja) existe en
  *      los dos ambientes, pero tiene items en uno y no en el otro.
+ *   4) Documentos con items en los dos ambientes, pero con una CANTIDAD de
+ *      items distinta entre STG y PROD (el punto ciego cerrado en 2026-09).
  *
  * NOTA sobre exit code (mismo criterio que scripts/check-dependency-audit.mjs
  * — un check que siempre da rojo por diferencias esperadas no informa nada):
  *   - (1) y (2) son informativos. STG y PROD divergen en volumen total por
  *     diseño (sync periódico, no espejo en vivo) — no son señal de bug por
  *     sí solos, así que NO determinan el exit code.
- *   - (3) sí lo determina: un documento con la MISMA clave de negocio en los
- *     dos ambientes que tiene items en uno y no en el otro es exactamente el
- *     patrón del incidente de origen. Exit code 1 si aparece al menos uno.
+ *   - (3) y (4) sí lo determinan: cualquiera de los dos es evidencia de que
+ *     el mismo documento de negocio tiene datos de items distintos entre
+ *     ambientes — exactamente el patrón del incidente de origen, con o sin
+ *     presencia total. Exit code 1 si aparece al menos un caso de (3) o (4).
  *   - Si PROD no tiene credenciales configuradas, el script no falla: hace
  *     lo que puede solo-STG y lo marca explícitamente como chequeo parcial.
  *
@@ -94,7 +105,7 @@ async function sqlQuery(ref: string, token: string, query: string): Promise<Reco
 const TABLES = ['sales_documents', 'sales_items'] as const
 
 type RowCountReport = { table: string; n: number; desde: string | null; hasta: string | null }
-type DocKey = { external_id: string; fecha_caja: string; has_items: boolean }
+type DocKey = { external_id: string; fecha_caja: string; item_count: number }
 
 async function rowCounts(env: EnvTarget): Promise<RowCountReport[]> {
   const reports: RowCountReport[] = []
@@ -118,45 +129,64 @@ async function rowCounts(env: EnvTarget): Promise<RowCountReport[]> {
 // Clave de negocio: (external_id, fecha_caja). NO se usa location_id para
 // matchear entre ambientes — STG y PROD tienen location_id distintos para
 // la misma location de negocio.
+//
+// item_count (no un booleano has_items): un LEFT JOIN + COUNT trae la
+// cantidad real de filas de sales_items por documento, no solo si hay
+// alguna. Es lo que permite detectar (4) — mismo documento, items en los
+// dos lados, pero cantidad distinta — que un EXISTS booleano no puede ver.
 async function fetchDocKeys(env: EnvTarget): Promise<DocKey[]> {
   const rows = await sqlQuery(env.ref!, env.token!, `
     SELECT
       d.external_id,
       d.fecha_caja::text AS fecha_caja,
-      EXISTS (
-        SELECT 1 FROM sales_items si
-        WHERE si.location_id  = d.location_id
-          AND si.numero_ticket = d.external_id
-          AND si.fecha_caja    = d.fecha_caja
-      ) AS has_items
+      COUNT(si.id)        AS item_count
     FROM sales_documents d
+    LEFT JOIN sales_items si
+      ON si.location_id   = d.location_id
+     AND si.numero_ticket  = d.external_id
+     AND si.fecha_caja     = d.fecha_caja
     WHERE d.location_id = '${env.locationId}'
       AND d.external_id IS NOT NULL
       AND d.fecha_caja IS NOT NULL
+    GROUP BY d.external_id, d.fecha_caja
   `)
   return rows.map(r => ({
     external_id: String(r.external_id),
     fecha_caja: String(r.fecha_caja),
-    has_items: Boolean(r.has_items),
+    item_count: Number(r.item_count),
   }))
 }
 
 type ItemsDivergence = { external_id: string; fecha_caja: string; stg_has_items: boolean; prod_has_items: boolean }
+type CountDivergence = { external_id: string; fecha_caja: string; stg_count: number; prod_count: number; delta: number }
 
-function diffItemsPresence(stgKeys: DocKey[], prodKeys: DocKey[]): ItemsDivergence[] {
+function diffItems(stgKeys: DocKey[], prodKeys: DocKey[]): { presence: ItemsDivergence[]; count: CountDivergence[] } {
   const prodByKey = new Map(prodKeys.map(k => [`${k.external_id}|${k.fecha_caja}`, k]))
-  const divergences: ItemsDivergence[] = []
+  const presence: ItemsDivergence[] = []
+  const count: CountDivergence[] = []
+
   for (const s of stgKeys) {
     const p = prodByKey.get(`${s.external_id}|${s.fecha_caja}`)
     if (!p) continue // el documento no existe en el otro ambiente — no es un hueco de items, es otra cosa
-    if (s.has_items !== p.has_items) {
-      divergences.push({
+
+    const sHas = s.item_count > 0
+    const pHas = p.item_count > 0
+
+    if (sHas !== pHas) {
+      // (3) presencia: uno tiene items, el otro no.
+      presence.push({ external_id: s.external_id, fecha_caja: s.fecha_caja, stg_has_items: sHas, prod_has_items: pHas })
+    } else if (sHas && pHas && s.item_count !== p.item_count) {
+      // (4) cantidad: los dos tienen items, pero no la misma cantidad.
+      count.push({
         external_id: s.external_id, fecha_caja: s.fecha_caja,
-        stg_has_items: s.has_items, prod_has_items: p.has_items,
+        stg_count: s.item_count, prod_count: p.item_count,
+        delta: p.item_count - s.item_count,
       })
     }
+    // sHas === pHas === false (documento sin items en ningún lado) no es divergencia.
   }
-  return divergences
+
+  return { presence, count }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────
@@ -188,24 +218,47 @@ async function main() {
     for (const r of prodCounts) console.log(`   PROD ${r.table.padEnd(16)} n=${r.n}\tdesde=${r.desde ?? '—'}\thasta=${r.hasta ?? '—'}`)
   }
 
-  let divergences: ItemsDivergence[] = []
+  let presence: ItemsDivergence[] = []
+  let count: CountDivergence[] = []
+
   if (prodReady) {
     console.log('\n── (2) Documentos con items en un ambiente y no en el otro ───\n')
     const [stgKeys, prodKeys] = await Promise.all([fetchDocKeys(STG), fetchDocKeys(PROD)])
-    divergences = diffItemsPresence(stgKeys, prodKeys)
+    const diff = diffItems(stgKeys, prodKeys)
+    presence = diff.presence
+    count    = diff.count
 
-    if (divergences.length === 0) {
+    if (presence.length === 0) {
       console.log('   Ninguna. Todo documento presente en los dos ambientes tiene items en ambos, o en ninguno.')
     } else {
-      console.log(`   ${divergences.length} documento(s) con items en un ambiente y no en el otro:\n`)
-      for (const d of divergences.slice(0, 50)) {
+      console.log(`   ${presence.length} documento(s) con items en un ambiente y no en el otro:\n`)
+      for (const d of presence.slice(0, 50)) {
         const falta = d.stg_has_items ? 'PROD' : 'STG'
         console.log(`     - ${d.external_id} (${d.fecha_caja}): falta en ${falta} (STG has_items=${d.stg_has_items}, PROD has_items=${d.prod_has_items})`)
       }
-      if (divergences.length > 50) console.log(`     ... y ${divergences.length - 50} más`)
+      if (presence.length > 50) console.log(`     ... y ${presence.length - 50} más`)
+    }
+
+    console.log('\n── (3) Documentos con distinta CANTIDAD de items (ambos ambientes tienen, pero no igual) ───\n')
+    if (count.length === 0) {
+      console.log('   Ninguna. Todo documento con items en los dos ambientes tiene la misma cantidad en ambos.')
+    } else {
+      let totalDelta = 0
+      console.log(`   ${count.length} documento(s) con cantidad de items distinta:\n`)
+      for (const d of count.slice(0, 50)) {
+        totalDelta += d.delta
+        console.log(`     - ${d.external_id} (${d.fecha_caja}): STG=${d.stg_count} PROD=${d.prod_count} (delta=${d.delta > 0 ? '+' : ''}${d.delta})`)
+      }
+      if (count.length > 50) {
+        for (const d of count.slice(50)) totalDelta += d.delta
+        console.log(`     ... y ${count.length - 50} más`)
+      }
+      console.log(`\n   Delta total de filas en estos documentos (PROD - STG): ${totalDelta > 0 ? '+' : ''}${totalDelta}`)
     }
   } else {
     console.log('\n── (2) Documentos con items en un ambiente y no en el otro ───\n')
+    console.log('   Saltado — requiere credenciales de PROD.')
+    console.log('\n── (3) Documentos con distinta CANTIDAD de items ──────────────\n')
     console.log('   Saltado — requiere credenciales de PROD.')
   }
 
@@ -216,13 +269,22 @@ async function main() {
     process.exit(0)
   }
 
-  if (divergences.length > 0) {
-    console.log(`   DIVERGENCIA: ${divergences.length} documento(s) con items en un ambiente y no en el otro.`)
+  // Delta total de filas en sales_items entre ambientes — no solo el de
+  // documentos: el número de tabla completa (1), explícito acá para que no
+  // dependa de que quien lee reste los dos números de (1) a mano.
+  const stgItemsN  = stgCounts.find(r => r.table === 'sales_items')?.n  ?? 0
+  const prodItemsN = prodCounts.find(r => r.table === 'sales_items')?.n ?? 0
+  const totalRowDelta = prodItemsN - stgItemsN
+  console.log(`   Delta total de filas en sales_items (PROD - STG): ${totalRowDelta > 0 ? '+' : ''}${totalRowDelta}`)
+
+  const totalDivergent = presence.length + count.length
+  if (totalDivergent > 0) {
+    console.log(`   DIVERGENCIA: ${presence.length} documento(s) con presencia distinta + ${count.length} documento(s) con cantidad distinta.`)
     console.log('   Exit code 1.')
     process.exit(1)
   }
 
-  console.log('   Sin divergencias de items entre STG y PROD.')
+  console.log('   Sin divergencias de items entre STG y PROD (ni de presencia ni de cantidad).')
   console.log('   Exit code 0.')
 }
 
