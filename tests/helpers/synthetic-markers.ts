@@ -40,3 +40,20 @@ export const QA_DOCUMENTO_BRUTO_NORMAL_ESPERADO = 121212;
  * signo vía documento_peso('Nota de Crédito Int. Venta', ...) = -1.
  */
 export const QA_DOCUMENTO_BRUTO_REVERSO_ESPERADO = -64200;
+
+/**
+ * Fallback de fórmula (sin items, bruto_items IS NULL): descuento=0 debe
+ * devolver el total tal cual, sin pasar por la división de la fórmula.
+ */
+export const QA_DOCUMENTO_BRUTO_DESCUENTO_CERO_TOTAL = 100000;
+export const QA_DOCUMENTO_BRUTO_DESCUENTO_CERO_ESPERADO = 100000;
+
+/**
+ * Fallback de fórmula (sin items, bruto_items IS NULL): 0 < descuento < 100
+ * usa ROUND(total/(1-descuento/100), 2). total=100000, descuento=33 no
+ * divide parejo a propósito, para ejercitar el redondeo a 2 decimales real
+ * y no solo un cociente que ya daba entero.
+ */
+export const QA_DOCUMENTO_BRUTO_FORMULA_TOTAL = 100000;
+export const QA_DOCUMENTO_BRUTO_FORMULA_DESCUENTO = 33;
+export const QA_DOCUMENTO_BRUTO_FORMULA_ESPERADO = 149253.73;

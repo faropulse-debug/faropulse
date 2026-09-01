@@ -6,6 +6,11 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import {
   QA_DOCUMENTO_BRUTO_NORMAL_ESPERADO,
   QA_DOCUMENTO_BRUTO_REVERSO_ESPERADO,
+  QA_DOCUMENTO_BRUTO_DESCUENTO_CERO_TOTAL,
+  QA_DOCUMENTO_BRUTO_DESCUENTO_CERO_ESPERADO,
+  QA_DOCUMENTO_BRUTO_FORMULA_TOTAL,
+  QA_DOCUMENTO_BRUTO_FORMULA_DESCUENTO,
+  QA_DOCUMENTO_BRUTO_FORMULA_ESPERADO,
 } from './helpers/synthetic-markers'
 
 const shouldRunIntegration = process.env.RUN_INTEGRATION_TESTS === 'true'
@@ -55,6 +60,28 @@ describe.runIf(shouldRunIntegration)('documento_bruto() — guard de reversos (d
     expect(error).toBeNull()
     // 0 afirmaría "no perdiste plata"; la verdad acá es "no sé" -> NULL.
     expect(data).toBeNull()
+  })
+
+  it('sin items, descuento=0: devuelve el total tal cual (no pasa por la fórmula)', async () => {
+    const { data, error } = await supabase.rpc('documento_bruto', {
+      p_bruto_items: null,
+      p_total: QA_DOCUMENTO_BRUTO_DESCUENTO_CERO_TOTAL,
+      p_descuento: 0,
+      p_tipo_documento: 'Factura Venta',
+    })
+    expect(error).toBeNull()
+    expect(data).toBe(QA_DOCUMENTO_BRUTO_DESCUENTO_CERO_ESPERADO)
+  })
+
+  it('sin items, 0 < descuento < 100: devuelve ROUND(total/(1-descuento/100), 2)', async () => {
+    const { data, error } = await supabase.rpc('documento_bruto', {
+      p_bruto_items: null,
+      p_total: QA_DOCUMENTO_BRUTO_FORMULA_TOTAL,
+      p_descuento: QA_DOCUMENTO_BRUTO_FORMULA_DESCUENTO,
+      p_tipo_documento: 'Factura Venta',
+    })
+    expect(error).toBeNull()
+    expect(data).toBe(QA_DOCUMENTO_BRUTO_FORMULA_ESPERADO)
   })
 })
 
