@@ -76,10 +76,15 @@ Tip importante:
 
 ### Flujo de migraciones
 
+Procedimiento completo (con verificación automatizada de esquema y el paso
+de NOTIFY a PostgREST que faltó la semana del 2026-09-01 y rompió uploads
+con PGRST204): ver `docs/PROCEDIMIENTO-MIGRACIONES.md`. Resumen:
+
 1. Crear migración
-2. Aplicar en STG
-3. Validar funcionalidad completa
-4. Aplicar en PROD
+2. Aplicar en STG → `NOTIFY pgrst, 'reload schema';` si corresponde
+3. Verificar con `scripts/verificar-esquema.ts`
+4. Aplicar en PROD → `NOTIFY pgrst, 'reload schema';` si corresponde
+5. Verificar de nuevo
 
 ---
 
