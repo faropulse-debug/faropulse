@@ -73,3 +73,19 @@ npx tsx scripts/invariante-stg-prod.ts
 ```
 
 Config vía `.env.staging` (STG) y `.env.local.prod` (PROD), mismo patrón que `estado-real.ts`. Si a PROD le faltan credenciales, corre el chequeo parcial (solo STG) y sale con exit code 0 — no declara divergencia sin haber podido comparar contra el otro ambiente.
+
+
+## 4. Diff de item_hash STG vs PROD (Capa 7)
+
+Complementa a Capa 6, no la reemplaza. Capa 6 compara *conteos* de filas por documento sobre el dataset entero — barato, corre rápido, sin parámetros. Pero un documento con el mismo conteo de items en los dos ambientes puede tener contenido distinto (un `item_hash` cambiado, o un huérfano que reemplazó a otro sin borrarlo) — el conteo no lo ve. Esta capa sí: compara el SET completo de `item_hash` por documento, no solo cuántos hay.
+
+Es deliberadamente más cara — trae cada fila de `sales_items` del rango, no un `COUNT`/`GROUP BY` — por eso pide un rango de fechas en vez de correr sobre todo el histórico como Capa 6. Usala como segundo paso dirigido cuando Capa 6 da 0 divergencias pero hay motivo para sospechar de un rango puntual: después de una recarga manual de Excel, o cuando el `newCount` del preview de upload no coincide con lo que Capa 6 esperaría.
+
+Caso real que motivó el script: la recarga de junio 2025 en STG dejó `X 00001-00001072` con un item duplicado — mismo conteo en los dos ambientes *antes* de la recarga, pero un `item_hash` viejo (de un seed de mayo 2026) que el Excel de junio 2025 nunca volvió a producir, así que `commit_upload` insertó la fila correcta sin borrar la vieja.
+
+```bash
+npx tsx scripts/diff-item-hashes.ts <FROM> <TO>
+npx tsx scripts/diff-item-hashes.ts 2025-06-01 2025-06-30
+```
+
+Config vía `.env.staging` (STG) y `.env.local.prod` (PROD), mismo patrón que `invariante-stg-prod.ts`. A diferencia de Capa 6, **no tiene modo parcial**: sin los dos ambientes no hay nada que comparar, así que sale con exit code 1 si falta cualquiera de los dos.
