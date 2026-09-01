@@ -148,5 +148,44 @@ describe('Schema Engine', () => {
       const findings = evaluateSchemaDiff(expected, actual, 'post-apply')
       expect(findings).toHaveLength(0) // DRIFT ignorado
     })
+
+    // Caso real: la semana del 2026-09-01 se aplico manualmente en PROD
+    // una migracion (actor_user_id en upload_events) antes que en STG --
+    // al reves de la doctrina. Nadie lo detecto hasta que un upload rompio
+    // con PGRST204. Los tests de arriba ya prueban DRIFT para una TABLA
+    // entera de mas y MISMATCH de tipo en una columna existente, pero
+    // ninguno prueba el caso real: una COLUMNA de mas en una tabla que YA
+    // existe de los dos lados. Este test cierra ese hueco -- si esto no
+    // detecta el finding, verificar-esquema.ts tampoco lo habria agarrado.
+    it('detecta DRIFT cuando hay una columna de mas en una tabla existente (caso real: upload_events.actor_user_id en PROD, no en STG)', () => {
+      const expected = createEmptySchema() // STG
+      expected.tables['upload_events'] = {
+        name: 'upload_events',
+        columns: {
+          id:         { name: 'id',         type: 'uuid', nullable: false, default_val: null },
+          event_type: { name: 'event_type', type: 'text', nullable: false, default_val: null },
+        },
+        constraints: {}, indices: {},
+      }
+      const actual = createEmptySchema() // PROD -- ya tiene actor_user_id, STG todavia no
+      actual.tables['upload_events'] = {
+        name: 'upload_events',
+        columns: {
+          id:            { name: 'id',            type: 'uuid', nullable: false, default_val: null },
+          event_type:    { name: 'event_type',    type: 'text', nullable: false, default_val: null },
+          actor_user_id: { name: 'actor_user_id', type: 'uuid', nullable: true,  default_val: null },
+        },
+        constraints: {}, indices: {},
+      }
+
+      const findings = evaluateSchemaDiff(expected, actual, 'post-apply')
+      expect(findings).toHaveLength(1)
+      expect(findings[0]).toMatchObject({
+        level: 'CRITICAL',
+        type: 'DRIFT',
+        objectType: 'COLUMN',
+        objectName: 'upload_events.actor_user_id',
+      })
+    })
   })
 })

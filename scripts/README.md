@@ -89,3 +89,17 @@ npx tsx scripts/diff-item-hashes.ts 2025-06-01 2025-06-30
 ```
 
 Config vía `.env.staging` (STG) y `.env.local.prod` (PROD), mismo patrón que `invariante-stg-prod.ts`. A diferencia de Capa 6, **no tiene modo parcial**: sin los dos ambientes no hay nada que comparar, así que sale con exit code 1 si falta cualquiera de los dos.
+
+## 5. Verificar esquema STG vs PROD
+
+A diferencia de Capa 6 y Capa 7 (que comparan *datos*), este compara la *estructura*: columnas, funciones, triggers, políticas RLS, constraints e índices. Nace de un incidente real de la semana del 2026-09-01 — una migración se aplicó a mano en PROD antes que en STG (al revés de la doctrina, ver `docs/PROCEDIMIENTO-MIGRACIONES.md`), y nadie lo detectó hasta que un upload rompió con `PGRST204` (columna no encontrada en el cache de esquema de PostgREST). No había ninguna herramienta que comparara la estructura entre ambientes.
+
+Reutiliza `fetchSchemaState()` y `evaluateSchemaDiff()` de `scripts/lib/supabase-api.ts` / `schema-engine.ts` — la misma maquinaria que ya usa `audit-schema.ts` para comparar un ambiente contra el esquema esperado del repo (Shadow DB). Acá los dos lados son ambientes reales: STG se pasa como `expected` (la doctrina dice que se migra primero, así que es "lo que PROD debería tener") y PROD como `actual`. Con esa asignación, algo en PROD que STG no tiene sale como `DRIFT` ("PROD se adelantó") y algo en STG que PROD no tiene sale como `MISSING` ("falta promover a PROD") — el script traduce esas dos etiquetas a `[SOLO EN PROD]` / `[SOLO EN STG]` en el output.
+
+Triggers y políticas RLS no están cubiertos por `schema-engine.ts` — se agregan en el script mismo como chequeo de existencia, sin tocar la librería compartida (para no arriesgar `audit-schema.ts`).
+
+```bash
+npx tsx scripts/verificar-esquema.ts
+```
+
+Config vía `.env.staging` (STG) y `.env.local.prod` (PROD), mismo patrón que `invariante-stg-prod.ts`. Sin modo parcial — sin los dos ambientes no hay esquema que comparar. SOLO LECTURA en los dos ambientes, siempre. Exit code 1 si hay cualquier divergencia.
