@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
 
   const authResult = await requireMembership(req, locationId, { roles: WRITE_ROLES })
   if (authResult instanceof Response) return authResult
+  const { userId } = authResult
 
   const form  = await req.formData()
   const file  = form.get('ventas') as File   | null
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
   const contract = getContract('maxirest-sales')!
   const dryRun   = req.nextUrl?.searchParams?.get('dry_run') === 'true'
 
-  const r = await runUploadPipeline(contract, file, orgId, locationId, supaUrl, serviceKey, { dryRun })
+  const r = await runUploadPipeline(contract, file, orgId, locationId, supaUrl, serviceKey, { dryRun, actorUserId: userId })
 
   // Compat: frontend reads result.documents; pipeline returns result.sales
   if (r.body.sales) r.body.documents = r.body.sales

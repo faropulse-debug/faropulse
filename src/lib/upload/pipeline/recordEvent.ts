@@ -20,6 +20,8 @@ export interface RecordEventParams {
   contractId:  string;
   orgId?:      string | null;
   locationId?: string | null;
+  /** userId resuelto por requireMembership() para el request que originó el evento. */
+  actorUserId?: string | null;
   payload?:    Record<string, unknown>;
 }
 
@@ -35,7 +37,7 @@ export async function recordEvent(
   supaUrl: string,
   serviceKey: string,
 ): Promise<RecordEventResult> {
-  const { eventType, contractId, orgId, locationId, payload } = params;
+  const { eventType, contractId, orgId, locationId, actorUserId, payload } = params;
   const eventId = params.eventId ?? randomUUID();
 
   const response = await fetch(`${supaUrl}/rest/v1/upload_events`, {
@@ -45,12 +47,13 @@ export async function recordEvent(
       Prefer: 'return=representation',
     },
     body: JSON.stringify({
-      event_id:    eventId,
-      event_type:  eventType,
-      contract_id: contractId,
-      org_id:      orgId ?? null,
-      location_id: locationId ?? null,
-      payload:     payload ?? {},
+      event_id:      eventId,
+      event_type:    eventType,
+      contract_id:   contractId,
+      org_id:        orgId ?? null,
+      location_id:   locationId ?? null,
+      actor_user_id: actorUserId ?? null,
+      payload:       payload ?? {},
     }),
   });
 

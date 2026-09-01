@@ -10,7 +10,9 @@ import { upsertFreshness } from '../helpers'
 import { randomUUID } from 'crypto'
 
 export interface PipelineOptions {
-  dryRun?: boolean
+  dryRun?:      boolean
+  /** userId resuelto por requireMembership() en la ruta que invoca el pipeline. */
+  actorUserId?: string | null
 }
 
 export interface PipelineResult {
@@ -28,9 +30,10 @@ export async function runUploadPipeline(
   serviceKey: string,
   options:    PipelineOptions = {},
 ): Promise<PipelineResult> {
-  const contractId = contract.id
-  const dryRun     = options.dryRun === true
-  const svc        = buildSvcHeaders(serviceKey)
+  const contractId  = contract.id
+  const dryRun      = options.dryRun === true
+  const actorUserId = options.actorUserId ?? null
+  const svc         = buildSvcHeaders(serviceKey)
   let eventId: string | undefined
 
   try {
@@ -47,6 +50,7 @@ export async function runUploadPipeline(
           contractId,
           orgId,
           locationId,
+          actorUserId,
           payload: { requestHash, fileName: file.name, sourceType: contract.sourceType },
         },
         supaUrl,
@@ -91,7 +95,7 @@ export async function runUploadPipeline(
 
       if (dataExists) {
         await recordEvent(
-          { eventId, eventType: 'upload.duplicate_skipped', contractId, orgId, locationId,
+          { eventId, eventType: 'upload.duplicate_skipped', contractId, orgId, locationId, actorUserId,
             payload: { requestHash, originalEventId: cached.event_id } },
           supaUrl, serviceKey,
         )
@@ -126,7 +130,7 @@ export async function runUploadPipeline(
     if (!v.ok) {
       if (!dryRun) {
         await recordEvent(
-          { eventId, eventType: 'upload.rejected', contractId, orgId, locationId,
+          { eventId, eventType: 'upload.rejected', contractId, orgId, locationId, actorUserId,
             payload: { stage: 'validate', errors: v.errors } },
           supaUrl, serviceKey,
         )
@@ -135,7 +139,7 @@ export async function runUploadPipeline(
     }
     if (!dryRun) {
       await recordEvent(
-        { eventId, eventType: 'upload.validated', contractId, orgId, locationId, payload: {} },
+        { eventId, eventType: 'upload.validated', contractId, orgId, locationId, actorUserId, payload: {} },
         supaUrl, serviceKey,
       )
     }
@@ -151,7 +155,7 @@ export async function runUploadPipeline(
     }
     if (!dryRun) {
       await recordEvent(
-        { eventId, eventType: 'upload.parsed', contractId, orgId, locationId,
+        { eventId, eventType: 'upload.parsed', contractId, orgId, locationId, actorUserId,
           payload: { rowCount: rows.length, rejectedCount: rejected.length } },
         supaUrl, serviceKey,
       )
@@ -163,7 +167,7 @@ export async function runUploadPipeline(
     if (pct > 0.05) {
       if (!dryRun) {
         await recordEvent(
-          { eventId, eventType: 'upload.rejected', contractId, orgId, locationId,
+          { eventId, eventType: 'upload.rejected', contractId, orgId, locationId, actorUserId,
             payload: { stage: 'abort_check', rejectedPct: pct } },
           supaUrl, serviceKey,
         )
@@ -175,7 +179,7 @@ export async function runUploadPipeline(
     }
     if (!dryRun) {
       await recordEvent(
-        { eventId, eventType: 'upload.abort_check', contractId, orgId, locationId,
+        { eventId, eventType: 'upload.abort_check', contractId, orgId, locationId, actorUserId,
           payload: { rejectedPct: pct, passed: true } },
         supaUrl, serviceKey,
       )
@@ -229,7 +233,7 @@ export async function runUploadPipeline(
     await upsertFreshness(locationId, contract.table, inserted, supaUrl, { ...svc, Prefer: '' })
 
     await recordEvent(
-      { eventId, eventType: 'upload.committed', contractId, orgId, locationId,
+      { eventId, eventType: 'upload.committed', contractId, orgId, locationId, actorUserId,
         payload: { inserted, newCount, updatedCount, deleted, failed: 0, requestHash } },
       supaUrl, serviceKey,
     )
@@ -258,7 +262,7 @@ export async function runUploadPipeline(
     if (supaUrl && serviceKey) {
       try {
         await recordEvent(
-          { eventId, eventType: 'upload.failed', contractId, orgId, locationId,
+          { eventId, eventType: 'upload.failed', contractId, orgId, locationId, actorUserId,
             payload: { error } },
           supaUrl, serviceKey,
         )
