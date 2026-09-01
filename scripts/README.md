@@ -58,3 +58,13 @@ npx cross-env PROJECT_REF=lahnngwyfbejgesulafr \
 ```
 
 > **Salvaguarda de Frescura:** El script `audit-schema.ts` validará que la base de datos shadow (indicada en `SHADOW_DB_URL`) tenga *efectivamente* aplicados todos los archivos `.sql` presentes en `supabase/migrations/`. Si usás una Shadow vieja, abortará inmediatamente para prevenir falsos positivos.
+
+## 3. Invariante STG vs PROD (Capa 6)
+
+Compara STG contra PROD: conteo de filas y rango de fechas por tabla (informativo), y documentos con la misma clave de negocio (`external_id` + `fecha_caja`) que tienen items en un ambiente y no en el otro (esto sí determina el exit code — es el patrón exacto del incidente que motivó el script: 3 cortesías con items faltantes en STG, detectadas a mano el 2026-08-30). SOLO LECTURA en los dos ambientes, siempre.
+
+```bash
+npx tsx scripts/invariante-stg-prod.ts
+```
+
+Config vía `.env.staging` (STG) y `.env.local.prod` (PROD), mismo patrón que `estado-real.ts`. Si a PROD le faltan credenciales, corre el chequeo parcial (solo STG) y sale con exit code 0 — no declara divergencia sin haber podido comparar contra el otro ambiente.
