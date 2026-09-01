@@ -652,3 +652,52 @@ describe('ticket_hash — idempotencia por hash sintético', () => {
     }
   })
 })
+
+// ─── actor_user_id — el upload registra quién lo hizo ─────────────────────────
+//
+// requireMembership() resuelve el userId del caller; el pipeline debe
+// propagarlo hasta cada evento de upload_events sin excepción. Invariante,
+// no un valor absoluto: lo que importa es que TODO evento del upload lleve
+// el mismo userId que devolvió requireMembership() (mockeado como 'test-user'
+// arriba), no que ese string en particular tenga algún significado especial.
+
+describe('POST /api/upload/sales — actor_user_id viaja hasta upload_events', () => {
+  it('cada evento registrado durante el upload lleva el userId resuelto por requireMembership()', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+
+    const uploadEventBodies: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: unknown, opts?: unknown) => {
+      const urlStr = String(url)
+      const method  = (opts as RequestInit | undefined)?.method ?? 'GET'
+      if (method === 'POST' && urlStr.includes('upload_events')) {
+        uploadEventBodies.push(JSON.parse((opts as RequestInit).body as string))
+        return { ok: true, status: 201, json: async () => [{ id: 'x', event_id: 'test-event-id', event_type: 'test', created_at: '2026-01-01T00:00:00Z' }], text: async () => '' }
+      }
+      if (method === 'POST' && urlStr.includes('rpc/commit_upload')) {
+        return { ok: true, status: 200, json: async () => ({ deleted: 0, inserted: 1 }), text: async () => '' }
+      }
+      return { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+    }))
+
+    try {
+      const file = makeXlsx([{
+        Sucursal: 'Casa Central', Numero: '9001',
+        Fecha: '2025-01-15', 'Fecha Caja': '2025-01-15',
+        Total: '10000', Comensales: '20', 'Tipo Documento': 'TICKET',
+      }])
+      const { POST } = await import('@/app/api/upload/sales/route')
+      const req = makeReq({ ventas: file, items: null, location_id: 'loc-1', org_id: 'org-1' })
+      const res = await POST(req)
+
+      expect(res.status).toBe(200)
+      expect(uploadEventBodies.length).toBeGreaterThan(0)
+      for (const body of uploadEventBodies) {
+        expect(body.actor_user_id).toBe('test-user')
+      }
+    } finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+})

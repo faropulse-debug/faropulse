@@ -63,6 +63,15 @@ const shouldRunIntegration = process.env.RUN_INTEGRATION_TESTS === 'true';
 
 describe.runIf(shouldRunIntegration)('Documento Peso (Integración contra STG)', () => {
   it('get_ventas_mensuales, get_daily_sales_full y get_ticket_promedio_full deben coincidir en el neto de Julio 2026', async () => {
+    // 15_000 no alcanzaba en CI: cuando el PR apunta a main, ci.yml corre
+    // este job de integracion en paralelo con los dos jobs de
+    // regression-test.yml (branches: [develop, main]) contra el MISMO
+    // proyecto STG (egjxyskqhnmuqwkrbshu) -- 3 workflows concurrentes
+    // pegandole a la misma base. Localmente, sin esa contencion, esta
+    // query tarda ~2.3s (medido 2026-09-01); en CI llego a superar 15s.
+    // No es una regresion de #67/#68 -- ninguna de las dos toca estas RPCs
+    // ni documento_peso() -- es el timeout peleando con carga concurrente
+    // de otros jobs sobre el mismo STG.
     // Antes este test fijaba un número mágico (410) capturado en un momento
     // dado — quedaba roto cada vez que STG recibía más datos de Julio (igual
     // que financial_results: count = 363, ver regression-test.ts). El
@@ -103,7 +112,7 @@ describe.runIf(shouldRunIntegration)('Documento Peso (Integración contra STG)',
     const tpJulio = ticketProm?.filter((r: any) => r.fecha?.startsWith('2026-07'));
     const totalTickets = tpJulio.reduce((acc: number, row: any) => acc + row.tickets, 0);
     expect(totalTickets).toBe(netoMensual);
-  }, 15_000);
+  }, 30_000);
 });
 
 

@@ -28,6 +28,7 @@ export async function POST(
 
   const authResult = await requireMembership(req, locationId, { roles: WRITE_ROLES })
   if (authResult instanceof Response) return authResult
+  const { userId } = authResult
 
   const form  = await req.formData()
   const file  = form.get(contract.datasetType) as File | null
@@ -44,6 +45,6 @@ export async function POST(
   }
 
   const dryRun = req.nextUrl.searchParams.get('dry_run') === 'true'
-  const r = await runUploadPipeline(contract, file, orgId, locationId, supaUrl, serviceKey, { dryRun })
+  const r = await runUploadPipeline(contract, file, orgId, locationId, supaUrl, serviceKey, { dryRun, actorUserId: userId })
   return NextResponse.json(r.body, { status: r.httpStatus })
 }
