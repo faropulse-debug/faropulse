@@ -20,6 +20,17 @@ describe('Schema Engine', () => {
       const sql = `SELECT\n\t  * FROM    table;`
       expect(normalizeSqlBody(sql)).toBe('SELECT * FROM table;')
     })
+    // Origen: Tano aplicó documento_bruto a PROD copiando el SQL del chat;
+    // el archivo de migración que se aplicó a STG usa \n. md5(raw body) daba
+    // hashes distintos con contenido idéntico -- \s+ ya colapsa \r\n igual
+    // que \n, así que este caso ya estaba cubierto, pero no había un test
+    // que lo dijera explícitamente. Ver evaluateSchemaDiff más abajo para el
+    // caso de punta a punta (no dispara MISMATCH en una función CRÍTICA).
+    it('trata \\r\\n y \\n como equivalentes (mismo cuerpo, distinto fin de línea)', () => {
+      const conLF   = 'SELECT CASE\n  WHEN x THEN 1\n  ELSE 0\nEND;'
+      const conCRLF = 'SELECT CASE\r\n  WHEN x THEN 1\r\n  ELSE 0\r\nEND;'
+      expect(normalizeSqlBody(conCRLF)).toBe(normalizeSqlBody(conLF))
+    })
   })
 
   describe('validateShadowFreshness', () => {
@@ -124,6 +135,54 @@ describe('Schema Engine', () => {
         objectType: 'FUNCTION',
         objectName: 'user_has_membership(uuid)'
       })
+    })
+
+    it('detecta MISMATCH de cuerpo alterado en las RPCs de descuentos (documento_bruto, documento_peso, get_descuentos_resumen, get_descuentos_top_tickets)', () => {
+      const funcs = ['documento_bruto', 'documento_peso', 'get_descuentos_resumen', 'get_descuentos_top_tickets']
+      const expected = createEmptySchema()
+      const actual = createEmptySchema()
+      for (const name of funcs) {
+        expected.functions[`${name}(uuid)`] = { name, args: 'uuid', return_type: 'numeric', body: 'SELECT 1' }
+        actual.functions[`${name}(uuid)`]   = { name, args: 'uuid', return_type: 'numeric', body: 'SELECT 2' }
+      }
+
+      const findings = evaluateSchemaDiff(expected, actual, 'post-apply')
+      expect(findings).toHaveLength(funcs.length)
+      for (const name of funcs) {
+        expect(findings).toContainEqual(expect.objectContaining({
+          level: 'ERROR', type: 'MISMATCH', objectType: 'FUNCTION', objectName: `${name}(uuid)`,
+        }))
+      }
+    })
+
+    // Regresión del incidente real: comparando documento_bruto STG (aplicado
+    // desde el archivo de migración, \n) vs PROD (aplicado copiando el SQL
+    // del chat, \r\n), md5(pg_get_functiondef(...)) crudo daba hashes
+    // distintos con el MISMO contenido -- 4 falsos positivos de entrada al
+    // ampliar CRITICAL_FUNCTIONS. evaluateSchemaDiff no usa ese md5 crudo:
+    // normaliza cada body antes de comparar, así que un cuerpo real
+    // multilínea con \r\n en vez de \n (mismo CASE, mismo orden de ramas)
+    // no debe generar MISMATCH para ninguna de las 4 funciones críticas.
+    it('NO dispara MISMATCH cuando los cuerpos de las RPCs de descuentos difieren solo en fin de línea (CRLF vs LF)', () => {
+      const funcs = ['documento_bruto', 'documento_peso', 'get_descuentos_resumen', 'get_descuentos_top_tickets']
+      const bodyLF = [
+        'SELECT CASE',
+        '  WHEN p_descuento >= 100 THEN NULL',
+        '  WHEN p_descuento > 0    THEN p_total / (1 - p_descuento/100.0)',
+        '  ELSE p_total',
+        'END',
+      ].join('\n')
+      const bodyCRLF = bodyLF.replace(/\n/g, '\r\n')
+
+      const expected = createEmptySchema()
+      const actual = createEmptySchema()
+      for (const name of funcs) {
+        expected.functions[`${name}(uuid)`] = { name, args: 'uuid', return_type: 'numeric', body: bodyLF }
+        actual.functions[`${name}(uuid)`]   = { name, args: 'uuid', return_type: 'numeric', body: bodyCRLF }
+      }
+
+      const findings = evaluateSchemaDiff(expected, actual, 'post-apply')
+      expect(findings).toHaveLength(0)
     })
 
     it('ignora diferencias de cuerpo en funciones NO CRITICAS (solo valida firma)', () => {
