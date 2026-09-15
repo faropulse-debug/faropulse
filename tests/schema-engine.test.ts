@@ -126,6 +126,24 @@ describe('Schema Engine', () => {
       })
     })
 
+    it('detecta MISMATCH de cuerpo alterado en las RPCs de descuentos (documento_bruto, documento_peso, get_descuentos_resumen, get_descuentos_top_tickets)', () => {
+      const funcs = ['documento_bruto', 'documento_peso', 'get_descuentos_resumen', 'get_descuentos_top_tickets']
+      const expected = createEmptySchema()
+      const actual = createEmptySchema()
+      for (const name of funcs) {
+        expected.functions[`${name}(uuid)`] = { name, args: 'uuid', return_type: 'numeric', body: 'SELECT 1' }
+        actual.functions[`${name}(uuid)`]   = { name, args: 'uuid', return_type: 'numeric', body: 'SELECT 2' }
+      }
+
+      const findings = evaluateSchemaDiff(expected, actual, 'post-apply')
+      expect(findings).toHaveLength(funcs.length)
+      for (const name of funcs) {
+        expect(findings).toContainEqual(expect.objectContaining({
+          level: 'ERROR', type: 'MISMATCH', objectType: 'FUNCTION', objectName: `${name}(uuid)`,
+        }))
+      }
+    })
+
     it('ignora diferencias de cuerpo en funciones NO CRITICAS (solo valida firma)', () => {
       const expected = createEmptySchema()
       expected.functions['helper(uuid)'] = {

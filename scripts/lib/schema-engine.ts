@@ -12,8 +12,21 @@ export type SchemaFinding = {
   detail: string
 }
 
+// Body-diffed, no solo existencia: agregar acá cuando una función es
+// SECURITY DEFINER Y (a) es un límite de autorización (RLS/membership) o
+// (b) deriva un número financiero que el cliente ve en un dashboard. El
+// resto de las funciones solo se chequea por existencia — no es negligencia,
+// es que STG corre adelante de PROD por doctrina (se migra ahí primero) y
+// blanquear TODAS generaría ruido constante de funciones en desarrollo
+// todavía no promovidas. Ver commit que agregó documento_bruto y las RPCs
+// de descuentos: estaban "Aplicado en STG únicamente" por varias migraciones
+// seguidas sin que existencia lo marcara como error.
 export const CRITICAL_FUNCTIONS = [
-  'user_has_membership'
+  'user_has_membership',
+  'documento_bruto',
+  'documento_peso',
+  'get_descuentos_resumen',
+  'get_descuentos_top_tickets',
 ]
 
 // Exclude these tables from diff entirely
