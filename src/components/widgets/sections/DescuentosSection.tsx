@@ -109,8 +109,29 @@ function fmtEffectiveRate(value: number | null): string {
   })}%`
 }
 
-function isPendingReview(row: RawDescuentosRow): boolean {
+export function isPendingReview(row: RawDescuentosRow): boolean {
   return row.tasa_efectiva != null && row.tasa_efectiva < 0
+}
+
+// Set de "mes+canal pendiente de revisión" derivado de get_descuentos_resumen.
+// Única fuente de verdad para qué (mes, canal) queda afuera de los agregados
+// de dinero -- tanto los KPIs (vía includedMonthRows/historicalIncludedRows)
+// como el detalle por ticket (vía filterIncludedTickets, abajo) construyen su
+// exclusión llamando a esto, así los dos no pueden divergir por reimplementar
+// la regla en dos lugares.
+export function buildPendingReviewKeys(resumen: RawDescuentosRow[]): Set<string> {
+  return new Set(resumen.filter(isPendingReview).map(r => `${r.mes_inicio}|${r.tipo_zona}`))
+}
+
+// Filtra tickets (detalle mensual o cortesías históricas) a los mismos
+// mes+canal que cuentan en los KPIs de dinero. `tickets` solo necesita
+// fecha_caja + tipo_zona -- exportado genérico en esos dos campos para poder
+// testear con datos sintéticos mínimos, sin armar un TopTicketRow completo.
+export function filterIncludedTickets<T extends Pick<TopTicketRow, 'fecha_caja' | 'tipo_zona'>>(
+  tickets: T[],
+  pendingReviewKeys: Set<string>,
+): T[] {
+  return tickets.filter(t => !pendingReviewKeys.has(`${firstDayOfMonth(t.fecha_caja)}|${t.tipo_zona}`))
 }
 
 function sortTickets(rows: TopTicketRow[], sort: TicketSort): TopTicketRow[] {
@@ -789,16 +810,25 @@ export function DescuentosSection({ locationId }: Props) {
     [monthRows]
   )
 
+  // ticketsTotal es el único agregado que mira monthRows (todos los canales):
+  // es el universo honesto de "de X tickets totales". Todo lo demás -- plata,
+  // bruto, tasa, el conteo y el % de "con descuento", y el promedio -- se
+  // mueve a includedMonthRows. Antes, ticketsConDesc y avgDiscount sumaban
+  // monthRows (todos los canales) mientras plataTotal ya usaba
+  // includedMonthRows: si hubiera arreglado solo el detalle por ticket sin
+  // tocar esto, el badge "N tickets" de la tabla habría quedado más chico
+  // que la tarjeta "Tickets c/ descuento" apenas un canal cayera en pendiente
+  // de revisión -- mismo patrón "se ve bien, está mal" en otro lugar.
   const kpis = useMemo(() => {
     const plataTotal     = includedMonthRows.reduce((s, r) => s + r.plata_perdida, 0)
     const ticketsTotal   = monthRows.reduce((s, r) => s + r.tickets, 0)
-    const ticketsConDesc = monthRows.reduce((s, r) => s + r.tickets_con_descuento, 0)
+    const ticketsConDesc = includedMonthRows.reduce((s, r) => s + r.tickets_con_descuento, 0)
     const pctTickets     = ticketsTotal > 0 ? (ticketsConDesc / ticketsTotal) * 100 : 0
     const brutoTotal     = includedMonthRows.reduce((s, r) => s + (r.bruto_total_canal ?? 0), 0)
     const hasUnknownBruto = includedMonthRows.some(r => r.bruto_total_canal == null)
     const effectiveRate = !hasUnknownBruto && brutoTotal > 0 ? plataTotal / brutoTotal : null
-    const hasUnknownAverage = monthRows.some(r => r.tickets_con_descuento > 0 && r.avg_descuento_pct == null)
-    const weightedDiscount = monthRows.reduce(
+    const hasUnknownAverage = includedMonthRows.some(r => r.tickets_con_descuento > 0 && r.avg_descuento_pct == null)
+    const weightedDiscount = includedMonthRows.reduce(
       (sum, row) => sum + (row.avg_descuento_pct ?? 0) * row.tickets_con_descuento,
       0,
     )
@@ -832,6 +862,22 @@ export function DescuentosSection({ locationId }: Props) {
     [resumen]
   )
 
+  // Mismo criterio de "incluido" que usan los KPIs (arriba), pero como un
+  // set de mes+canal (buildPendingReviewKeys) en vez de filtrar filas de
+  // `resumen` — para que el detalle por ticket (que no trae tasa_efectiva,
+  // viene de otro RPC) pueda aplicar EXACTAMENTE la misma exclusión sin
+  // reimplementar la fórmula. Antes de esto, get_descuentos_top_tickets no
+  // sabía nada de "pendiente de revisión": el detalle sumaba TODOS los
+  // canales mientras el KPI sumaba solo includedMonthRows — mismo patrón que
+  // el bug de los $3.540 (dos totales sobre conjuntos de filas distintos),
+  // esperando a que algún canal volviera a tener tasa negativa para
+  // manifestarse. Ver buildPendingReviewKeys/filterIncludedTickets y su test
+  // de invariante en tests/descuentos-section-pending-review.test.ts.
+  const pendingReviewMonthCanalKeys = useMemo(
+    () => buildPendingReviewKeys(resumen),
+    [resumen]
+  )
+
   const historicalTotal = useMemo(
     () => historicalIncludedRows.reduce((sum, row) => sum + row.plata_perdida, 0),
     [historicalIncludedRows]
@@ -847,17 +893,35 @@ export function DescuentosSection({ locationId }: Props) {
       .sort((a, b) => b.plata_perdida - a.plata_perdida)
   }, [historicalIncludedRows])
 
+  // Filtrado ANTES de tabla/export/cortesías del mes: así la tabla que ve el
+  // usuario, el Excel que exporta y el corte de cortesías comparten el mismo
+  // conjunto de canales que kpis.plataTotal (includedMonthRows) — nunca un
+  // canal pendiente de revisión aparece en el detalle y desaparece del KPI.
+  const includedMonthTickets = useMemo(
+    () => filterIncludedTickets(monthTickets, pendingReviewMonthCanalKeys),
+    [monthTickets, pendingReviewMonthCanalKeys]
+  )
+
   const visibleTickets = useMemo(
-    () => sortTickets(monthTickets, ticketSort),
-    [monthTickets, ticketSort]
+    () => sortTickets(includedMonthTickets, ticketSort),
+    [includedMonthTickets, ticketSort]
   )
 
   const monthCourtesyRows = useMemo(
     () => sortTickets(
-      monthTickets.filter(row => row.descuento >= 100),
+      includedMonthTickets.filter(row => row.descuento >= 100),
       { key: 'bruto', direction: 'desc' },
     ),
-    [monthTickets]
+    [includedMonthTickets]
+  )
+
+  // Mismo criterio aplicado al corte histórico de cortesías: son "ya están
+  // incluidas en Plata perdida" (texto del widget) -- si un canal quedó
+  // pendiente de revisión en algún mes de su historia, ese mes no aportó a
+  // historicalTotal y tampoco debe aportar acá.
+  const includedHistoricalCourtesyRows = useMemo(
+    () => filterIncludedTickets(historicalCourtesyRows, pendingReviewMonthCanalKeys),
+    [historicalCourtesyRows, pendingReviewMonthCanalKeys]
   )
 
   const handleMonthSelect = useCallback((month: string) => {
@@ -1048,7 +1112,7 @@ export function DescuentosSection({ locationId }: Props) {
         </div>
       ) : (
         <CourtesyWidget
-          historicalRows={historicalCourtesyRows}
+          historicalRows={includedHistoricalCourtesyRows}
           monthRows={monthCourtesyRows}
           month={effectiveMonth}
           historicalIncomplete={isCourtesyIncomplete}
